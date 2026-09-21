@@ -1,0 +1,512 @@
+import { relations, sql } from "drizzle-orm";
+import {
+  boolean,
+  check,
+  date,
+  decimal,
+  index,
+  integer,
+  json,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+  varchar,
+} from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+export const roles = pgTable("roles", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 50 }).notNull(),
+  name_ar: varchar("name_ar", { length: 100 }),
+  permissions: json("permissions").$type<string[]>(),
+});
+
+export const sections = pgTable("sections", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  name_ar: varchar("name_ar", { length: 100 }),
+  description: text("description"),
+});
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+export const users = pgTable(
+  "users",
+  {
+    id: serial("id").primaryKey(),
+    username: varchar("username", { length: 50 }).unique(),
+    password: varchar("password", { length: 100 }),
+    display_name: varchar("display_name", { length: 100 }),
+    display_name_ar: varchar("display_name_ar", { length: 100 }),
+    full_name: varchar("full_name", { length: 200 }),
+    phone: varchar("phone", { length: 20 }),
+    email: varchar("email", { length: 100 }),
+    role_id: integer("role_id").references(() => roles.id),
+    // Kept as integer: this is the live database type, despite sections.id being varchar.
+    section_id: varchar("section_id", { length: 20 }),
+    status: varchar("status", { length: 20 }).default("active"),
+    must_change_password: boolean("must_change_password").default(false),
+    is_system_user: boolean("is_system_user").notNull().default(false),
+    include_in_attendance: boolean("include_in_attendance").notNull().default(true),
+    created_at: timestamp("created_at").defaultNow(),
+    national_id: varchar("national_id", { length: 20 }),
+    nationality: varchar("nationality", { length: 30 }),
+    birth_date: date("birth_date"),
+    service_start_date: date("service_start_date"),
+    profession: varchar("profession", { length: 100 }),
+    replit_user_id: varchar("replit_user_id", { length: 255 }).unique(),
+    first_name: varchar("first_name", { length: 100 }),
+    last_name: varchar("last_name", { length: 100 }),
+    profile_image_url: varchar("profile_image_url", { length: 500 }),
+    updated_at: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_users_role_id").on(table.role_id),
+    index("idx_users_status").on(table.status),
+  ],
+);
+
+export const customers = pgTable(
+  "customers",
+  {
+    id: varchar("id", { length: 20 }).primaryKey(),
+    name: varchar("name", { length: 200 }).notNull(),
+    name_ar: varchar("name_ar", { length: 200 }),
+    code: varchar("code", { length: 20 }),
+    user_id: varchar("user_id", { length: 10 }),
+    plate_drawer_code: varchar("plate_drawer_code", { length: 20 }),
+    city: varchar("city", { length: 50 }),
+    address: text("address"),
+    tax_number: varchar("tax_number", { length: 20 }),
+    commercial_name: varchar("commercial_name", { length: 200 }),
+    unified_number: varchar("unified_number", { length: 10 }),
+    unique_customer_number: varchar("unique_customer_number", { length: 20 }),
+    is_active: boolean("is_active").default(true),
+    phone: varchar("phone", { length: 20 }),
+    sales_rep_id: integer("sales_rep_id").references(() => users.id),
+    created_at: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    unifiedNumberFormat: check(
+      "unified_number_format",
+      sql`${table.unified_number} IS NULL OR ${table.unified_number} ~ '^7[0-9]{9}$'`,
+    ),
+    taxNumberLength: check(
+      "tax_number_length",
+      sql`${table.tax_number} IS NULL OR (${table.tax_number} ~ '^[0-9]+$' AND LENGTH(${table.tax_number}) BETWEEN 10 AND 20)`,
+    ),
+    idx_customers_created_at: index("idx_customers_created_at").on(table.created_at),
+  }),
+);
+
+export const categories = pgTable("categories", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  name_ar: varchar("name_ar", { length: 100 }),
+  code: varchar("code", { length: 20 }),
+  parent_id: varchar("parent_id", { length: 20 }),
+});
+
+export const items = pgTable("items", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  category_id: varchar("category_id", { length: 20 }),
+  name: varchar("name", { length: 100 }),
+  name_ar: varchar("name_ar", { length: 100 }),
+  code: varchar("code", { length: 50 }),
+  status: varchar("status", { length: 20 }).default("active"),
+});
+
+export const master_batch_colors = pgTable("master_batch_colors", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  name_ar: varchar("name_ar", { length: 100 }).notNull(),
+  color_hex: varchar("color_hex", { length: 20 }).notNull().default("#FFFFFF"),
+  text_color: varchar("text_color", { length: 20 }).notNull().default("#000000"),
+  brand: varchar("brand", { length: 100 }),
+  aliases: text("aliases"),
+  is_active: boolean("is_active").default(true).notNull(),
+  sort_order: integer("sort_order").default(0),
+  created_at: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updated_at: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const customer_products = pgTable(
+  "customer_products",
+  {
+    id: serial("id").primaryKey(),
+    customer_id: varchar("customer_id", { length: 20 }).references(() => customers.id),
+    category_id: varchar("category_id", { length: 20 }).references(() => categories.id),
+    item_id: varchar("item_id", { length: 20 }).references(() => items.id),
+    size_caption: varchar("size_caption", { length: 50 }),
+    width: decimal("width", { precision: 8, scale: 2 }),
+    left_facing: decimal("left_facing", { precision: 8, scale: 2 }),
+    right_facing: decimal("right_facing", { precision: 8, scale: 2 }),
+    thickness: decimal("thickness", { precision: 8, scale: 3 }),
+    universal_thickness: decimal("universal_thickness", { precision: 12, scale: 4 }).generatedAlwaysAs(
+      sql`CEIL(CASE WHEN (COALESCE(left_facing, 0) = 0 AND COALESCE(right_facing, 0) = 0) THEN thickness / 2 * 10 WHEN (left_facing > 0 AND right_facing > 0) THEN thickness / 4 * 10 ELSE thickness / 2 * 10 END)`,
+    ),
+    density: decimal("density", { precision: 6, scale: 3 }).default("0.95"),
+    bag_weight_grams: decimal("bag_weight_grams", { precision: 12, scale: 4 }),
+    bags_per_kilo: decimal("bags_per_kilo", { precision: 12, scale: 2 }),
+    printing_cylinder: varchar("printing_cylinder", { length: 10 }),
+    cutting_length_cm: integer("cutting_length_cm"),
+    raw_material: varchar("raw_material", { length: 20 }),
+    master_batch_id: varchar("master_batch_id", { length: 20 }),
+    is_printed: boolean("is_printed").default(false),
+    cutting_unit: varchar("cutting_unit", { length: 20 }),
+    punching: varchar("punching", { length: 20 }),
+    unit_weight_kg: decimal("unit_weight_kg", { precision: 8, scale: 3 }),
+    unit_quantity: integer("unit_quantity"),
+    package_weight_kg: decimal("package_weight_kg", { precision: 8, scale: 2 }),
+    cliche_front_design: text("cliche_front_design"),
+    cliche_back_design: text("cliche_back_design"),
+    front_print_colors: text("front_print_colors").array(),
+    back_print_colors: text("back_print_colors").array(),
+    notes: text("notes"),
+    status: varchar("status", { length: 20 }).default("active"),
+    created_at: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_customer_products_customer_id").on(table.customer_id),
+    index("idx_customer_products_status").on(table.status),
+    index("idx_customer_products_created_at").on(table.created_at),
+  ],
+);
+
+export const machines = pgTable(
+  "machines",
+  {
+    id: varchar("id", { length: 20 }).primaryKey(),
+    name: varchar("name", { length: 100 }).notNull(),
+    name_ar: varchar("name_ar", { length: 100 }),
+    type: varchar("type", { length: 50 }),
+    section_id: varchar("section_id", { length: 20 }).references(() => sections.id, { onDelete: "restrict" }),
+    status: varchar("status", { length: 20 }).notNull().default("active"),
+    capacity_small_kg_per_hour: decimal("capacity_small_kg_per_hour", { precision: 8, scale: 2 }),
+    capacity_medium_kg_per_hour: decimal("capacity_medium_kg_per_hour", { precision: 8, scale: 2 }),
+    capacity_large_kg_per_hour: decimal("capacity_large_kg_per_hour", { precision: 8, scale: 2 }),
+    screw_type: varchar("screw_type", { length: 10 }).default("A"),
+    raw_material_type: varchar("raw_material_type", { length: 20 }),
+    min_thickness: decimal("min_thickness", { precision: 8, scale: 3 }),
+    max_thickness: decimal("max_thickness", { precision: 8, scale: 3 }),
+    inline_printer_id: varchar("inline_printer_id", { length: 20 }).references((): any => machines.id, { onDelete: "set null" }),
+    min_width_cm: decimal("min_width_cm", { precision: 8, scale: 2 }),
+    max_width_cm: decimal("max_width_cm", { precision: 8, scale: 2 }),
+    max_print_colors: integer("max_print_colors"),
+    min_cylinder_inch: decimal("min_cylinder_inch", { precision: 8, scale: 2 }),
+    max_cylinder_inch: decimal("max_cylinder_inch", { precision: 8, scale: 2 }),
+    min_length_cm: decimal("min_length_cm", { precision: 8, scale: 2 }),
+    max_length_cm: decimal("max_length_cm", { precision: 8, scale: 2 }),
+    width_cm: decimal("width_cm", { precision: 10, scale: 2 }),
+    length_cm: decimal("length_cm", { precision: 10, scale: 2 }),
+    height_cm: decimal("height_cm", { precision: 10, scale: 2 }),
+    weight_kg: decimal("weight_kg", { precision: 10, scale: 2 }),
+    manufacturer: varchar("manufacturer", { length: 100 }),
+    metal_plate: text("metal_plate"),
+    manufacture_date: date("manufacture_date"),
+    serial_number: varchar("serial_number", { length: 100 }),
+  },
+  (table) => ({
+    machineIdFormat: check("machine_id_format", sql`${table.id} ~ '^M[0-9]{3}$'`),
+    typeValid: check("type_valid", sql`${table.type} IN ('extruder', 'printer', 'cutter', 'quality_check')`),
+    statusValid: check("status_valid", sql`${table.status} IN ('active', 'maintenance', 'down')`),
+    nameNotEmpty: check("name_not_empty", sql`LENGTH(TRIM(${table.name})) > 0`),
+    screwTypeValid: check("screw_type_valid", sql`${table.screw_type} IS NULL OR ${table.screw_type} IN ('A', 'ABA')`),
+  }),
+);
+
+export const orders = pgTable(
+  "orders",
+  {
+    id: serial("id").primaryKey(),
+    order_number: varchar("order_number", { length: 50 }).notNull().unique(),
+    customer_id: varchar("customer_id", { length: 20 }).notNull().references(() => customers.id, { onDelete: "restrict" }),
+    delivery_days: integer("delivery_days"),
+    status: varchar("status", { length: 30 }).default("pending"),
+    previous_status: varchar("previous_status", { length: 30 }),
+    notes: text("notes"),
+    share_token: varchar("share_token", { length: 64 }).unique(),
+    created_by: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+    delivery_date: date("delivery_date"),
+  },
+  (table) => ({
+    deliveryDaysPositive: check("delivery_days_positive", sql`${table.delivery_days} IS NULL OR ${table.delivery_days} > 0`),
+    statusValid: check("status_valid", sql`${table.status} IN ('waiting', 'on_hold', 'in_production', 'for_production', 'paused', 'cancelled', 'completed', 'delivered', 'archived')`),
+    deliveryDateValid: check("delivery_date_valid", sql`${table.delivery_date} IS NULL OR ${table.delivery_date} >= CURRENT_DATE`),
+    idx_orders_customer_id: index("idx_orders_customer_id").on(table.customer_id),
+    idx_orders_created_at: index("idx_orders_created_at").on(table.created_at),
+  }),
+);
+
+export const production_orders = pgTable(
+  "production_orders",
+  {
+    id: serial("id").primaryKey(),
+    production_order_number: varchar("production_order_number", { length: 50 }).notNull().unique(),
+    order_id: integer("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+    customer_product_id: integer("customer_product_id").references(() => customer_products.id, { onDelete: "restrict" }),
+    quantity_kg: decimal("quantity_kg", { precision: 10, scale: 2 }).notNull(),
+    overrun_percentage: decimal("overrun_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
+    final_quantity_kg: decimal("final_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    produced_quantity_kg: decimal("produced_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    printed_quantity_kg: decimal("printed_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    net_quantity_kg: decimal("net_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    waste_quantity_kg: decimal("waste_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    film_completion_percentage: decimal("film_completion_percentage", { precision: 5, scale: 2 }).notNull().default("0"),
+    printing_completion_percentage: decimal("printing_completion_percentage", { precision: 5, scale: 2 }).notNull().default("0"),
+    cutting_completion_percentage: decimal("cutting_completion_percentage", { precision: 5, scale: 2 }).notNull().default("0"),
+    assigned_machine_id: varchar("assigned_machine_id", { length: 20 }).references(() => machines.id, { onDelete: "set null" }),
+    assigned_operator_id: integer("assigned_operator_id").references(() => users.id, { onDelete: "set null" }),
+    production_start_time: timestamp("production_start_time"),
+    production_end_time: timestamp("production_end_time"),
+    production_time_minutes: integer("production_time_minutes"),
+    film_completed: boolean("film_completed").default(false),
+    printing_completed: boolean("printing_completed").default(false),
+    cutting_completed: boolean("cutting_completed").default(false),
+    is_final_roll_created: boolean("is_final_roll_created").default(false),
+    warehouse_received_kg: decimal("warehouse_received_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    warehouse_delivered_kg: decimal("warehouse_delivered_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    previous_status: varchar("previous_status", { length: 30 }),
+    production_stage: varchar("production_stage", { length: 20 }).notNull().default("film"),
+    batch_number: varchar("batch_number", { length: 50 }).unique(),
+    created_at: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    quantityPositive: check("quantity_kg_positive", sql`${table.quantity_kg} > 0`),
+    overrunPercentageValid: check("overrun_percentage_valid", sql`${table.overrun_percentage} >= 0 AND ${table.overrun_percentage} <= 50`),
+    finalQuantityPositive: check("final_quantity_kg_positive", sql`${table.final_quantity_kg} > 0`),
+    statusValid: check("production_status_valid", sql`${table.status} IN ('pending', 'active', 'completed', 'cancelled', 'archived')`),
+    productionStageValid: check("production_stage_valid", sql`${table.production_stage} IN ('film', 'printing', 'cutting', 'done')`),
+    producedQuantityNonNegative: check("produced_quantity_non_negative", sql`${table.produced_quantity_kg} >= 0`),
+    printedQuantityNonNegative: check("printed_quantity_non_negative", sql`${table.printed_quantity_kg} >= 0`),
+    netQuantityNonNegative: check("net_quantity_non_negative", sql`${table.net_quantity_kg} >= 0`),
+    wasteQuantityNonNegative: check("waste_quantity_non_negative", sql`${table.waste_quantity_kg} >= 0`),
+    filmCompletionValid: check("film_completion_valid", sql`${table.film_completion_percentage} >= 0 AND ${table.film_completion_percentage} <= 100`),
+    printingCompletionValid: check("printing_completion_valid", sql`${table.printing_completion_percentage} >= 0 AND ${table.printing_completion_percentage} <= 100`),
+    cuttingCompletionValid: check("cutting_completion_valid", sql`${table.cutting_completion_percentage} >= 0 AND ${table.cutting_completion_percentage} <= 100`),
+    idx_production_orders_order_id: index("idx_production_orders_order_id").on(table.order_id),
+    idx_production_orders_status: index("idx_production_orders_status").on(table.status),
+    idx_production_orders_production_stage: index("idx_production_orders_production_stage").on(table.production_stage),
+    idx_production_orders_created_at: index("idx_production_orders_created_at").on(table.created_at),
+    idx_production_orders_assigned_machine_id: index("idx_production_orders_assigned_machine_id").on(table.assigned_machine_id),
+  }),
+);
+
+export const rolls = pgTable(
+  "rolls",
+  {
+    id: serial("id").primaryKey(),
+    roll_number: varchar("roll_number", { length: 50 }).notNull().unique(),
+    weight: decimal("weight", { precision: 8, scale: 2 }),
+    status: varchar("status", { length: 30 }).default("for_printing"),
+    current_stage: varchar("current_stage", { length: 30 }).default("film"),
+    machine_id: varchar("machine_id", { length: 20 }),
+    employee_id: integer("employee_id").references(() => users.id, { onDelete: "set null" }),
+    qr_code: varchar("qr_code", { length: 255 }),
+    created_at: timestamp("created_at").defaultNow(),
+    completed_at: timestamp("completed_at"),
+    roll_seq: integer("roll_seq"),
+    qr_code_text: text("qr_code_text"),
+    qr_png_base64: text("qr_png_base64"),
+    weight_kg: decimal("weight_kg", { precision: 12, scale: 3 }),
+    cut_weight_total_kg: decimal("cut_weight_total_kg", { precision: 12, scale: 3 }).default("0"),
+    waste_kg: decimal("waste_kg", { precision: 12, scale: 3 }).default("0"),
+    printed_at: timestamp("printed_at"),
+    cut_completed_at: timestamp("cut_completed_at"),
+    performed_by: integer("performed_by").references(() => users.id, { onDelete: "set null" }),
+    stage: varchar("stage", { length: 20 }),
+    production_order_id: integer("production_order_id").references(() => production_orders.id, { onDelete: "cascade" }),
+    created_by: integer("created_by").references(() => users.id, { onDelete: "restrict" }),
+    printed_by: integer("printed_by").references(() => users.id, { onDelete: "set null" }),
+    cut_by: integer("cut_by").references(() => users.id, { onDelete: "set null" }),
+    film_machine_id: varchar("film_machine_id", { length: 20 }),
+    printing_machine_id: varchar("printing_machine_id", { length: 20 }).references(() => machines.id, { onDelete: "restrict" }),
+    cutting_machine_id: varchar("cutting_machine_id", { length: 20 }).references(() => machines.id, { onDelete: "restrict" }),
+    is_last_roll: boolean("is_last_roll").default(false),
+    production_time_minutes: integer("production_time_minutes"),
+    roll_created_at: timestamp("roll_created_at").defaultNow(),
+    roll_dimensions: varchar("roll_dimensions", { length: 100 }),
+    side_gussets: decimal("side_gussets", { precision: 8, scale: 2 }),
+  },
+  (table) => ({
+    rollSeqPositive: check("roll_seq_positive", sql`${table.roll_seq} > 0`),
+    weightPositive: check("weight_kg_positive", sql`${table.weight_kg} > 0`),
+    weightReasonable: check("weight_kg_reasonable", sql`${table.weight_kg} <= 2000`),
+    cutWeightValid: check("cut_weight_valid", sql`${table.cut_weight_total_kg} >= 0 AND ${table.cut_weight_total_kg} <= ${table.weight_kg}`),
+    wasteValid: check("waste_valid", sql`${table.waste_kg} >= 0 AND ${table.waste_kg} <= ${table.weight_kg}`),
+    stageValid: check("stage_valid", sql`${table.stage} IN ('film', 'printing', 'cutting', 'done')`),
+    printedAtValid: check("printed_at_valid", sql`${table.printed_at} IS NULL OR ${table.printed_at} >= ${table.created_at}`),
+    cutCompletedAtValid: check("cut_completed_at_valid", sql`${table.cut_completed_at} IS NULL OR (${table.cut_completed_at} >= ${table.created_at} AND (${table.printed_at} IS NULL OR ${table.cut_completed_at} >= ${table.printed_at}))`),
+    completedAtValid: check("completed_at_valid", sql`${table.completed_at} IS NULL OR ${table.completed_at} >= ${table.created_at}`),
+    machineActiveForCreation: check("machine_active_for_creation", sql`TRUE`),
+    idx_rolls_production_order_id: index("idx_rolls_production_order_id").on(table.production_order_id),
+    idx_rolls_stage: index("idx_rolls_stage").on(table.stage),
+    idx_rolls_created_at: index("idx_rolls_created_at").on(table.created_at),
+    idx_rolls_film_machine_id: index("idx_rolls_film_machine_id").on(table.film_machine_id),
+    idx_rolls_created_by: index("idx_rolls_created_by").on(table.created_by),
+    idx_rolls_created_by_created_at: index("idx_rolls_created_by_created_at").on(table.created_by, table.created_at),
+    idx_rolls_printed_by_printed_at: index("idx_rolls_printed_by_printed_at").on(table.printed_by, table.printed_at),
+    idx_rolls_cut_by_cut_completed_at: index("idx_rolls_cut_by_cut_completed_at").on(table.cut_by, table.cut_completed_at),
+  }),
+);
+
+export const maintenance_component_catalog = pgTable(
+  "maintenance_component_catalog",
+  {
+    id: serial("id").primaryKey(),
+    machine_type: varchar("machine_type", { length: 30 }).notNull(),
+    name_ar: varchar("name_ar", { length: 200 }).notNull(),
+    name_en: varchar("name_en", { length: 200 }).notNull(),
+    sort_order: integer("sort_order").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(true),
+    created_at: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uniq_component_catalog_type_name").on(table.machine_type, table.name_en),
+    index("idx_component_catalog_type").on(table.machine_type),
+  ],
+);
+
+export const company_profile = pgTable("company_profile", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  name_ar: varchar("name_ar", { length: 100 }),
+  address: text("address"),
+  tax_number: varchar("tax_number", { length: 20 }),
+  phone: varchar("phone", { length: 20 }),
+  email: varchar("email", { length: 100 }),
+  logo_url: varchar("logo_url", { length: 255 }),
+  working_hours_per_day: integer("working_hours_per_day").default(8),
+  default_language: varchar("default_language", { length: 10 }).default("ar"),
+  letter_header_image_url: varchar("letter_header_image_url", { length: 255 }),
+  letter_footer_image_url: varchar("letter_footer_image_url", { length: 255 }),
+  letter_footer_text: text("letter_footer_text"),
+  letter_default_signatures: jsonb("letter_default_signatures"),
+});
+
+export const system_settings = pgTable("system_settings", {
+  id: serial("id").primaryKey(),
+  setting_key: varchar("setting_key", { length: 100 }).notNull().unique(),
+  setting_value: text("setting_value"),
+  setting_type: varchar("setting_type", { length: 20 }).default("string"),
+  description: text("description"),
+  is_editable: boolean("is_editable").default(true),
+  updated_at: timestamp("updated_at").defaultNow(),
+  updated_by: integer("updated_by").references(() => users.id),
+});
+
+export const rolesRelations = relations(roles, ({ many }) => ({ users: many(users) }));
+export const sectionsRelations = relations(sections, ({ many }) => ({ users: many(users), machines: many(machines) }));
+export const usersRelations = relations(users, ({ one, many }) => ({
+  role: one(roles, { fields: [users.role_id], references: [roles.id] }),
+  salesCustomers: many(customers),
+  createdOrders: many(orders),
+}));
+export const customersRelations = relations(customers, ({ one, many }) => ({
+  salesRep: one(users, { fields: [customers.sales_rep_id], references: [users.id] }),
+  orders: many(orders),
+  products: many(customer_products),
+}));
+export const categoriesRelations = relations(categories, ({ one, many }) => ({
+  parent: one(categories, { fields: [categories.parent_id], references: [categories.id], relationName: "parent_category" }),
+  children: many(categories, { relationName: "parent_category" }),
+  products: many(customer_products),
+}));
+export const itemsRelations = relations(items, ({ many }) => ({ products: many(customer_products) }));
+export const customerProductsRelations = relations(customer_products, ({ one, many }) => ({
+  customer: one(customers, { fields: [customer_products.customer_id], references: [customers.id] }),
+  category: one(categories, { fields: [customer_products.category_id], references: [categories.id] }),
+  item: one(items, { fields: [customer_products.item_id], references: [items.id] }),
+  productionOrders: many(production_orders),
+}));
+export const machinesRelations = relations(machines, ({ one, many }) => ({
+  section: one(sections, { fields: [machines.section_id], references: [sections.id] }),
+  rolls: many(rolls),
+  productionOrders: many(production_orders),
+}));
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  customer: one(customers, { fields: [orders.customer_id], references: [customers.id] }),
+  productionOrders: many(production_orders),
+}));
+export const productionOrdersRelations = relations(production_orders, ({ one, many }) => ({
+  order: one(orders, { fields: [production_orders.order_id], references: [orders.id] }),
+  customerProduct: one(customer_products, { fields: [production_orders.customer_product_id], references: [customer_products.id] }),
+  rolls: many(rolls),
+}));
+export const rollsRelations = relations(rolls, ({ one }) => ({
+  productionOrder: one(production_orders, { fields: [rolls.production_order_id], references: [production_orders.id] }),
+  filmMachine: one(machines, { fields: [rolls.film_machine_id], references: [machines.id], relationName: "film_machine" }),
+  printingMachine: one(machines, { fields: [rolls.printing_machine_id], references: [machines.id], relationName: "printing_machine" }),
+  cuttingMachine: one(machines, { fields: [rolls.cutting_machine_id], references: [machines.id], relationName: "cutting_machine" }),
+  machine: one(machines, { fields: [rolls.machine_id], references: [machines.id] }),
+  createdBy: one(users, { fields: [rolls.created_by], references: [users.id], relationName: "roll_created_by" }),
+}));
+
+const omitGenerated = { id: true, created_at: true, updated_at: true } as const;
+export const insertRoleSchema = createInsertSchema(roles).omit({ id: true });
+export const insertSectionSchema = createInsertSchema(sections);
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, created_at: true, updated_at: true });
+export const insertCustomerSchema = createInsertSchema(customers).omit({ created_at: true });
+export const insertCategorySchema = createInsertSchema(categories);
+export const insertItemSchema = createInsertSchema(items);
+export const insertMasterBatchColorSchema = createInsertSchema(master_batch_colors).omit(omitGenerated);
+export const insertCustomerProductSchema = createInsertSchema(customer_products).omit({ id: true, created_at: true });
+export const insertMachineSchema = createInsertSchema(machines);
+export const insertNewOrderSchema = createInsertSchema(orders).omit({ id: true, created_at: true });
+export const insertProductionOrderSchema = createInsertSchema(production_orders).omit({ id: true, created_at: true });
+export const insertRollSchema = createInsertSchema(rolls).omit({ id: true, created_at: true, roll_created_at: true });
+export const insertMaintenanceComponentCatalogSchema = createInsertSchema(maintenance_component_catalog).omit({ id: true, created_at: true });
+export const insertCompanyProfileSchema = createInsertSchema(company_profile).omit({ id: true });
+export const insertSystemSettingSchema = createInsertSchema(system_settings).omit({ id: true, updated_at: true });
+export const updateUserSchema = insertUserSchema.partial();
+export const updateCustomerSchema = insertCustomerSchema.partial();
+export const updateMachineSchema = insertMachineSchema.partial();
+export const updateOrderSchema = insertNewOrderSchema.partial();
+export const updateProductionOrderSchema = insertProductionOrderSchema.partial();
+export const updateSystemSettingSchema = insertSystemSettingSchema.partial();
+
+export type Role = typeof roles.$inferSelect;
+export type Section = typeof sections.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
+export type Category = typeof categories.$inferSelect;
+export type Item = typeof items.$inferSelect;
+export type MasterBatchColor = typeof master_batch_colors.$inferSelect;
+export type CustomerProduct = typeof customer_products.$inferSelect;
+export type Machine = typeof machines.$inferSelect;
+export type NewOrder = typeof orders.$inferSelect;
+export type ProductionOrder = typeof production_orders.$inferSelect;
+export type Roll = typeof rolls.$inferSelect;
+export type MaintenanceComponentCatalog = typeof maintenance_component_catalog.$inferSelect;
+export type CompanyProfile = typeof company_profile.$inferSelect;
+export type SystemSetting = typeof system_settings.$inferSelect;
+export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type InsertSection = z.infer<typeof insertSectionSchema>;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type InsertCategory = z.infer<typeof insertCategorySchema>;
+export type InsertItem = z.infer<typeof insertItemSchema>;
+export type InsertMasterBatchColor = z.infer<typeof insertMasterBatchColorSchema>;
+export type InsertCustomerProduct = z.infer<typeof insertCustomerProductSchema>;
+export type InsertMachine = z.infer<typeof insertMachineSchema>;
+export type InsertNewOrder = z.infer<typeof insertNewOrderSchema>;
+export type InsertProductionOrder = z.infer<typeof insertProductionOrderSchema>;
+export type InsertRoll = z.infer<typeof insertRollSchema>;
+export type InsertMaintenanceComponentCatalog = z.infer<typeof insertMaintenanceComponentCatalogSchema>;
+export type InsertCompanyProfile = z.infer<typeof insertCompanyProfileSchema>;
+export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
