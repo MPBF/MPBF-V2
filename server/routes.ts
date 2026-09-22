@@ -307,6 +307,7 @@ const entitySearch: Record<Entity, any[]> = {
 
 const categoryParent = aliasedTable(categories, "category_parent");
 const itemCategory = aliasedTable(categories, "item_category");
+const customerSalesRep = aliasedTable(users, "customer_sales_rep");
 const productionAssignedMachine = aliasedTable(machines, "production_assigned_machine");
 const rollFilmMachine = aliasedTable(machines, "roll_film_machine");
 const rollCurrentMachine = aliasedTable(machines, "roll_current_machine");
@@ -318,7 +319,17 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
       const { limit, offset, search } = page(req);
       const term = `%${search}%`;
       let rows: any[];
-      if (path === "customer-products") {
+      if (path === "customers") {
+        const conditions = [...entitySearch[path], customerSalesRep.display_name, customerSalesRep.display_name_ar, customerSalesRep.full_name].map((column) => ilike(column, term));
+        rows = await db.select({
+          ...getTableColumns(customers),
+          sales_rep_name: customerSalesRep.display_name,
+          sales_rep_name_ar: customerSalesRep.display_name_ar,
+        }).from(customers)
+          .leftJoin(customerSalesRep, eq(customers.sales_rep_id, customerSalesRep.id))
+          .where(search ? or(...conditions) : undefined)
+          .orderBy(desc(customers.id)).limit(limit).offset(offset);
+      } else if (path === "customer-products") {
         const conditions = [
           ...entitySearch[path],
           customers.name, customers.name_ar, categories.name, categories.name_ar,
