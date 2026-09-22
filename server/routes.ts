@@ -44,7 +44,8 @@ const rolesWrite = requireAnyPermission("manage_roles", "admin");
 const sectionsRead = requireAnyPermission("manage_users", "manage_sections", "manage_machines", "manage_maintenance", "admin");
 const sectionsWrite = requireAnyPermission("manage_sections", "admin");
 const settingsRead = requireAnyPermission("manage_settings", "admin");
-const businessRead = requireAnyPermission("manage_customers", "manage_orders", "view_orders", "manage_production", "admin");
+const businessRead = requireAnyPermission("manage_customers", "manage_orders", "view_orders", "admin");
+const customerProductsRead = requireAnyPermission("manage_customers", "manage_orders", "view_orders", "manage_production", "admin");
 const ordersRead = requireAnyPermission("view_orders", "manage_orders", "manage_production", "admin");
 const productionRead = requireAnyPermission("view_production", "manage_production", "admin");
 const machinesRead = requireAnyPermission("view_production", "manage_machines", "view_maintenance", "manage_maintenance", "admin");
@@ -279,7 +280,7 @@ function entityId(path: Entity, raw: string) {
 
 const entityRead: Record<Entity, any> = {
   customers: businessRead, categories: categoriesRead, items: itemsRead,
-  "master-batch-colors": masterBatchRead, "customer-products": businessRead,
+  "master-batch-colors": masterBatchRead, "customer-products": customerProductsRead,
   machines: machinesRead, orders: ordersRead, "production-orders": productionRead,
   rolls: productionRead, "maintenance-component-catalog": maintenanceRead,
   "system-settings": settingsRead,
@@ -292,7 +293,7 @@ const entityWrite: Record<Entity, any> = {
   "system-settings": settingsRead,
 };
 const entitySearch: Record<Entity, any[]> = {
-  customers: [customers.name, customers.name_ar, customers.code, customers.city, customers.phone],
+  customers: [customers.name, customers.name_ar, customers.code, customers.plate_drawer_code, customers.city, customers.phone],
   categories: [categories.name, categories.name_ar, categories.code],
   items: [items.name, items.name_ar, items.code],
   "master-batch-colors": [master_batch_colors.name, master_batch_colors.name_ar, master_batch_colors.brand, master_batch_colors.aliases],
@@ -307,6 +308,7 @@ const entitySearch: Record<Entity, any[]> = {
 
 const categoryParent = aliasedTable(categories, "category_parent");
 const itemCategory = aliasedTable(categories, "item_category");
+const customerSalesRep = aliasedTable(users, "customer_sales_rep");
 const productionAssignedMachine = aliasedTable(machines, "production_assigned_machine");
 const rollFilmMachine = aliasedTable(machines, "roll_film_machine");
 const rollCurrentMachine = aliasedTable(machines, "roll_current_machine");
@@ -318,7 +320,21 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
       const { limit, offset, search } = page(req);
       const term = `%${search}%`;
       let rows: any[];
-      if (path === "customer-products") {
+      if (path === "customers") {
+        const conditions = [
+          ...entitySearch[path],
+          customerSalesRep.display_name,
+          customerSalesRep.display_name_ar,
+        ].map((column) => ilike(column, term));
+        rows = await db.select({
+          ...getTableColumns(customers),
+          sales_rep_name: customerSalesRep.display_name,
+          sales_rep_name_ar: customerSalesRep.display_name_ar,
+        }).from(customers)
+          .leftJoin(customerSalesRep, eq(customers.sales_rep_id, customerSalesRep.id))
+          .where(search ? or(...conditions) : undefined)
+          .orderBy(desc(customers.id)).limit(limit).offset(offset);
+      } else if (path === "customer-products") {
         const conditions = [
           ...entitySearch[path],
           customers.name, customers.name_ar, categories.name, categories.name_ar,
