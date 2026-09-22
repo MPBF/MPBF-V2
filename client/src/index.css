@@ -91,9 +91,14 @@ tr:hover td { background:#fbfdfc; }
 .compact-customer { width:210px; min-width:190px; max-width:230px; }
 .compact-customer strong { display:block; font-size:15px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .compact-customer .cell-sub { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.compact-narrow { width:108px; max-width:118px; }
-.compact-narrow strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.compact-narrow .cell-sub { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.centered-column { text-align:center; vertical-align:middle; }
+.centered-column strong,.centered-column .cell-sub { text-align:center; }
+.column-category { width:132px; min-width:118px; max-width:145px; }
+.column-size { width:112px; min-width:100px; max-width:124px; }
+.column-numeric { width:78px; min-width:70px; max-width:86px; white-space:nowrap; }
+.column-combined { width:132px; min-width:118px; max-width:145px; white-space:nowrap; }
+.column-material { width:94px; min-width:84px; max-width:104px; }
+.column-color { width:104px; min-width:94px; max-width:114px; }
 .color-stack { display:inline-grid; justify-items:center; gap:4px; min-width:54px; text-align:center; }
 .color-stack i { width:22px; height:22px; border-radius:50%; border:1px solid #000; display:block; }
 .color-stack .transparent-mark { color:#111; stroke-width:2.2; }
