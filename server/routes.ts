@@ -44,7 +44,8 @@ const rolesWrite = requireAnyPermission("manage_roles", "admin");
 const sectionsRead = requireAnyPermission("manage_users", "manage_sections", "manage_machines", "manage_maintenance", "admin");
 const sectionsWrite = requireAnyPermission("manage_sections", "admin");
 const settingsRead = requireAnyPermission("manage_settings", "admin");
-const businessRead = requireAnyPermission("manage_customers", "manage_orders", "view_orders", "manage_production", "admin");
+const businessRead = requireAnyPermission("manage_customers", "manage_orders", "view_orders", "admin");
+const customerProductsRead = requireAnyPermission("manage_customers", "manage_orders", "view_orders", "manage_production", "admin");
 const ordersRead = requireAnyPermission("view_orders", "manage_orders", "manage_production", "admin");
 const productionRead = requireAnyPermission("view_production", "manage_production", "admin");
 const machinesRead = requireAnyPermission("view_production", "manage_machines", "view_maintenance", "manage_maintenance", "admin");
@@ -279,7 +280,7 @@ function entityId(path: Entity, raw: string) {
 
 const entityRead: Record<Entity, any> = {
   customers: businessRead, categories: categoriesRead, items: itemsRead,
-  "master-batch-colors": masterBatchRead, "customer-products": businessRead,
+  "master-batch-colors": masterBatchRead, "customer-products": customerProductsRead,
   machines: machinesRead, orders: ordersRead, "production-orders": productionRead,
   rolls: productionRead, "maintenance-component-catalog": maintenanceRead,
   "system-settings": settingsRead,
@@ -292,7 +293,7 @@ const entityWrite: Record<Entity, any> = {
   "system-settings": settingsRead,
 };
 const entitySearch: Record<Entity, any[]> = {
-  customers: [customers.name, customers.name_ar, customers.code, customers.city, customers.phone],
+  customers: [customers.name, customers.name_ar, customers.code, customers.plate_drawer_code, customers.city, customers.phone],
   categories: [categories.name, categories.name_ar, categories.code],
   items: [items.name, items.name_ar, items.code],
   "master-batch-colors": [master_batch_colors.name, master_batch_colors.name_ar, master_batch_colors.brand, master_batch_colors.aliases],
@@ -320,7 +321,11 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
       const term = `%${search}%`;
       let rows: any[];
       if (path === "customers") {
-        const conditions = [...entitySearch[path], customerSalesRep.display_name, customerSalesRep.display_name_ar, customerSalesRep.full_name].map((column) => ilike(column, term));
+        const conditions = [
+          ...entitySearch[path],
+          customerSalesRep.display_name,
+          customerSalesRep.display_name_ar,
+        ].map((column) => ilike(column, term));
         rows = await db.select({
           ...getTableColumns(customers),
           sales_rep_name: customerSalesRep.display_name,
