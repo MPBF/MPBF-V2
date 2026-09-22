@@ -88,9 +88,9 @@ tr:hover td { background:#fbfdfc; }
 .tag.orange { background:#faeadf; color:#a94e26; } .tag.red { background:#fae5e3; color:var(--danger); }
 .tag.neutral { background:#edf0ef; color:#536360; }
 .color-cell { display:inline-flex; align-items:center; gap:7px; direction:rtl; }.color-cell i { width:22px; height:22px; border-radius:50%; border:1px solid rgba(0,0,0,.16); display:inline-block; }
-.compact-customer { width:168px; min-width:150px; max-width:190px; }
-.compact-customer strong { display:block; font-size:14px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.compact-customer .cell-sub { font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.compact-customer { width:210px; min-width:190px; max-width:230px; }
+.compact-customer strong { display:block; font-size:15px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.compact-customer .cell-sub { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .compact-narrow { width:108px; max-width:118px; }
 .compact-narrow strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .compact-narrow .cell-sub { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

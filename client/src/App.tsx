@@ -49,9 +49,12 @@ const displayValue = (row: Row, col: Column) => {
   const raw = row[col.key] ?? (col.fallbackKey ? row[col.fallbackKey] : undefined);
   const value = col.kind === "relation" ? relationLabel(row, col.key) : raw;
   if (col.joinKey) {
-    const first = value === null || value === undefined || value === "" ? "—" : latinDigits(String(value));
+    const first = value === null || value === undefined || value === "" ? "" : latinDigits(String(value));
     const joinedRaw = row[col.joinKey];
-    const second = joinedRaw === null || joinedRaw === undefined || joinedRaw === "" ? "—" : `${latinDigits(String(joinedRaw))}${col.joinUnit ? ` ${col.joinUnit}` : ""}`;
+    const second = joinedRaw === null || joinedRaw === undefined || joinedRaw === "" ? "" : `${latinDigits(String(joinedRaw))}${col.joinUnit ? ` ${col.joinUnit}` : ""}`;
+    if (!first && !second) return "X";
+    if (!first) return second;
+    if (!second) return first;
     return `${first} / ${second}`;
   }
   if (col.kind === "number") return fmtNumber(value, 2, col.unit, col.tightUnit);
