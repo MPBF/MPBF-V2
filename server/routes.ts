@@ -500,6 +500,39 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   });
 }
 
+router.get("/customers/:id/detail", businessRead, async (req, res, next) => {
+  try {
+    const customerId = req.params.id;
+    const customer = await db.select({
+      ...getTableColumns(customers),
+      sales_rep_name: customerSalesRep.display_name,
+      sales_rep_name_ar: customerSalesRep.display_name_ar,
+    }).from(customers)
+      .leftJoin(customerSalesRep, eq(customers.sales_rep_id, customerSalesRep.id))
+      .where(eq(customers.id, customerId))
+      .limit(1);
+    if (!customer[0]) return res.status(404).json({ message: "العميل غير موجود" });
+    const products = await db.select({
+      ...getTableColumns(customer_products),
+      customer_name: customers.name,
+      customer_name_ar: customers.name_ar,
+      category_name: categories.name,
+      category_name_ar: categories.name_ar,
+      item_name: items.name,
+      item_name_ar: items.name_ar,
+      master_batch_name: master_batch_colors.name,
+      master_batch_name_ar: master_batch_colors.name_ar,
+    }).from(customer_products)
+      .leftJoin(customers, eq(customer_products.customer_id, customers.id))
+      .leftJoin(categories, eq(customer_products.category_id, categories.id))
+      .leftJoin(items, eq(customer_products.item_id, items.id))
+      .leftJoin(master_batch_colors, eq(customer_products.master_batch_id, master_batch_colors.id))
+      .where(eq(customer_products.customer_id, customerId))
+      .orderBy(desc(customer_products.id));
+    return res.json({ customer: customer[0], products });
+  } catch (error) { next(error); }
+});
+
 router.get("/company-profile", settingsRead, async (_req, res, next) => { try { res.json((await db.select().from(company_profile).limit(1))[0] ?? null); } catch (e) { next(e); } });
 router.put("/company-profile", settingsRead, async (req, res, next) => { try { const body = parsed(insertCompanyProfileSchema.strict(), req.body); const existing = (await db.select({ id: company_profile.id }).from(company_profile).limit(1))[0]; const row = existing ? await db.update(company_profile).set(body).where(eq(company_profile.id, existing.id)).returning() : await db.insert(company_profile).values(body).returning(); res.json(row[0]); } catch (e) { next(e); } });
 
