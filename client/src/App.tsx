@@ -356,8 +356,15 @@ function SettingsAdmin() {
 
   const settingsByKey = useMemo(() => Object.fromEntries(settings.map((row) => [String(row.setting_key), row])), [settings]);
 
+  const normalizeTime = (value: string) => {
+    const cleaned = latinDigits(String(value || "")).trim();
+    const match = cleaned.match(/^(\d{1,2}):(\d{1,2})$/);
+    if (!match) return cleaned;
+    return `${match[1].padStart(2, "0")}:${match[2].padStart(2, "0")}`;
+  };
+
   const timeToMinutes = (value: string) => {
-    const [hour, minute] = value.split(":").map(Number);
+    const [hour, minute] = normalizeTime(value).split(":").map(Number);
     return hour * 60 + minute;
   };
 
@@ -444,7 +451,13 @@ function SettingsAdmin() {
   }, [settingsByKey]);
 
   const upsertSetting = async (key: string, value: string, type: string, description: string) => {
-    const existing = settingsByKey[key];
+    let existing = settingsByKey[key];
+    if (!existing) {
+      const candidates = await list("/system-settings", key);
+      if (Array.isArray(candidates)) {
+        existing = candidates.find((row) => String(row.setting_key) === key);
+      }
+    }
     if (existing?.id) {
       await api(`/system-settings/${existing.id}`, {
         method: "PUT",
@@ -522,15 +535,17 @@ function SettingsAdmin() {
   const validateShiftDraft = () => {
     const nameAr = String(shiftDraft.name_ar || "").trim();
     const nameEn = String(shiftDraft.name_en || "").trim();
-    const start = String(shiftDraft.start_time || "");
-    const end = String(shiftDraft.end_time || "");
+    const start = normalizeTime(String(shiftDraft.start_time || ""));
+    const end = normalizeTime(String(shiftDraft.end_time || ""));
     if (!nameAr) return "اسم الوردية بالعربي مطلوب";
     if (!nameEn) return "اسم الوردية بالإنجليزي مطلوب";
-    if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(start) || !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(end)) return "بداية ونهاية الوردية بصيغة وقت صحيحة";
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end)) return "بداية ونهاية الوردية بصيغة وقت صحيحة";
     if (start === end) return "لا يمكن أن تكون بداية الوردية مساوية لنهايتها";
-    if (String(shiftDraft.missing_checkout_policy) === "manual_cutoff" && !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(String(shiftDraft.missing_checkout_cutoff_time || ""))) return "وقت ثابت مطلوب عند اختيار استخدام وقت ثابت";
+    const cutoffTime = normalizeTime(String(shiftDraft.missing_checkout_cutoff_time || ""));
+    if (String(shiftDraft.missing_checkout_policy) === "manual_cutoff" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoffTime)) return "وقت ثابت مطلوب عند اختيار استخدام وقت ثابت";
     const overnight = timeToMinutes(end) <= timeToMinutes(start);
-    if (overnight && !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(String(shiftDraft.next_day_checkin_time || ""))) return "وقت دخول اليوم الثاني مطلوب للورديات الممتدة لليوم التالي";
+    const nextDayCheckin = normalizeTime(String(shiftDraft.next_day_checkin_time || ""));
+    if (overnight && !/^([01]\d|2[0-3]):[0-5]\d$/.test(nextDayCheckin)) return "وقت دخول اليوم الثاني مطلوب للورديات الممتدة لليوم التالي";
 
     const duplicateName = shifts.find((item) => item.id !== editingShiftId && (String(item.name_ar || "").trim() === nameAr || String(item.name_en || "").trim().toLowerCase() === nameEn.toLowerCase()));
     if (duplicateName) return "اسم الوردية مكرر";
@@ -554,17 +569,21 @@ function SettingsAdmin() {
       setError(message);
       return;
     }
-    const isOvernight = timeToMinutes(String(shiftDraft.end_time)) <= timeToMinutes(String(shiftDraft.start_time));
+    const normalizedStart = normalizeTime(String(shiftDraft.start_time || ""));
+    const normalizedEnd = normalizeTime(String(shiftDraft.end_time || ""));
+    const isOvernight = timeToMinutes(normalizedEnd) <= timeToMinutes(normalizedStart);
     const normalized: Row = {
       ...shiftDraft,
       id: editingShiftId || `shift-${Date.now()}`,
       name_ar: String(shiftDraft.name_ar || "").trim(),
       name_en: String(shiftDraft.name_en || "").trim(),
+      start_time: normalizedStart,
+      end_time: normalizedEnd,
       early_checkin_minutes: Number(shiftDraft.early_checkin_minutes || 0),
       late_checkout_minutes: Number(shiftDraft.late_checkout_minutes || 0),
       break_minutes: Number(shiftDraft.break_minutes || 0),
-      next_day_checkin_time: isOvernight ? String(shiftDraft.next_day_checkin_time || "") : "",
-      missing_checkout_cutoff_time: String(shiftDraft.missing_checkout_policy) === "manual_cutoff" ? String(shiftDraft.missing_checkout_cutoff_time || "") : "",
+      next_day_checkin_time: isOvernight ? normalizeTime(String(shiftDraft.next_day_checkin_time || "")) : "",
+      missing_checkout_cutoff_time: String(shiftDraft.missing_checkout_policy) === "manual_cutoff" ? normalizeTime(String(shiftDraft.missing_checkout_cutoff_time || "")) : "",
     };
     setShifts((current) => editingShiftId ? current.map((item) => (item.id === editingShiftId ? normalized : item)) : [...current, normalized]);
     resetShiftDraft();
