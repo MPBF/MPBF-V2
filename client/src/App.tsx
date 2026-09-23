@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, Boxes, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Route, Switch, useLocation, useRoute } from "wouter";
+import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
 
 type Row = Record<string, any>;
 type Field = { key: string; label: string; type?: "integer" | "decimal" | "date" | "select" | "textarea" | "boolean"; options?: string[]; relation?: string; required?: boolean; wide?: boolean };
@@ -79,8 +80,8 @@ const configs: Record<string, Config> = {
   customers: { path: "/customers", title: "العملاء", singular: "عميل", read: ["manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_customers", "manage_orders", "admin"], fields: [{ key: "id", label: "رمز العميل", required: true }, { key: "name", label: "اسم العميل", required: true }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "phone", label: "الهاتف" }, { key: "city", label: "المدينة" }, { key: "tax_number", label: "الرقم الضريبي" }, { key: "is_active", label: "نشط", type: "boolean" }], columns: [{ key: "__sequence", label: "م", kind: "relation" }, { key: "name_ar", label: "الاسم العربي", priority: true, customerLink: true }, { key: "name", label: "الاسم الإنجليزي", priority: true }, { key: "plate_drawer_code", label: "رقم الدرج", priority: true }, { key: "sales_rep", label: "اسم المندوب", kind: "relation", priority: true }] },
   products: { path: "/customer-products", title: "منتجات العملاء", singular: "منتج", read: ["manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_customers", "manage_orders", "admin"], clone: true, mobileColumnLimit: 8, fields: [{ key: "customer_id", label: "العميل", relation: "/customers", required: true }, { key: "category_id", label: "التصنيف", relation: "/categories" }, { key: "item_id", label: "الصنف", relation: "/items" }, { key: "size_caption", label: "وصف المقاس" }, { key: "width", label: "العرض بالسنتيمتر", type: "decimal" }, { key: "thickness", label: "السماكة بالميكرون", type: "decimal" }, { key: "bag_weight_grams", label: "وزن الكيس بالجرام", type: "decimal" }, { key: "raw_material", label: "المادة الخام" }, { key: "master_batch_id", label: "لون الماستر باتش", relation: "/master-batch-colors" }, { key: "status", label: "الحالة", type: "select", options: ["active", "inactive"] }, { key: "notes", label: "ملاحظات", type: "textarea", wide: true }], columns: [{ key: "__sequence", label: "م", centered: true }, { key: "customer_name_ar", label: "العميل", secondaryKey: "customer_name", priority: true, compact: "customer" }, { key: "category", label: "التصنيف / الصنف", kind: "relation", secondaryRelation: "item", priority: true, centered: true, width: "category" }, { key: "size_caption", label: "وصف المقاس", truncateNumbers: true, priority: true, centered: true, width: "size" }, { key: "width", label: "العرض", kind: "number", unit: "سم", priority: true, centered: true, width: "numeric" }, { key: "thickness", label: "السماكة", kind: "number", unit: "µ", tightUnit: true, priority: true, centered: true, width: "numeric" }, { key: "printing_cylinder", label: "السلندر / الطول", joinKey: "cutting_length_cm", joinUnit: "سم", centered: true, width: "combined" }, { key: "raw_material", label: "المادة الخام", centered: true, width: "material" }, { key: "master_batch", label: "الماستر باتش", kind: "relation", colorKey: "master_batch_color_hex", centered: true, width: "color" }] },
   categories: { path: "/categories", title: "التصنيفات", singular: "تصنيف", read: ["manage_categories", "manage_definitions", "manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_categories", "manage_definitions", "manage_customers", "manage_orders", "admin"], fields: [{ key: "id", label: "الرمز", required: true }, { key: "name", label: "الاسم", required: true }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "code", label: "الكود" }, { key: "parent_id", label: "التصنيف الأب", relation: "/categories" }], columns: [{ key: "id", label: "الرمز", priority: true }, { key: "name_ar", label: "الاسم العربي", priority: true }, { key: "name", label: "الاسم الإنجليزي" }, { key: "code", label: "الكود" }, { key: "parent", label: "التصنيف الأب", kind: "relation", priority: true }] },
-  items: { path: "/items", title: "الأصناف", singular: "صنف", read: ["manage_items", "manage_definitions", "manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_items", "manage_definitions", "manage_customers", "manage_orders", "admin"], fields: [{ key: "id", label: "الرمز", required: true }, { key: "category_id", label: "التصنيف", relation: "/categories" }, { key: "name", label: "الاسم" }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "code", label: "الكود" }, { key: "status", label: "الحالة", type: "select", options: ["active", "inactive"] }], columns: [{ key: "id", label: "الرمز", priority: true }, { key: "name_ar", label: "الاسم العربي", priority: true }, { key: "name", label: "الاسم الإنجليزي" }, { key: "code", label: "الكود" }, { key: "category", label: "التصنيف", kind: "relation", priority: true }, { key: "status", label: "الحالة", kind: "status", priority: true }] },
-  colors: { path: "/master-batch-colors", title: "ألوان الماستر باتش", singular: "لون", read: ["manage_master_batch", "manage_definitions", "manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_master_batch", "manage_definitions", "manage_customers", "manage_orders", "admin"], fields: [{ key: "id", label: "الرمز", required: true }, { key: "name", label: "الاسم", required: true }, { key: "name_ar", label: "الاسم بالعربية", required: true }, { key: "color_hex", label: "قيمة اللون", required: true }, { key: "text_color", label: "لون النص", required: true }, { key: "brand", label: "العلامة التجارية" }, { key: "aliases", label: "الأسماء البديلة" }, { key: "is_active", label: "نشط", type: "boolean" }, { key: "sort_order", label: "الترتيب", type: "integer" }], columns: [{ key: "id", label: "الرمز", priority: true }, { key: "name_ar", label: "الاسم العربي", priority: true }, { key: "color_hex", label: "عينة اللون", kind: "color", priority: true }, { key: "text_color", label: "لون النص" }, { key: "brand", label: "العلامة التجارية" }, { key: "aliases", label: "الأسماء البديلة" }, { key: "is_active", label: "الحالة", kind: "status", priority: true }, { key: "sort_order", label: "الترتيب", kind: "number" }] },
+  items: { path: "/items", title: "الأصناف", singular: "صنف", read: ["manage_items", "manage_definitions", "manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_items", "manage_definitions", "manage_customers", "manage_orders", "admin"], clone: true, fields: [{ key: "id", label: "الرمز", required: true }, { key: "category_id", label: "التصنيف", relation: "/categories" }, { key: "name", label: "الاسم" }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "code", label: "الكود" }, { key: "status", label: "الحالة", type: "select", options: ["active", "inactive"] }], columns: [{ key: "__sequence", label: "م", priority: true }, { key: "category", label: "التصنيف", kind: "relation", priority: true }, { key: "code", label: "الكود", priority: true }, { key: "name_ar", label: "الاسم", secondaryKey: "name", priority: true }] },
+  colors: { path: "/master-batch-colors", title: "ألوان الماستر باتش", singular: "لون", read: ["manage_master_batch", "manage_definitions", "manage_customers", "manage_orders", "view_orders", "admin"], write: ["manage_master_batch", "manage_definitions", "manage_customers", "manage_orders", "admin"], fields: [{ key: "id", label: "الرمز", required: true }, { key: "name", label: "الاسم", required: true }, { key: "name_ar", label: "الاسم بالعربية", required: true }, { key: "color_hex", label: "قيمة اللون", required: true }, { key: "text_color", label: "لون النص", required: true }, { key: "brand", label: "العلامة التجارية" }, { key: "aliases", label: "الأسماء البديلة" }, { key: "is_active", label: "نشط", type: "boolean" }, { key: "sort_order", label: "الترتيب", type: "integer" }], columns: [{ key: "__sequence", label: "م", priority: true }, { key: "id", label: "الرمز", secondaryKey: "brand", priority: true }, { key: "name_ar", label: "الاسم العربي", priority: true }, { key: "color_hex", label: "عينة اللون", kind: "color", priority: true }] },
   orders: { path: "/orders", title: "الطلبات", singular: "طلب", read: ["view_orders", "manage_orders", "admin"], write: ["manage_orders", "admin"], fields: [{ key: "order_number", label: "رقم الطلب", required: true }, { key: "customer_id", label: "العميل", relation: "/customers", required: true }, { key: "delivery_days", label: "أيام التسليم", type: "integer" }, { key: "delivery_date", label: "تاريخ التسليم", type: "date" }, { key: "status", label: "الحالة", type: "select", options: orderStatuses }, { key: "notes", label: "ملاحظات", type: "textarea", wide: true }], columns: [{ key: "order_number", label: "رقم الطلب", priority: true }, { key: "customer", label: "العميل", kind: "relation", priority: true }, { key: "delivery_date", label: "تاريخ التسليم", kind: "date", priority: true }, { key: "delivery_days", label: "أيام التسليم", kind: "number" }, { key: "status", label: "الحالة", kind: "status", priority: true }, { key: "created_at", label: "تاريخ الإنشاء", kind: "date" }] },
   production: { path: "/production-orders", title: "أوامر الإنتاج", singular: "أمر إنتاج", read: ["view_production", "manage_production", "admin"], write: ["manage_production", "admin"], fields: [{ key: "production_order_number", label: "رقم أمر الإنتاج", required: true }, { key: "order_id", label: "الطلب", relation: "/orders", required: true }, { key: "customer_product_id", label: "المنتج", relation: "/customer-products" }, { key: "quantity_kg", label: "الكمية كجم", type: "decimal", required: true }, { key: "final_quantity_kg", label: "الكمية النهائية كجم", type: "decimal", required: true }, { key: "status", label: "الحالة", type: "select", options: productionStatuses }, { key: "production_stage", label: "المرحلة", type: "select", options: stages }, { key: "assigned_machine_id", label: "الماكينة", relation: "/machines" }], columns: [{ key: "production_order_number", label: "رقم الأمر", priority: true }, { key: "order", label: "رقم الطلب", kind: "relation", priority: true }, { key: "customer", label: "العميل", kind: "relation", priority: true }, { key: "product_size_caption", label: "وصف المنتج", priority: true }, { key: "quantity_kg", label: "المطلوبة", kind: "number", unit: "كجم", priority: true }, { key: "final_quantity_kg", label: "النهائية", kind: "number", unit: "كجم" }, { key: "production_stage", label: "المرحلة", kind: "status", priority: true }, { key: "status", label: "الحالة", kind: "status", priority: true }, { key: "assigned_machine", label: "الماكينة", kind: "relation" }] },
   rolls: { path: "/rolls", title: "الرولات", singular: "رول", read: ["view_production", "manage_production", "admin"], write: ["manage_production", "admin"], fields: [{ key: "roll_seq", label: "التسلسل", type: "integer" }, { key: "roll_number", label: "رقم الرول", required: true }, { key: "production_order_id", label: "أمر الإنتاج", relation: "/production-orders" }, { key: "stage", label: "المرحلة", type: "select", options: stages }, { key: "status", label: "الحالة", type: "select", options: ["for_printing", "active", "completed"] }, { key: "weight_kg", label: "الوزن كجم", type: "decimal" }, { key: "film_machine_id", label: "ماكينة الفيلم", relation: "/machines" }], columns: [{ key: "roll_number", label: "رقم الرول", priority: true }, { key: "roll_seq", label: "التسلسل", kind: "number", priority: true }, { key: "production_order", label: "أمر الإنتاج", kind: "relation", priority: true }, { key: "stage", label: "المرحلة", kind: "status", priority: true }, { key: "status", label: "الحالة", kind: "status", priority: true }, { key: "weight_kg", fallbackKey: "weight", label: "الوزن", kind: "number", unit: "كجم", priority: true }, { key: "film_machine", label: "ماكينة الفيلم", kind: "relation" }, { key: "machine", label: "الماكينة الحالية", kind: "relation" }, { key: "roll_created_at", fallbackKey: "created_at", label: "التاريخ", kind: "date" }, { key: "completed_at", label: "الإكمال", kind: "date" }] },
@@ -105,22 +106,38 @@ function useAuth() {
   return { user, setUser, loading };
 }
 
+function useBranding() {
+  const [branding, setBranding] = useState<BrandingSnapshot>(defaultBranding);
+  useEffect(() => {
+    const load = () => { void fetchBrandingSnapshot().then(setBranding).catch(() => {}); };
+    load();
+    const onUpdate = () => load();
+    window.addEventListener("branding:updated", onUpdate);
+    return () => window.removeEventListener("branding:updated", onUpdate);
+  }, []);
+  return branding;
+}
+
+function BrandIdentity({ branding }: { branding: BrandingSnapshot }) {
+  return <div className="brand">{branding.logoSrc ? <img src={branding.logoSrc} alt="شعار الشركة" style={{ width: 38, height: 38, borderRadius: 10, objectFit: "cover", border: "1px solid var(--line)" }} /> : <div className="brand-mark">م</div>}<div><strong>{branding.companyNameAr || "MPBF"}</strong><small>{branding.companyNameEn || "PLASTIC MANUFACTURING"}</small></div></div>;
+}
+
 function PasswordChange({ user, onComplete }: { user: Row; onComplete: (user: Row) => void }) {
   const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
   const submit = async (event: FormEvent) => { event.preventDefault(); setSaving(true); setError(""); try { await api("/change-password", { method: "POST", body: JSON.stringify({ password }) }); onComplete((await api("/me")).user); } catch (e) { setError((e as Error).message); } finally { setSaving(false); } };
   return <div className="login-page"><section className="login-box" style={{ gridColumn: "1/-1" }}><form className="login-card" onSubmit={submit}><div className="eyebrow">إجراء أمني إلزامي</div><h2>تحديث كلمة المرور</h2><p>مرحباً {user.display_name_ar || user.username}. يجب تحديث كلمة المرور قبل متابعة العمل.</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="new-password">كلمة المرور الجديدة</label><input id="new-password" autoFocus autoComplete="new-password" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></div><button className="btn btn-primary" disabled={saving}>حفظ والمتابعة</button></form></section></div>;
 }
 
-function Login({ onLogin }: { onLogin: (user: Row) => void }) {
+function Login({ onLogin, branding }: { onLogin: (user: Row) => void; branding: BrandingSnapshot }) {
   const [form, setForm] = useState({ username: "", password: "" }); const [error, setError] = useState("");
   const submit = async (event: FormEvent) => { event.preventDefault(); setError(""); try { onLogin((await api("/login", { method: "POST", body: JSON.stringify(form) })).user); } catch (e) { setError((e as Error).message); } };
-  return <div className="login-page"><section className="login-art"><div><div className="brand"><div className="brand-mark">م</div><div><strong>MPBF</strong><small>PLASTIC MANUFACTURING</small></div></div><h1>دقة المصنع.<br />في كل وردية.</h1><p>من الطلب إلى الرول النهائي، مساحة عمل واحدة لفريق MPBF.</p></div><div className="grid-lines" /></section><section className="login-box"><form className="login-card" onSubmit={submit}><div className="eyebrow">دخول الفريق</div><h2>مرحباً بعودتك</h2><p>سجّل الدخول للوصول إلى مركز التشغيل.</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="login-username">اسم المستخدم</label><input id="login-username" autoFocus autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div><div className="field"><label htmlFor="login-password">كلمة المرور</label><input id="login-password" type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div><button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }}>دخول آمن</button></form></section></div>;
+  return <div className="login-page"><section className="login-art"><div><BrandIdentity branding={branding} /><h1>دقة المصنع.<br />في كل وردية.</h1><p>من الطلب إلى الرول النهائي، مساحة عمل واحدة لفريق MPBF.</p></div><div className="grid-lines" /></section><section className="login-box"><form className="login-card" onSubmit={submit}><div className="eyebrow">دخول الفريق</div><h2>مرحباً بعودتك</h2><p>سجّل الدخول للوصول إلى مركز التشغيل.</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="login-username">اسم المستخدم</label><input id="login-username" autoFocus autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div><div className="field"><label htmlFor="login-password">كلمة المرور</label><input id="login-password" type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div><button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }}>دخول آمن</button></form></section></div>;
 }
 
-function Layout({ children, user, setUser }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void }) {
+function Layout({ children, user, setUser, branding }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void; branding: BrandingSnapshot }) {
   const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
   const logout = async () => { try { await api("/logout", { method: "POST" }); } finally { setUser(null); setLoc("/"); } };
-  return <div className="shell"><aside className="sidebar"><div className="brand"><div className="brand-mark">م</div><div><strong>MPBF</strong><small>PLASTIC MANUFACTURING</small></div></div><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav><div className="side-foot">نظام تشغيل المصنع<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{title}</h1><p>مركز التحكم التشغيلي · بيانات مباشرة</p></div><div className="top-actions"><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label="تسجيل الخروج" className="btn btn-plain" onClick={logout} title="تسجيل الخروج"><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav></main></div>;
+  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav><div className="side-foot">نظام تشغيل المصنع<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{title}</h1><p>مركز التحكم التشغيلي · بيانات مباشرة</p></div><div className="top-actions"><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label="تسجيل الخروج" className="btn btn-plain" onClick={logout} title="تسجيل الخروج"><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav></main></div>;
 }
 
 function Dashboard({ user }: { user: Row }) {
@@ -271,21 +288,322 @@ function RolesAdmin({ user }: { user: Row }) {
 }
 
 function SettingsAdmin() {
-  const [profile, setProfile] = useState<Row>({}); const [settings, setSettings] = useState<Row[]>([]); const [error, setError] = useState(""); const [saved, setSaved] = useState("");
-  const profileFields = [["name","اسم الشركة"],["name_ar","اسم الشركة بالعربية"],["address","العنوان"],["tax_number","الرقم الضريبي"],["phone","الهاتف"],["email","البريد الإلكتروني"],["logo_url","رابط الشعار"],["default_language","لغة النظام الافتراضية"],["letter_header_image_url","رابط ترويسة المراسلات"],["letter_footer_image_url","رابط تذييل المراسلات"]] as const;
-  useEffect(() => { Promise.all([api("/company-profile"), list("/system-settings")]).then(([p, s]) => { const loaded = p || {}; setProfile({ ...loaded, letter_default_signatures: loaded.letter_default_signatures ? JSON.stringify(loaded.letter_default_signatures, null, 2) : "" }); setSettings(Array.isArray(s) ? s : []); }).catch((e) => setError(e.message)); }, []);
-  const saveProfile = async (e: FormEvent) => { e.preventDefault(); setError(""); try {
-    if (!String(profile.name || "").trim()) throw new Error("اسم الشركة مطلوب");
-    const allowed = [...profileFields.map(([key]) => key), "working_hours_per_day", "letter_footer_text"];
-    const body: Row = Object.fromEntries(allowed.map((key) => [key, key === "name" ? String(profile[key]).trim() : profile[key] === "" || profile[key] === undefined ? null : profile[key]]));
-    if (profile.letter_default_signatures) { try { body.letter_default_signatures = JSON.parse(profile.letter_default_signatures); } catch { throw new Error("صيغة توقيعات المراسلات غير صحيحة"); } }
-    else body.letter_default_signatures = null;
-    await api("/company-profile", { method: "PUT", body: JSON.stringify(body) }); setSaved("تم حفظ ملف الشركة");
-  } catch (e) { setError((e as Error).message); } };
-  const saveSetting = async (r: Row) => { try { await api(`/system-settings/${r.id}`, { method: "PUT", body: JSON.stringify({ setting_value: String(r.setting_value ?? "") }) }); setSaved(`تم حفظ ${r.setting_key}`); } catch (e) { setError((e as Error).message); } };
-  const renderProfileInput = (key: string) => <input id={`profile-${key}`} name={key} type={key === "email" ? "email" : key === "phone" ? "tel" : key === "working_hours_per_day" ? "number" : "text"} value={profile[key] ?? ""} required={key === "name"} onChange={(e) => setProfile({ ...profile, [key]: key === "working_hours_per_day" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value })} />;
-  return <div className="settings-layout"><div aria-live="polite">{error && <div className="error" role="alert">{error}</div>}{saved && <div className="success"><Check size={16} />{saved}</div>}</div><section className="panel settings-section"><div className="panel-head"><div><div className="eyebrow">هوية المصنع</div><h3>ملف الشركة</h3></div><Building2 size={21} color="var(--orange)" /></div><form className="form-grid" onSubmit={saveProfile}>{profileFields.map(([key,label]) => <div className={`field ${key === "address" ? "wide" : ""}`} key={key}><label htmlFor={`profile-${key}`}>{label}</label>{renderProfileInput(key)}</div>)}<div className="field"><label htmlFor="profile-working_hours_per_day">ساعات العمل اليومية</label>{renderProfileInput("working_hours_per_day")}</div><div className="field wide"><label htmlFor="profile-letter-footer">نص تذييل المراسلات</label><textarea id="profile-letter-footer" value={profile.letter_footer_text ?? ""} onChange={(e) => setProfile({ ...profile, letter_footer_text: e.target.value })} /></div><div className="field wide"><label htmlFor="profile-signatures">التوقيعات الافتراضية بصيغة JSON</label><textarea id="profile-signatures" dir="ltr" value={profile.letter_default_signatures ?? ""} onChange={(e) => setProfile({ ...profile, letter_default_signatures: e.target.value })} placeholder='{"manager":"..."}' /></div><div className="wide"><button className="btn btn-primary">حفظ ملف الشركة</button></div></form></section><section className="panel settings-section"><div className="panel-head"><div><div className="eyebrow">سلوك النظام</div><h3>إعدادات النظام</h3></div><Settings2 size={21} color="var(--teal)" /></div><div className="settings-list">{settings.map((r) => <div className="setting-row" key={r.id}><div><strong>{r.description || r.setting_key}</strong><span className="cell-sub mono">{r.setting_key} · {r.setting_type || "string"}</span></div><div className="setting-control">{r.setting_type === "boolean" ? <select aria-label={`قيمة ${r.description || r.setting_key}`} value={String(r.setting_value ?? "false")} disabled={r.is_editable === false} onChange={(e) => setSettings(settings.map((s) => s.id === r.id ? { ...s, setting_value: e.target.value } : s))}><option value="true">true</option><option value="false">false</option></select> : <input aria-label={`قيمة ${r.description || r.setting_key}`} type={r.setting_type === "number" ? "number" : "text"} value={r.setting_value ?? ""} disabled={r.is_editable === false} onChange={(e) => setSettings(settings.map((s) => s.id === r.id ? { ...s, setting_value: e.target.value } : s))} />}<button type="button" className="btn btn-muted" disabled={r.is_editable === false} onClick={() => saveSetting(r)}>حفظ</button></div></div>)}{!settings.length && <div className="empty"><strong>لا توجد إعدادات قابلة للعرض</strong></div>}</div></section></div>;
+  const [profile, setProfile] = useState<Row>({
+    name: "",
+    name_ar: "",
+    tax_number: "",
+    phone: "",
+    email: "",
+    address: "",
+    default_language: "ar",
+    working_hours_per_day: 8,
+  });
+  const [settings, setSettings] = useState<Row[]>([]);
+  const [operations, setOperations] = useState<Row>({
+    timezone: "Asia/Riyadh",
+    overtime_factor: "1.50",
+    weekly_holiday_day: "friday",
+    enable_holiday_overtime: "true",
+  });
+  const [logoDataUrl, setLogoDataUrl] = useState("");
+  const [logoFileName, setLogoFileName] = useState("");
+  const [shifts, setShifts] = useState<Row[]>([]);
+  const [shiftDraft, setShiftDraft] = useState<Row>({
+    id: "",
+    name_ar: "",
+    name_en: "",
+    start_time: "08:00",
+    end_time: "16:00",
+    early_checkin_minutes: 15,
+    late_checkout_minutes: 15,
+    next_day_checkin_time: "06:00",
+    missing_checkout_policy: "end_of_shift",
+    missing_checkout_cutoff_time: "",
+    break_minutes: 30,
+    break_policy: "unpaid",
+  });
+  const [editingShiftId, setEditingShiftId] = useState("");
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+
+  const languageOptions = [
+    { value: "ar", label: "العربية" },
+    { value: "en", label: "English" },
+  ];
+  const timezoneOptions = ["Asia/Riyadh", "UTC", "Asia/Dubai", "Africa/Cairo"];
+  const overtimeFactorOptions = ["1.25", "1.50", "1.75", "2.00"];
+  const weeklyHolidayOptions = [
+    { value: "sunday", label: "الأحد" },
+    { value: "monday", label: "الاثنين" },
+    { value: "tuesday", label: "الثلاثاء" },
+    { value: "wednesday", label: "الأربعاء" },
+    { value: "thursday", label: "الخميس" },
+    { value: "friday", label: "الجمعة" },
+    { value: "saturday", label: "السبت" },
+  ];
+  const attendanceWindowOptions = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180];
+  const breakDurationOptions = [0, 15, 30, 45, 60, 75, 90];
+  const missingCheckoutPolicies = [
+    { value: "end_of_shift", label: "اعتبار نهاية الوردية" },
+    { value: "manual_cutoff", label: "استخدام وقت ثابت" },
+    { value: "mark_absent", label: "اعتبار الحالة غياب" },
+  ];
+  const breakPolicies = [
+    { value: "paid", label: "استراحة مدفوعة" },
+    { value: "unpaid", label: "استراحة غير مدفوعة" },
+    { value: "deduct_if_exceeds", label: "خصم فقط عند التجاوز" },
+  ];
+
+  const settingsByKey = useMemo(() => Object.fromEntries(settings.map((row) => [String(row.setting_key), row])), [settings]);
+
+  const timeToMinutes = (value: string) => {
+    const [hour, minute] = value.split(":").map(Number);
+    return hour * 60 + minute;
+  };
+
+  const parseBoolean = (value: unknown, fallback = false) => {
+    if (value === undefined || value === null || value === "") return fallback;
+    return String(value).toLowerCase() === "true";
+  };
+
+  const parseJsonSetting = (key: string, fallback: any) => {
+    try {
+      const raw = settingsByKey[key]?.setting_value;
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
+  };
+
+  const getSettingValue = (key: string, fallback = "") => {
+    const value = settingsByKey[key]?.setting_value;
+    if (value === undefined || value === null || value === "") return fallback;
+    return String(value);
+  };
+
+  const resetShiftDraft = () => {
+    setEditingShiftId("");
+    setShiftDraft({
+      id: "",
+      name_ar: "",
+      name_en: "",
+      start_time: "08:00",
+      end_time: "16:00",
+      early_checkin_minutes: 15,
+      late_checkout_minutes: 15,
+      next_day_checkin_time: "06:00",
+      missing_checkout_policy: "end_of_shift",
+      missing_checkout_cutoff_time: "",
+      break_minutes: 30,
+      break_policy: "unpaid",
+    });
+  };
+
+  const shiftIntervals = (row: Row): Array<[number, number]> => {
+    const start = timeToMinutes(String(row.start_time));
+    const endBase = timeToMinutes(String(row.end_time));
+    const end = endBase <= start ? endBase + 1440 : endBase;
+    return [[start, end], [start + 1440, end + 1440]];
+  };
+
+  const intervalsOverlap = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
+
+  useEffect(() => {
+    Promise.all([api("/company-profile"), list("/system-settings")])
+      .then(([company, sys]) => {
+        const loadedProfile = company || {};
+        const loadedSettings = Array.isArray(sys) ? sys : [];
+        setSettings(loadedSettings);
+        setProfile({
+          name: loadedProfile.name ?? "",
+          name_ar: loadedProfile.name_ar ?? "",
+          tax_number: loadedProfile.tax_number ?? "",
+          phone: loadedProfile.phone ?? "",
+          email: loadedProfile.email ?? "",
+          address: loadedProfile.address ?? "",
+          default_language: loadedProfile.default_language ?? "ar",
+          working_hours_per_day: Number(loadedProfile.working_hours_per_day ?? 8) || 8,
+        });
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    if (!settings.length) return;
+    setOperations({
+      timezone: getSettingValue("factory_timezone", "Asia/Riyadh"),
+      overtime_factor: getSettingValue("overtime_factor", "1.50"),
+      weekly_holiday_day: getSettingValue("weekly_holiday_day", "friday"),
+      enable_holiday_overtime: getSettingValue("enable_holiday_overtime", "true"),
+    });
+    setLogoDataUrl(getSettingValue("company_logo_data_url", ""));
+    setLogoFileName(getSettingValue("company_logo_file_name", ""));
+    const loadedShifts = parseJsonSetting("work_shifts", []);
+    setShifts(Array.isArray(loadedShifts) ? loadedShifts : []);
+  }, [settingsByKey]);
+
+  const upsertSetting = async (key: string, value: string, type: string, description: string) => {
+    const existing = settingsByKey[key];
+    if (existing?.id) {
+      await api(`/system-settings/${existing.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ setting_value: value }),
+      });
+      return;
+    }
+    await api("/system-settings", {
+      method: "POST",
+      body: JSON.stringify({
+        setting_key: key,
+        setting_value: value,
+        setting_type: type,
+        description,
+        is_editable: true,
+      }),
+    });
+  };
+
+  const saveCompanyAndOperations = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setSaved("");
+    try {
+      if (!String(profile.name || "").trim()) throw new Error("اسم الشركة مطلوب");
+      const companyBody: Row = {
+        name: String(profile.name).trim(),
+        name_ar: profile.name_ar || null,
+        tax_number: profile.tax_number || null,
+        phone: profile.phone || null,
+        email: profile.email || null,
+        address: profile.address || null,
+        default_language: profile.default_language || "ar",
+        working_hours_per_day: Number(profile.working_hours_per_day) || 8,
+      };
+      await api("/company-profile", { method: "PUT", body: JSON.stringify(companyBody) });
+
+      await upsertSetting("factory_timezone", String(operations.timezone || "Asia/Riyadh"), "string", "المنطقة الزمنية للمصنع");
+      await upsertSetting("overtime_factor", String(operations.overtime_factor || "1.50"), "number", "معامل ساعة العمل الإضافي");
+      await upsertSetting("weekly_holiday_day", String(operations.weekly_holiday_day || "friday"), "string", "يوم العطلة الأسبوعي");
+      await upsertSetting("enable_holiday_overtime", String(parseBoolean(operations.enable_holiday_overtime, true)), "boolean", "تفعيل احتساب إضافي في يوم العطلة");
+      await upsertSetting("company_logo_data_url", logoDataUrl || "", "string", "ملف شعار الشركة المرفوع");
+      await upsertSetting("company_logo_file_name", logoFileName || "", "string", "اسم ملف شعار الشركة");
+
+      setSettings(await list("/system-settings"));
+      setSaved("تم حفظ هوية المصنع وإعدادات التشغيل");
+      window.dispatchEvent(new Event("branding:updated"));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const onLogoFileChange = (event: any) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("ملف الشعار يجب أن يكون صورة");
+      return;
+    }
+    if (file.size > 1_500_000) {
+      setError("حجم الشعار كبير. الحد الأقصى 1.5MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result || "");
+      setLogoDataUrl(value);
+      setLogoFileName(file.name);
+      setError("");
+    };
+    reader.onerror = () => setError("تعذر قراءة ملف الشعار");
+    reader.readAsDataURL(file);
+  };
+
+  const validateShiftDraft = () => {
+    const nameAr = String(shiftDraft.name_ar || "").trim();
+    const nameEn = String(shiftDraft.name_en || "").trim();
+    const start = String(shiftDraft.start_time || "");
+    const end = String(shiftDraft.end_time || "");
+    if (!nameAr) return "اسم الوردية بالعربي مطلوب";
+    if (!nameEn) return "اسم الوردية بالإنجليزي مطلوب";
+    if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(start) || !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(end)) return "بداية ونهاية الوردية بصيغة وقت صحيحة";
+    if (start === end) return "لا يمكن أن تكون بداية الوردية مساوية لنهايتها";
+    if (String(shiftDraft.missing_checkout_policy) === "manual_cutoff" && !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(String(shiftDraft.missing_checkout_cutoff_time || ""))) return "وقت ثابت مطلوب عند اختيار استخدام وقت ثابت";
+    const overnight = timeToMinutes(end) <= timeToMinutes(start);
+    if (overnight && !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(String(shiftDraft.next_day_checkin_time || ""))) return "وقت دخول اليوم الثاني مطلوب للورديات الممتدة لليوم التالي";
+
+    const duplicateName = shifts.find((item) => item.id !== editingShiftId && (String(item.name_ar || "").trim() === nameAr || String(item.name_en || "").trim().toLowerCase() === nameEn.toLowerCase()));
+    if (duplicateName) return "اسم الوردية مكرر";
+
+    const draftIntervals = shiftIntervals(shiftDraft);
+    const overlapping = shifts.find((item) => {
+      if (item.id === editingShiftId) return false;
+      const existingIntervals = shiftIntervals(item);
+      return draftIntervals.some((draftInterval) => existingIntervals.some((existingInterval) => intervalsOverlap(draftInterval, existingInterval)));
+    });
+    if (overlapping) return `تعارض في وقت الوردية مع ${overlapping.name_ar || overlapping.name_en}`;
+
+    return "";
+  };
+
+  const addOrUpdateShift = () => {
+    setError("");
+    setSaved("");
+    const message = validateShiftDraft();
+    if (message) {
+      setError(message);
+      return;
+    }
+    const isOvernight = timeToMinutes(String(shiftDraft.end_time)) <= timeToMinutes(String(shiftDraft.start_time));
+    const normalized: Row = {
+      ...shiftDraft,
+      id: editingShiftId || `shift-${Date.now()}`,
+      name_ar: String(shiftDraft.name_ar || "").trim(),
+      name_en: String(shiftDraft.name_en || "").trim(),
+      early_checkin_minutes: Number(shiftDraft.early_checkin_minutes || 0),
+      late_checkout_minutes: Number(shiftDraft.late_checkout_minutes || 0),
+      break_minutes: Number(shiftDraft.break_minutes || 0),
+      next_day_checkin_time: isOvernight ? String(shiftDraft.next_day_checkin_time || "") : "",
+      missing_checkout_cutoff_time: String(shiftDraft.missing_checkout_policy) === "manual_cutoff" ? String(shiftDraft.missing_checkout_cutoff_time || "") : "",
+    };
+    setShifts((current) => editingShiftId ? current.map((item) => (item.id === editingShiftId ? normalized : item)) : [...current, normalized]);
+    resetShiftDraft();
+  };
+
+  const editShift = (row: Row) => {
+    setEditingShiftId(String(row.id));
+    setShiftDraft({
+      ...row,
+      early_checkin_minutes: Number(row.early_checkin_minutes || 0),
+      late_checkout_minutes: Number(row.late_checkout_minutes || 0),
+      break_minutes: Number(row.break_minutes || 0),
+      next_day_checkin_time: row.next_day_checkin_time || "06:00",
+      missing_checkout_cutoff_time: row.missing_checkout_cutoff_time || "",
+    });
+  };
+
+  const removeShift = (row: Row) => {
+    if (!confirm(`حذف الوردية ${row.name_ar || row.name_en}؟`)) return;
+    setShifts((current) => current.filter((item) => item.id !== row.id));
+    if (editingShiftId === row.id) resetShiftDraft();
+  };
+
+  const saveShifts = async () => {
+    setError("");
+    setSaved("");
+    try {
+      await upsertSetting("work_shifts", JSON.stringify(shifts), "json", "تعريف ورديات العمل");
+      setSettings(await list("/system-settings"));
+      setSaved("تم حفظ نظام الورديات بنجاح");
+      window.dispatchEvent(new Event("branding:updated"));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return <div className="settings-layout"><div aria-live="polite">{error && <div className="error" role="alert">{error}</div>}{saved && <div className="success"><Check size={16} />{saved}</div>}</div><section className="panel settings-section"><div className="panel-head"><div><div className="eyebrow">هوية المصنع وتشغيل النظام</div><h3>الإعدادات الأساسية</h3></div><Building2 size={21} color="var(--orange)" /></div><form className="form-grid" onSubmit={saveCompanyAndOperations}><div className="field"><label htmlFor="profile-name-ar">اسم الشركة بالعربية</label><input id="profile-name-ar" value={profile.name_ar ?? ""} onChange={(e) => setProfile({ ...profile, name_ar: e.target.value })} /></div><div className="field"><label htmlFor="profile-name">اسم الشركة بالإنجليزية</label><input id="profile-name" required value={profile.name ?? ""} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div><div className="field"><label htmlFor="profile-tax">الرقم الضريبي</label><input id="profile-tax" value={profile.tax_number ?? ""} onChange={(e) => setProfile({ ...profile, tax_number: e.target.value })} /></div><div className="field"><label htmlFor="profile-phone">الهاتف</label><input id="profile-phone" type="tel" value={profile.phone ?? ""} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} /></div><div className="field"><label htmlFor="profile-email">البريد الإلكتروني</label><input id="profile-email" type="email" value={profile.email ?? ""} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></div><div className="field wide"><label htmlFor="profile-address">العنوان</label><textarea id="profile-address" value={profile.address ?? ""} onChange={(e) => setProfile({ ...profile, address: e.target.value })} /></div><div className="field wide"><label htmlFor="profile-logo-file">شعار الشركة (رفع ملف)</label><input id="profile-logo-file" type="file" accept="image/*" onChange={onLogoFileChange} />{logoFileName && <small className="cell-sub">الملف الحالي: {logoFileName}</small>}{logoDataUrl && <img src={logoDataUrl} alt="شعار الشركة" style={{ marginTop: 8, maxHeight: 72, borderRadius: 8, border: "1px solid var(--line)" }} />}</div><div className="field"><label htmlFor="default-language">اللغة الافتراضية</label><select id="default-language" value={profile.default_language ?? "ar"} onChange={(e) => setProfile({ ...profile, default_language: e.target.value })}>{languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div><div className="field"><label htmlFor="factory-timezone">المنطقة الزمنية</label><select id="factory-timezone" value={operations.timezone} onChange={(e) => setOperations({ ...operations, timezone: e.target.value })}>{timezoneOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="field"><label htmlFor="work-hours-day">ساعات العمل اليومية</label><select id="work-hours-day" value={String(profile.working_hours_per_day ?? 8)} onChange={(e) => setProfile({ ...profile, working_hours_per_day: Number(e.target.value) })}>{[6, 7, 8, 9, 10, 12].map((hours) => <option key={hours} value={hours}>{hours} ساعة</option>)}</select></div><div className="field"><label htmlFor="overtime-factor">معامل ساعة الإضافي</label><select id="overtime-factor" value={operations.overtime_factor} onChange={(e) => setOperations({ ...operations, overtime_factor: e.target.value })}>{overtimeFactorOptions.map((factor) => <option key={factor} value={factor}>{factor}x</option>)}</select></div><div className="field"><label htmlFor="holiday-day">يوم العطلة الأسبوعي</label><select id="holiday-day" value={operations.weekly_holiday_day} onChange={(e) => setOperations({ ...operations, weekly_holiday_day: e.target.value })}>{weeklyHolidayOptions.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div><div className="field"><label htmlFor="holiday-overtime">احتساب إضافي في يوم العطلة</label><select id="holiday-overtime" value={String(operations.enable_holiday_overtime)} onChange={(e) => setOperations({ ...operations, enable_holiday_overtime: e.target.value })}><option value="true">مفعل</option><option value="false">غير مفعل</option></select></div><div className="wide"><button className="btn btn-primary">حفظ الإعدادات الأساسية</button></div></form></section><section className="panel settings-section"><div className="panel-head"><div><div className="eyebrow">نظام ورديات العمل</div><h3>إدارة الورديات باعتمادية عالية</h3></div><Settings2 size={21} color="var(--teal)" /></div><div className="form-grid"><div className="field"><label htmlFor="shift-name-ar">اسم الوردية بالعربي</label><input id="shift-name-ar" value={shiftDraft.name_ar ?? ""} onChange={(e) => setShiftDraft({ ...shiftDraft, name_ar: e.target.value })} /></div><div className="field"><label htmlFor="shift-name-en">اسم الوردية بالإنجليزي</label><input id="shift-name-en" value={shiftDraft.name_en ?? ""} onChange={(e) => setShiftDraft({ ...shiftDraft, name_en: e.target.value })} /></div><div className="field"><label htmlFor="shift-start">بداية الوردية</label><input id="shift-start" type="time" value={shiftDraft.start_time ?? "08:00"} onChange={(e) => setShiftDraft({ ...shiftDraft, start_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-end">نهاية الوردية</label><input id="shift-end" type="time" value={shiftDraft.end_time ?? "16:00"} onChange={(e) => setShiftDraft({ ...shiftDraft, end_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-early">السماح بتسجيل الحضور مبكرًا</label><select id="shift-early" value={String(shiftDraft.early_checkin_minutes ?? 15)} onChange={(e) => setShiftDraft({ ...shiftDraft, early_checkin_minutes: Number(e.target.value) })}>{attendanceWindowOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}</select></div><div className="field"><label htmlFor="shift-late">السماح بتسجيل الخروج متأخرًا</label><select id="shift-late" value={String(shiftDraft.late_checkout_minutes ?? 15)} onChange={(e) => setShiftDraft({ ...shiftDraft, late_checkout_minutes: Number(e.target.value) })}>{attendanceWindowOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}</select></div><div className="field"><label htmlFor="shift-next-day">وقت دخول اليوم الثاني</label><input id="shift-next-day" type="time" value={shiftDraft.next_day_checkin_time ?? "06:00"} onChange={(e) => setShiftDraft({ ...shiftDraft, next_day_checkin_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-missing-policy">خيار عند عدم تسجيل الخروج</label><select id="shift-missing-policy" value={shiftDraft.missing_checkout_policy ?? "end_of_shift"} onChange={(e) => setShiftDraft({ ...shiftDraft, missing_checkout_policy: e.target.value })}>{missingCheckoutPolicies.map((policy) => <option key={policy.value} value={policy.value}>{policy.label}</option>)}</select></div><div className="field"><label htmlFor="shift-missing-cutoff">وقت ثابت عند غياب الخروج</label><input id="shift-missing-cutoff" type="time" disabled={shiftDraft.missing_checkout_policy !== "manual_cutoff"} value={shiftDraft.missing_checkout_cutoff_time ?? ""} onChange={(e) => setShiftDraft({ ...shiftDraft, missing_checkout_cutoff_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-break-duration">مدة الاستراحة</label><select id="shift-break-duration" value={String(shiftDraft.break_minutes ?? 30)} onChange={(e) => setShiftDraft({ ...shiftDraft, break_minutes: Number(e.target.value) })}>{breakDurationOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}</select></div><div className="field"><label htmlFor="shift-break-policy">طريقة احتساب الاستراحة</label><select id="shift-break-policy" value={shiftDraft.break_policy ?? "unpaid"} onChange={(e) => setShiftDraft({ ...shiftDraft, break_policy: e.target.value })}>{breakPolicies.map((policy) => <option key={policy.value} value={policy.value}>{policy.label}</option>)}</select></div><div className="wide" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" className="btn btn-primary" onClick={addOrUpdateShift}>{editingShiftId ? "تحديث الوردية" : "إضافة وردية جديدة"}</button>{editingShiftId && <button type="button" className="btn btn-muted" onClick={resetShiftDraft}>إلغاء التعديل</button>}</div></div><div className="table-wrap" style={{ marginTop: 16 }}><table><thead><tr><th>م</th><th>الوردية</th><th>الوقت</th><th>الحضور/الخروج</th><th>الاستراحة</th><th>عدم تسجيل الخروج</th><th>إجراءات</th></tr></thead><tbody>{shifts.map((shift, index) => <tr key={shift.id || index}><td>{index + 1}</td><td><strong>{shift.name_ar}</strong><small className="cell-sub">{shift.name_en}</small></td><td>{shift.start_time} → {shift.end_time}<small className="cell-sub">دخول اليوم الثاني: {shift.next_day_checkin_time || "—"}</small></td><td>مبكر: {shift.early_checkin_minutes} د<small className="cell-sub">متأخر: {shift.late_checkout_minutes} د</small></td><td>{shift.break_minutes} دقيقة<small className="cell-sub">{breakPolicies.find((policy) => policy.value === shift.break_policy)?.label || shift.break_policy}</small></td><td>{missingCheckoutPolicies.find((policy) => policy.value === shift.missing_checkout_policy)?.label || shift.missing_checkout_policy}<small className="cell-sub">{shift.missing_checkout_cutoff_time || "—"}</small></td><td><div className="actions"><button aria-label="تعديل الوردية" title="تعديل" className="btn btn-plain" onClick={() => editShift(shift)}><Pencil size={16} /></button><button aria-label="حذف الوردية" title="حذف" className="btn btn-plain" onClick={() => removeShift(shift)}><Trash2 size={16} /></button></div></td></tr>)}{shifts.length === 0 && <tr><td colSpan={7}><div className="empty" style={{ border: "none", margin: 0 }}><strong>لا توجد ورديات معرفة</strong>أضف أول وردية من النموذج أعلاه.</div></td></tr>}</tbody></table></div><div style={{ marginTop: 14 }}><button type="button" className="btn btn-primary" onClick={saveShifts}>حفظ نظام الورديات</button></div></section></div>;
 }
+
 
 function Admin({ user }: { user: Row }) {
   const tabs = [["users", "المستخدمون", Users, ["manage_users", "admin"]], ["roles", "الأدوار والصلاحيات", KeyRound, ["manage_roles", "admin"]], ["sections", "الأقسام", Boxes, ["manage_sections", "admin"]], ["machines", "الماكينات", Cog, ["manage_machines", "admin"]], ["components", "مكونات الصيانة", Wrench, ["manage_maintenance", "admin"]], ["categories", "التصنيفات", Boxes, configs.categories.read], ["items", "الأصناف", Package, configs.items.read], ["colors", "ألوان الماستر باتش", Cog, configs.colors.read], ["settings", "إعدادات المصنع", Settings2, ["manage_settings", "admin"]]] as const;
@@ -325,10 +643,14 @@ function CustomerDetail({ user }: { user: Row }) {
 
 function App() {
   const auth = useAuth();
+  const branding = useBranding();
   if (auth.loading) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
-  if (!auth.user) return <Login onLogin={auth.setUser} />;
+  if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} />;
-  return <Layout user={auth.user} setUser={auth.setUser}><Switch><Route path="/"><Dashboard user={auth.user} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route><Dashboard user={auth.user} /></Route></Switch></Layout>;
+  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/"><Dashboard user={auth.user} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route><Dashboard user={auth.user} /></Route></Switch></Layout>;
 }
 
 export default App;
+
+
+
