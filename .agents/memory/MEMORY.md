@@ -60,3 +60,4 @@
 - [Strict English display fallbacks](strict-english-display-fallbacks.md) — English UI must not fall back to Arabic names/errors, even through generic or mislabeled API fields.
 - [Order status synchronization](order-status-synchronization.md) — parent/production statuses transition atomically; production_stage stays roll-driven; structural child edits require an atomic server operation.
 - [Operator machine selection](operator-machine-selection.md) — worker dashboards save machine choice immediately, close edit mode, and keep “Change” available.
+- [Attendance action ordering](attendance-action-ordering.md) — serialize per-user punches and determine current state by insertion order, not transaction-start timestamps.

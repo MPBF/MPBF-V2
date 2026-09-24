@@ -35,6 +35,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
+import selfService from "./self-service";
 
 const router = Router();
 const admin = requirePermission("admin");
@@ -84,6 +85,7 @@ function userId(raw: string) {
 }
 
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
+router.use("/self", selfService);
 router.get("/me", (req, res) => {
   if (!req.user) return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
   return res.json({ success: true, user: req.user });
@@ -146,7 +148,7 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
   }
 });
 
-router.get("/dashboard", requireAuth, async (_req, res, next) => {
+router.get("/dashboard", admin, async (_req, res, next) => {
   try {
     const names = [
       ["customers", customers],

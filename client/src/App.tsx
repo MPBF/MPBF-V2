@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Boxes, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
+import { AlertTriangle, Boxes, ClipboardList, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Route, Switch, useLocation } from "wouter";
+import UserDashboard from "./pages/UserDashboard";
+import SelfServiceAdmin from "./pages/SelfServiceAdmin";
 
 type Row = Record<string, any>;
 type Field = { key: string; label: string; type?: "integer" | "decimal" | "date" | "select" | "textarea" | "boolean"; options?: string[]; relation?: string; required?: boolean; wide?: boolean };
@@ -14,7 +16,7 @@ const api = async (path: string, options: RequestInit = {}) => {
   return normalizePayload(body);
 };
 const list = (path: string, search = "") => api(`${path}?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`);
-const can = (user: Row, permissions: readonly string[]) => permissions.some((permission) => user.permissions?.includes(permission));
+const can = (user: Row, permissions: readonly string[]) => permissions.some((permission) => user.permissions?.includes("*") || user.permissions?.includes(permission));
 
 const orderStatuses = ["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"];
 const productionStatuses = ["pending", "active", "completed", "cancelled", "archived"];
@@ -88,7 +90,7 @@ const configs: Record<string, Config> = {
 };
 
 const nav = [
-  ["/", "لوحة المتابعة", Gauge, []], ["/customers", "العملاء", Users, configs.customers.read], ["/products", "المنتجات", Boxes, configs.products.read],
+  ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read], ["/products", "المنتجات", Boxes, configs.products.read],
   ["/orders", "الطلبات", FileText, configs.orders.read], ["/production", "الإنتاج", Factory, configs.production.read], ["/rolls", "الرولات", Package, configs.rolls.read],
   ["/admin", "الإدارة", Shield, ["manage_users", "manage_roles", "manage_sections", "manage_settings", "manage_machines", "manage_maintenance", "manage_categories", "manage_items", "manage_master_batch", "manage_definitions", "view_orders", "manage_customers", "manage_orders", "admin"]],
 ] as const;
@@ -113,7 +115,7 @@ function Login({ onLogin }: { onLogin: (user: Row) => void }) {
 }
 
 function Layout({ children, user, setUser }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void }) {
-  const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
+  const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
   const logout = async () => { try { await api("/logout", { method: "POST" }); } finally { setUser(null); setLoc("/"); } };
   return <div className="shell"><aside className="sidebar"><div className="brand"><div className="brand-mark">م</div><div><strong>MPBF</strong><small>PLASTIC MANUFACTURING</small></div></div><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav><div className="side-foot">نظام تشغيل المصنع<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{title}</h1><p>مركز التحكم التشغيلي · بيانات مباشرة</p></div><div className="top-actions"><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label="تسجيل الخروج" className="btn btn-plain" onClick={logout} title="تسجيل الخروج"><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav></main></div>;
 }
@@ -122,7 +124,7 @@ function Dashboard({ user }: { user: Row }) {
   const [data, setData] = useState<Row | null>(null); const [error, setError] = useState("");
   useEffect(() => { api("/dashboard").then(setData).catch((e) => setError(e.message)); }, []);
   const cards = [["customers", "العملاء", "عملاء مسجلون"], ["orders", "الطلبات", "إجمالي الطلبات"], ["production_orders", "أوامر الإنتاج", "قيد المتابعة"], ["machines", "الماكينات", "أصول المصنع"], ["users", "المستخدمون", "حسابات النظام"]];
-  const shortcuts = nav.slice(1, 7).filter(([, , , permissions]) => can(user, permissions));
+  const shortcuts = nav.filter(([href, , , permissions]) => !["/", "/my-dashboard", "/admin"].includes(href) && can(user, permissions));
   return <><div className="page-heading"><div><div className="eyebrow">نظرة تشغيلية · اليوم</div><h2>صباح الإنتاج</h2></div><span className="tag">اتصال مباشر بالبيانات</span></div>{error && <div className="error">{error}</div>}<div className="stats">{cards.map(([key, label, sub]) => <div className="stat" key={key}><label>{label}</label><strong>{data ? data[key] ?? 0 : <span className="skeleton" style={{ display: "inline-block", width: 55 }} />}</strong><small>{sub}</small></div>)}</div><div className="panel"><div className="panel-head"><h3>محطات العمل</h3><span className="eyebrow">اختصارات سريعة</span></div><div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>{shortcuts.map(([href, label, Icon]) => <Link className="btn btn-muted" href={href} key={href}><Icon size={17} />{label}</Link>)}</div></div></>;
 }
 
@@ -277,10 +279,10 @@ function SettingsAdmin() {
 }
 
 function Admin({ user }: { user: Row }) {
-  const tabs = [["users", "المستخدمون", Users, ["manage_users", "admin"]], ["roles", "الأدوار والصلاحيات", KeyRound, ["manage_roles", "admin"]], ["sections", "الأقسام", Boxes, ["manage_sections", "admin"]], ["machines", "الماكينات", Cog, ["manage_machines", "admin"]], ["components", "مكونات الصيانة", Wrench, ["manage_maintenance", "admin"]], ["categories", "التصنيفات", Boxes, configs.categories.read], ["items", "الأصناف", Package, configs.items.read], ["colors", "ألوان الماستر باتش", Cog, configs.colors.read], ["settings", "إعدادات المصنع", Settings2, ["manage_settings", "admin"]]] as const;
+  const tabs = [["users", "المستخدمون", Users, ["manage_users", "admin"]], ["roles", "الأدوار والصلاحيات", KeyRound, ["manage_roles", "admin"]], ["sections", "الأقسام", Boxes, ["manage_sections", "admin"]], ["machines", "الماكينات", Cog, ["manage_machines", "admin"]], ["components", "مكونات الصيانة", Wrench, ["manage_maintenance", "admin"]], ["categories", "التصنيفات", Boxes, configs.categories.read], ["items", "الأصناف", Package, configs.items.read], ["colors", "ألوان الماستر باتش", Cog, configs.colors.read], ["settings", "إعدادات المصنع", Settings2, ["manage_settings", "admin"]], ["self-requests", "الطلبات الإدارية", ClipboardList, ["admin"]], ["self-violations", "المخالفات", AlertTriangle, ["admin"]]] as const;
   const visibleTabs = tabs.filter(([, , , permissions]) => can(user, permissions));
   const [tab, setTab] = useState(visibleTabs[0]?.[0] || "users");
-  return <><div className="admin-intro"><div><div className="eyebrow">مركز الإدارة · صلاحياتك مفعلة</div><h2>مكتب التحكم</h2><p>إدارة الهوية، الأصول، والتعريفات من مساحة واحدة منظمة.</p></div><div className="admin-mark"><Shield size={24} /><span>ADMIN / CORE</span></div></div><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{label}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} /> : tab === "roles" ? <RolesAdmin user={user} /> : tab === "settings" ? <SettingsAdmin /> : <EntityPage kind={tab} user={user} />}</div></>;
+  return <><div className="admin-intro"><div><div className="eyebrow">مركز الإدارة · صلاحياتك مفعلة</div><h2>مكتب التحكم</h2><p>إدارة الهوية، الأصول، والتعريفات من مساحة واحدة منظمة.</p></div><div className="admin-mark"><Shield size={24} /><span>ADMIN / CORE</span></div></div><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{label}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} /> : tab === "roles" ? <RolesAdmin user={user} /> : tab === "settings" ? <SettingsAdmin /> : tab === "self-requests" ? <SelfServiceAdmin mode="requests" /> : tab === "self-violations" ? <SelfServiceAdmin mode="violations" /> : <EntityPage kind={tab} user={user} />}</div></>;
 }
 
 function App() {
@@ -288,7 +290,8 @@ function App() {
   if (auth.loading) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
   if (!auth.user) return <Login onLogin={auth.setUser} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} />;
-  return <Layout user={auth.user} setUser={auth.setUser}><Switch><Route path="/"><Dashboard user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route><Dashboard user={auth.user} /></Route></Switch></Layout>;
+  const isAdmin = can(auth.user, ["admin"]);
+  return <Layout user={auth.user} setUser={auth.setUser}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
 }
 
 export default App;
