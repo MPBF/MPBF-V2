@@ -1,13 +1,42 @@
+import { existsSync, readFileSync } from "node:fs";
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import * as schema from "@shared/schema";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import ws from "ws";
 
+function loadDotEnvFile() {
+  const envPath = ".env";
+  if (!existsSync(envPath)) return;
+
+  const content = readFileSync(envPath, "utf8");
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const eqIndex = line.indexOf("=");
+    if (eqIndex <= 0) continue;
+
+    const key = line.slice(0, eqIndex).trim();
+    if (!key || process.env[key] !== undefined) continue;
+
+    let value = line.slice(eqIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+loadDotEnvFile();
+
 neonConfig.webSocketConstructor = ws;
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
+    "متغير DATABASE_URL غير مضبوط. أنشئ ملف .env من .env.example ثم أضف رابط قاعدة البيانات.",
   );
 }
 

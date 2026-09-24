@@ -11,7 +11,19 @@ type Config = { path: string; title: string; singular: string; read: string[]; w
 const api = async (path: string, options: RequestInit = {}) => {
   const response = await fetch(`/api${path}`, { credentials: "include", headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || "تعذر تنفيذ الطلب");
+  if (!response.ok) {
+    const fallbackByStatus: Record<number, string> = {
+      400: "البيانات المدخلة غير صالحة",
+      401: "انتهت الجلسة أو يلزم تسجيل الدخول",
+      403: "لا تملك صلاحية تنفيذ هذا الإجراء",
+      404: "العنصر المطلوب غير موجود",
+      409: "تعذر تنفيذ الإجراء بسبب تعارض في البيانات",
+      422: "تعذر التحقق من صحة البيانات",
+      429: "عدد المحاولات كبير. حاول مرة أخرى لاحقاً",
+      500: "حدث خطأ داخلي في الخادم",
+    };
+    throw new Error(body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب");
+  }
   return normalizePayload(body);
 };
 const list = (path: string, search = "") => api(`${path}?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`);
