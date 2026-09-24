@@ -84,6 +84,31 @@ function userId(raw: string) {
 }
 
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
+router.get("/public-branding", async (_req, res, next) => {
+  try {
+    const profile = (await db.select().from(company_profile).limit(1))[0] ?? null;
+    const settings = await db
+      .select({ setting_key: system_settings.setting_key, setting_value: system_settings.setting_value })
+      .from(system_settings)
+      .where(eq(system_settings.setting_key, "company_logo_data_url"))
+      .limit(1);
+
+    const logoSetting = settings[0]?.setting_value;
+    const logoSrc = typeof logoSetting === "string" && logoSetting.trim()
+      ? logoSetting.trim()
+      : typeof profile?.logo_url === "string" && profile.logo_url.trim()
+        ? profile.logo_url.trim()
+        : "";
+
+    res.json({
+      companyNameAr: profile?.name_ar || profile?.name || "MPBF",
+      companyNameEn: profile?.name || profile?.name_ar || "PLASTIC MANUFACTURING",
+      logoSrc,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 router.get("/me", (req, res) => {
   if (!req.user) return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
   return res.json({ success: true, user: req.user });

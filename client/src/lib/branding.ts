@@ -38,11 +38,15 @@ export const brandingFromSources = (profile: Row | null | undefined, settingsRaw
 };
 
 export const fetchBrandingSnapshot = async (): Promise<BrandingSnapshot> => {
-  const [profile, settings] = await Promise.all([
-    apiFetch("/company-profile").catch(() => null),
-    apiFetch("/system-settings?limit=200").catch(() => []),
-  ]);
-  return brandingFromSources(profile, settings);
+  const fallback = brandingFromSources(null, []);
+  const payload = await apiFetch("/public-branding").catch(() => null);
+  if (!payload || typeof payload !== "object") return fallback;
+
+  return {
+    companyNameAr: firstString((payload as Row).companyNameAr, fallback.companyNameAr),
+    companyNameEn: firstString((payload as Row).companyNameEn, fallback.companyNameEn),
+    logoSrc: firstString((payload as Row).logoSrc),
+  };
 };
 
 export const defaultBranding: BrandingSnapshot = {
