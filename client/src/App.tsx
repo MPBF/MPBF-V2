@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Boxes, ClipboardList, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, ClipboardList, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Route, Switch, useLocation, useRoute } from "wouter";
 import UserDashboard from "./pages/UserDashboard";
+import HumanResources from "./pages/HumanResources";
 import SelfServiceAdmin from "./pages/SelfServiceAdmin";
 import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
 
@@ -126,6 +127,7 @@ const configs: Record<string, Config> = {
 const nav = [
   ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read], ["/products", "المنتجات", Boxes, configs.products.read],
   ["/orders", "الطلبات", FileText, configs.orders.read], ["/production", "الإنتاج", Factory, configs.production.read], ["/rolls", "الرولات", Package, configs.rolls.read],
+  ["/hr", "الموارد البشرية", UsersRound, ["manage_hr", "manage_attendance", "admin"]],
   ["/admin", "الإدارة", Shield, ["manage_users", "manage_roles", "manage_sections", "manage_settings", "manage_machines", "manage_maintenance", "manage_categories", "manage_items", "manage_master_batch", "manage_definitions", "view_orders", "manage_customers", "manage_orders", "admin"]],
 ] as const;
 
@@ -261,14 +263,51 @@ const permissionGroups = [
 ] as const;
 const allPermissionLabels = new Map<string, string>(permissionGroups.flatMap((group) => group.items as readonly (readonly [string, string])[]));
 
+const professionOptions = [
+  "مدير",
+  "مشرف",
+  "موظف إداري",
+  "محاسب",
+  "مندوب مبيعات",
+  "مشغل ماكينة",
+  "فني صيانة",
+  "فني كهرباء",
+  "فني ميكانيكا",
+  "مراقب جودة",
+  "أمين مستودع",
+  "عامل إنتاج",
+  "سائق",
+  "حارس أمن",
+  "عامل نظافة",
+  "أخرى",
+] as const;
+
+const nationalityOptions = [
+  "سعودي",
+  "مصري",
+  "سوداني",
+  "يمني",
+  "هندي",
+  "باكستاني",
+  "بنغلاديشي",
+  "نيبالي",
+  "فلبيني",
+  "سريلانكي",
+  "أردني",
+  "سوري",
+  "أخرى",
+] as const;
+
 function UserModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<Row>({ status: "active", include_in_attendance: true, must_change_password: false, is_system_user: false, ...row });
   const [roles, setRoles] = useState<Row[]>([]); const [sections, setSections] = useState<Row[]>([]); const [error, setError] = useState("");
   useEffect(() => { Promise.all([list("/roles"), list("/sections")]).then(([r, s]) => { setRoles(r); setSections(s); }).catch((e) => setError(e.message)); }, []);
-  const textFields = [["username","اسم المستخدم"],["display_name","الاسم الظاهر"],["display_name_ar","الاسم الظاهر بالعربية"],["full_name","الاسم الكامل"],["first_name","الاسم الأول"],["last_name","اسم العائلة"],["phone","الهاتف"],["email","البريد الإلكتروني"],["national_id","رقم الهوية"],["nationality","الجنسية"],["profession","المهنة"]] as const;
+  const textFields = [["username","اسم المستخدم"],["display_name","الاسم الظاهر"],["display_name_ar","الاسم الظاهر بالعربية"],["phone","الهاتف"],["email","البريد الإلكتروني"],["national_id","رقم الهوية"]] as const;
   const save = async (event: FormEvent) => { event.preventDefault(); setError(""); try {
     const body: Row = {};
     textFields.forEach(([key]) => { body[key] = key === "username" ? String(form[key] || "").trim() : form[key] || null; });
+    body.profession = form.profession || null;
+    body.nationality = form.nationality || null;
     body.birth_date = form.birth_date || null;
     body.service_start_date = form.service_start_date || null;
     body.status = form.status || "active";
@@ -283,6 +322,8 @@ function UserModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; o
     <header><div><div className="eyebrow">ملف هوية وصلاحيات</div><h3 id="user-dialog-title">{row.id ? "تعديل مستخدم" : "إضافة مستخدم"}</h3></div><button aria-label="إغلاق حوار المستخدم" title="إغلاق" type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>
     {error && <div className="error" style={{ margin: 18 }}>{error}</div>}<div className="form-grid">
       {textFields.map(([key, label]) => <div className="field" key={key}><label htmlFor={`user-${key}`}>{label}</label><input id={`user-${key}`} name={key} type={key === "email" ? "email" : key === "phone" ? "tel" : "text"} required={key === "username"} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></div>)}
+      <div className="field"><label htmlFor="user-profession">المهنة</label><select id="user-profession" value={form.profession ?? ""} onChange={(e) => setForm({ ...form, profession: e.target.value })}><option value="">اختر المهنة</option>{form.profession && !professionOptions.includes(form.profession as typeof professionOptions[number]) && <option value={String(form.profession)}>{String(form.profession)}</option>}{professionOptions.map((profession) => <option key={profession} value={profession}>{profession}</option>)}</select></div>
+      <div className="field"><label htmlFor="user-nationality">الجنسية</label><select id="user-nationality" value={form.nationality ?? ""} onChange={(e) => setForm({ ...form, nationality: e.target.value })}><option value="">اختر الجنسية</option>{form.nationality && !nationalityOptions.includes(form.nationality as typeof nationalityOptions[number]) && <option value={String(form.nationality)}>{String(form.nationality)}</option>}{nationalityOptions.map((nationality) => <option key={nationality} value={nationality}>{nationality}</option>)}</select></div>
       <div className="field"><label>الدور والصلاحية</label><select required value={form.role_id ?? ""} onChange={(e) => setForm({ ...form, role_id: e.target.value })}><option value="">اختر الدور</option>{roles.map((r) => <option key={r.id} value={r.id}>{r.name_ar || r.name}</option>)}</select></div>
       <div className="field"><label>القسم</label><select value={form.section_id ?? ""} onChange={(e) => setForm({ ...form, section_id: e.target.value })}><option value="">اختر القسم</option>{sections.map((s) => <option key={s.id} value={s.id}>{s.name_ar || s.name}</option>)}</select></div>
       <div className="field"><label>حالة الحساب</label><select value={form.status ?? "active"} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">نشط</option><option value="inactive">غير نشط</option></select></div>
@@ -301,7 +342,7 @@ function UsersAdmin({ user }: { user: Row }) {
   const remove = async (row: Row) => { if (!confirm("تأكيد حذف المستخدم؟")) return; try { await api(`/users/${row.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
   const arabicName = (row: Row) => row.display_name_ar || row.full_name || row.display_name || "—";
   const englishName = (row: Row) => row.display_name || row.full_name || "—";
-  return <><div className="page-heading"><div><div className="eyebrow">هوية الوصول · {rows.length} حساب</div><h2>مستخدمو النظام</h2></div><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة مستخدم</button></div>{error && <div className="error">{error}</div>}<section className="panel"><div className="panel-head"><div><h3>دليل المستخدمين</h3><small className="muted-text">بيانات الهوية، الدور، والقسم في مكان واحد</small></div><div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor="users-search">بحث في المستخدمين</label><input id="users-search" aria-label="بحث بالاسم أو المستخدم" className="search" placeholder="بحث بالاسم أو المستخدم…" value={search} onChange={(e) => setSearch(e.target.value)} /></div></div><div className="table-wrap"><table><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>القسم</th><th>الدور</th><th>الهاتف</th><th>خيارات</th></tr></thead><tbody>{rows.map((r) => <tr key={r.id}><td><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small></td><td>{r.username || "—"}</td><td>{r.section_name_ar || r.section_name || "—"}</td><td>{r.role_name_ar || r.role_name || "—"}</td><td>{r.phone || "—"}</td><td><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-plain" title="تعديل" onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-plain" title="حذف" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody></table><div className="mobile-cards user-cards">{rows.map((r) => <article className="entity-card" key={r.id}><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small><div className="card-line"><span>اسم المستخدم</span><b>{r.username || "—"}</b></div><div className="card-line"><span>القسم</span><b>{r.section_name_ar || r.section_name || "—"}</b></div><div className="card-line"><span>الدور</span><b>{r.role_name_ar || r.role_name || "—"}</b></div><div className="card-line"><span>الهاتف</span><b>{r.phone || "—"}</b></div><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-muted" onClick={() => setEdit(r)}><Pencil size={15} /> تعديل</button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-danger" onClick={() => remove(r)}><Trash2 size={15} /> حذف</button>}</div></article>)}</div>{!rows.length && <div className="empty"><strong>لا توجد حسابات</strong>أنشئ حساباً جديداً لبدء إدارة الوصول.</div>}</div></section>{edit && <UserModal row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
+  return <><div className="page-heading"><div><div className="eyebrow">هوية الوصول · {rows.length} حساب</div><h2>مستخدمو النظام</h2></div><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة مستخدم</button></div>{error && <div className="error">{error}</div>}<section className="panel"><div className="panel-head"><div><h3>دليل المستخدمين</h3><small className="muted-text">بيانات الهوية، الدور، والقسم في مكان واحد</small></div><div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor="users-search">بحث في المستخدمين</label><input id="users-search" aria-label="بحث بالاسم أو المستخدم" className="search" placeholder="بحث بالاسم أو المستخدم…" value={search} onChange={(e) => setSearch(e.target.value)} /></div></div><div className="table-wrap"><table className="users-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>القسم</th><th>الدور</th><th>الهاتف</th><th>خيارات</th></tr></thead><tbody>{rows.map((r) => <tr key={r.id}><td><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small></td><td>{r.username || "—"}</td><td>{r.section_name_ar || r.section_name || "—"}</td><td>{r.role_name_ar || r.role_name || "—"}</td><td>{r.phone || "—"}</td><td><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-plain" title="تعديل" onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-plain" title="حذف" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody></table><div className="mobile-cards user-cards">{rows.map((r) => <article className="entity-card" key={r.id}><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small><div className="card-line"><span>اسم المستخدم</span><b>{r.username || "—"}</b></div><div className="card-line"><span>القسم</span><b>{r.section_name_ar || r.section_name || "—"}</b></div><div className="card-line"><span>الدور</span><b>{r.role_name_ar || r.role_name || "—"}</b></div><div className="card-line"><span>الهاتف</span><b>{r.phone || "—"}</b></div><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-muted" onClick={() => setEdit(r)}><Pencil size={15} /> تعديل</button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-danger" onClick={() => remove(r)}><Trash2 size={15} /> حذف</button>}</div></article>)}</div>{!rows.length && <div className="empty"><strong>لا توجد حسابات</strong>أنشئ حساباً جديداً لبدء إدارة الوصول.</div>}</div></section>{edit && <UserModal row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
 }
 
 function RoleModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; onSaved: () => void }) {
@@ -339,22 +380,6 @@ function SettingsAdmin() {
   });
   const [logoDataUrl, setLogoDataUrl] = useState("");
   const [logoFileName, setLogoFileName] = useState("");
-  const [shifts, setShifts] = useState<Row[]>([]);
-  const [shiftDraft, setShiftDraft] = useState<Row>({
-    id: "",
-    name_ar: "",
-    name_en: "",
-    start_time: "08:00",
-    end_time: "16:00",
-    early_checkin_minutes: 15,
-    late_checkout_minutes: 15,
-    next_day_checkin_time: "06:00",
-    missing_checkout_policy: "end_of_shift",
-    missing_checkout_cutoff_time: "",
-    break_minutes: 30,
-    break_policy: "unpaid",
-  });
-  const [editingShiftId, setEditingShiftId] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
 
@@ -373,46 +398,15 @@ function SettingsAdmin() {
     { value: "friday", label: "الجمعة" },
     { value: "saturday", label: "السبت" },
   ];
-  const attendanceWindowOptions = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180];
-  const breakDurationOptions = [0, 15, 30, 45, 60, 75, 90];
-  const missingCheckoutPolicies = [
-    { value: "end_of_shift", label: "اعتبار نهاية الوردية" },
-    { value: "manual_cutoff", label: "استخدام وقت ثابت" },
-    { value: "mark_absent", label: "اعتبار الحالة غياب" },
-  ];
-  const breakPolicies = [
-    { value: "paid", label: "استراحة مدفوعة" },
-    { value: "unpaid", label: "استراحة غير مدفوعة" },
-    { value: "deduct_if_exceeds", label: "خصم فقط عند التجاوز" },
-  ];
 
-  const settingsByKey = useMemo(() => Object.fromEntries(settings.map((row) => [String(row.setting_key), row])), [settings]);
-
-  const normalizeTime = (value: string) => {
-    const cleaned = latinDigits(String(value || "")).trim();
-    const match = cleaned.match(/^(\d{1,2}):(\d{1,2})$/);
-    if (!match) return cleaned;
-    return `${match[1].padStart(2, "0")}:${match[2].padStart(2, "0")}`;
-  };
-
-  const timeToMinutes = (value: string) => {
-    const [hour, minute] = normalizeTime(value).split(":").map(Number);
-    return hour * 60 + minute;
-  };
+  const settingsByKey = useMemo(
+    () => Object.fromEntries(settings.map((row) => [String(row.setting_key), row])),
+    [settings],
+  );
 
   const parseBoolean = (value: unknown, fallback = false) => {
     if (value === undefined || value === null || value === "") return fallback;
     return String(value).toLowerCase() === "true";
-  };
-
-  const parseJsonSetting = (key: string, fallback: any) => {
-    try {
-      const raw = settingsByKey[key]?.setting_value;
-      if (!raw) return fallback;
-      return JSON.parse(raw);
-    } catch {
-      return fallback;
-    }
   };
 
   const getSettingValue = (key: string, fallback = "") => {
@@ -421,39 +415,11 @@ function SettingsAdmin() {
     return String(value);
   };
 
-  const resetShiftDraft = () => {
-    setEditingShiftId("");
-    setShiftDraft({
-      id: "",
-      name_ar: "",
-      name_en: "",
-      start_time: "08:00",
-      end_time: "16:00",
-      early_checkin_minutes: 15,
-      late_checkout_minutes: 15,
-      next_day_checkin_time: "06:00",
-      missing_checkout_policy: "end_of_shift",
-      missing_checkout_cutoff_time: "",
-      break_minutes: 30,
-      break_policy: "unpaid",
-    });
-  };
-
-  const shiftIntervals = (row: Row): Array<[number, number]> => {
-    const start = timeToMinutes(String(row.start_time));
-    const endBase = timeToMinutes(String(row.end_time));
-    const end = endBase <= start ? endBase + 1440 : endBase;
-    return [[start, end], [start + 1440, end + 1440]];
-  };
-
-  const intervalsOverlap = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
-
   useEffect(() => {
     Promise.all([api("/company-profile"), list("/system-settings")])
       .then(([company, sys]) => {
         const loadedProfile = company || {};
-        const loadedSettings = Array.isArray(sys) ? sys : [];
-        setSettings(loadedSettings);
+        setSettings(Array.isArray(sys) ? sys : []);
         setProfile({
           name: loadedProfile.name ?? "",
           name_ar: loadedProfile.name_ar ?? "",
@@ -478,8 +444,6 @@ function SettingsAdmin() {
     });
     setLogoDataUrl(getSettingValue("company_logo_data_url", ""));
     setLogoFileName(getSettingValue("company_logo_file_name", ""));
-    const loadedShifts = parseJsonSetting("work_shifts", []);
-    setShifts(Array.isArray(loadedShifts) ? loadedShifts : []);
   }, [settingsByKey]);
 
   const upsertSetting = async (key: string, value: string, type: string, description: string) => {
@@ -515,17 +479,19 @@ function SettingsAdmin() {
     setSaved("");
     try {
       if (!String(profile.name || "").trim()) throw new Error("اسم الشركة مطلوب");
-      const companyBody: Row = {
-        name: String(profile.name).trim(),
-        name_ar: profile.name_ar || null,
-        tax_number: profile.tax_number || null,
-        phone: profile.phone || null,
-        email: profile.email || null,
-        address: profile.address || null,
-        default_language: profile.default_language || "ar",
-        working_hours_per_day: Number(profile.working_hours_per_day) || 8,
-      };
-      await api("/company-profile", { method: "PUT", body: JSON.stringify(companyBody) });
+      await api("/company-profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          name: String(profile.name).trim(),
+          name_ar: profile.name_ar || null,
+          tax_number: profile.tax_number || null,
+          phone: profile.phone || null,
+          email: profile.email || null,
+          address: profile.address || null,
+          default_language: profile.default_language || "ar",
+          working_hours_per_day: Number(profile.working_hours_per_day) || 8,
+        }),
+      });
 
       await upsertSetting("factory_timezone", String(operations.timezone || "Asia/Riyadh"), "string", "المنطقة الزمنية للمصنع");
       await upsertSetting("overtime_factor", String(operations.overtime_factor || "1.50"), "number", "معامل ساعة العمل الإضافي");
@@ -555,8 +521,7 @@ function SettingsAdmin() {
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const value = String(reader.result || "");
-      setLogoDataUrl(value);
+      setLogoDataUrl(String(reader.result || ""));
       setLogoFileName(file.name);
       setError("");
     };
@@ -564,95 +529,95 @@ function SettingsAdmin() {
     reader.readAsDataURL(file);
   };
 
-  const validateShiftDraft = () => {
-    const nameAr = String(shiftDraft.name_ar || "").trim();
-    const nameEn = String(shiftDraft.name_en || "").trim();
-    const start = normalizeTime(String(shiftDraft.start_time || ""));
-    const end = normalizeTime(String(shiftDraft.end_time || ""));
-    if (!nameAr) return "اسم الوردية بالعربي مطلوب";
-    if (!nameEn) return "اسم الوردية بالإنجليزي مطلوب";
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end)) return "بداية ونهاية الوردية بصيغة وقت صحيحة";
-    if (start === end) return "لا يمكن أن تكون بداية الوردية مساوية لنهايتها";
-    const cutoffTime = normalizeTime(String(shiftDraft.missing_checkout_cutoff_time || ""));
-    if (String(shiftDraft.missing_checkout_policy) === "manual_cutoff" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoffTime)) return "وقت ثابت مطلوب عند اختيار استخدام وقت ثابت";
-    const overnight = timeToMinutes(end) <= timeToMinutes(start);
-    const nextDayCheckin = normalizeTime(String(shiftDraft.next_day_checkin_time || ""));
-    if (overnight && !/^([01]\d|2[0-3]):[0-5]\d$/.test(nextDayCheckin)) return "وقت دخول اليوم الثاني مطلوب للورديات الممتدة لليوم التالي";
-
-    const duplicateName = shifts.find((item) => item.id !== editingShiftId && (String(item.name_ar || "").trim() === nameAr || String(item.name_en || "").trim().toLowerCase() === nameEn.toLowerCase()));
-    if (duplicateName) return "اسم الوردية مكرر";
-
-    const draftIntervals = shiftIntervals(shiftDraft);
-    const overlapping = shifts.find((item) => {
-      if (item.id === editingShiftId) return false;
-      const existingIntervals = shiftIntervals(item);
-      return draftIntervals.some((draftInterval) => existingIntervals.some((existingInterval) => intervalsOverlap(draftInterval, existingInterval)));
-    });
-    if (overlapping) return `تعارض في وقت الوردية مع ${overlapping.name_ar || overlapping.name_en}`;
-
-    return "";
-  };
-
-  const addOrUpdateShift = () => {
-    setError("");
-    setSaved("");
-    const message = validateShiftDraft();
-    if (message) {
-      setError(message);
-      return;
-    }
-    const normalizedStart = normalizeTime(String(shiftDraft.start_time || ""));
-    const normalizedEnd = normalizeTime(String(shiftDraft.end_time || ""));
-    const isOvernight = timeToMinutes(normalizedEnd) <= timeToMinutes(normalizedStart);
-    const normalized: Row = {
-      ...shiftDraft,
-      id: editingShiftId || `shift-${Date.now()}`,
-      name_ar: String(shiftDraft.name_ar || "").trim(),
-      name_en: String(shiftDraft.name_en || "").trim(),
-      start_time: normalizedStart,
-      end_time: normalizedEnd,
-      early_checkin_minutes: Number(shiftDraft.early_checkin_minutes || 0),
-      late_checkout_minutes: Number(shiftDraft.late_checkout_minutes || 0),
-      break_minutes: Number(shiftDraft.break_minutes || 0),
-      next_day_checkin_time: isOvernight ? normalizeTime(String(shiftDraft.next_day_checkin_time || "")) : "",
-      missing_checkout_cutoff_time: String(shiftDraft.missing_checkout_policy) === "manual_cutoff" ? normalizeTime(String(shiftDraft.missing_checkout_cutoff_time || "")) : "",
-    };
-    setShifts((current) => editingShiftId ? current.map((item) => (item.id === editingShiftId ? normalized : item)) : [...current, normalized]);
-    resetShiftDraft();
-  };
-
-  const editShift = (row: Row) => {
-    setEditingShiftId(String(row.id));
-    setShiftDraft({
-      ...row,
-      early_checkin_minutes: Number(row.early_checkin_minutes || 0),
-      late_checkout_minutes: Number(row.late_checkout_minutes || 0),
-      break_minutes: Number(row.break_minutes || 0),
-      next_day_checkin_time: row.next_day_checkin_time || "06:00",
-      missing_checkout_cutoff_time: row.missing_checkout_cutoff_time || "",
-    });
-  };
-
-  const removeShift = (row: Row) => {
-    if (!confirm(`حذف الوردية ${row.name_ar || row.name_en}؟`)) return;
-    setShifts((current) => current.filter((item) => item.id !== row.id));
-    if (editingShiftId === row.id) resetShiftDraft();
-  };
-
-  const saveShifts = async () => {
-    setError("");
-    setSaved("");
-    try {
-      await upsertSetting("work_shifts", JSON.stringify(shifts), "json", "تعريف ورديات العمل");
-      setSettings(await list("/system-settings"));
-      setSaved("تم حفظ نظام الورديات بنجاح");
-      window.dispatchEvent(new Event("branding:updated"));
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  return <div className="settings-layout"><div aria-live="polite">{error && <div className="error" role="alert">{error}</div>}{saved && <div className="success"><Check size={16} />{saved}</div>}</div><section className="panel settings-section"><div className="panel-head"><div><div className="eyebrow">هوية المصنع وتشغيل النظام</div><h3>الإعدادات الأساسية</h3></div><Building2 size={21} color="var(--orange)" /></div><form className="form-grid" onSubmit={saveCompanyAndOperations}><div className="field"><label htmlFor="profile-name-ar">اسم الشركة بالعربية</label><input id="profile-name-ar" value={profile.name_ar ?? ""} onChange={(e) => setProfile({ ...profile, name_ar: e.target.value })} /></div><div className="field"><label htmlFor="profile-name">اسم الشركة بالإنجليزية</label><input id="profile-name" required value={profile.name ?? ""} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div><div className="field"><label htmlFor="profile-tax">الرقم الضريبي</label><input id="profile-tax" value={profile.tax_number ?? ""} onChange={(e) => setProfile({ ...profile, tax_number: e.target.value })} /></div><div className="field"><label htmlFor="profile-phone">الهاتف</label><input id="profile-phone" type="tel" value={profile.phone ?? ""} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} /></div><div className="field"><label htmlFor="profile-email">البريد الإلكتروني</label><input id="profile-email" type="email" value={profile.email ?? ""} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></div><div className="field wide"><label htmlFor="profile-address">العنوان</label><textarea id="profile-address" value={profile.address ?? ""} onChange={(e) => setProfile({ ...profile, address: e.target.value })} /></div><div className="field wide"><label htmlFor="profile-logo-file">شعار الشركة (رفع ملف)</label><input id="profile-logo-file" type="file" accept="image/*" onChange={onLogoFileChange} />{logoFileName && <small className="cell-sub">الملف الحالي: {logoFileName}</small>}{logoDataUrl && <img src={logoDataUrl} alt="شعار الشركة" style={{ marginTop: 8, maxHeight: 72, borderRadius: 8, border: "1px solid var(--line)" }} />}</div><div className="field"><label htmlFor="default-language">اللغة الافتراضية</label><select id="default-language" value={profile.default_language ?? "ar"} onChange={(e) => setProfile({ ...profile, default_language: e.target.value })}>{languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div><div className="field"><label htmlFor="factory-timezone">المنطقة الزمنية</label><select id="factory-timezone" value={operations.timezone} onChange={(e) => setOperations({ ...operations, timezone: e.target.value })}>{timezoneOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="field"><label htmlFor="work-hours-day">ساعات العمل اليومية</label><select id="work-hours-day" value={String(profile.working_hours_per_day ?? 8)} onChange={(e) => setProfile({ ...profile, working_hours_per_day: Number(e.target.value) })}>{[6, 7, 8, 9, 10, 12].map((hours) => <option key={hours} value={hours}>{hours} ساعة</option>)}</select></div><div className="field"><label htmlFor="overtime-factor">معامل ساعة الإضافي</label><select id="overtime-factor" value={operations.overtime_factor} onChange={(e) => setOperations({ ...operations, overtime_factor: e.target.value })}>{overtimeFactorOptions.map((factor) => <option key={factor} value={factor}>{factor}x</option>)}</select></div><div className="field"><label htmlFor="holiday-day">يوم العطلة الأسبوعي</label><select id="holiday-day" value={operations.weekly_holiday_day} onChange={(e) => setOperations({ ...operations, weekly_holiday_day: e.target.value })}>{weeklyHolidayOptions.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></div><div className="field"><label htmlFor="holiday-overtime">احتساب إضافي في يوم العطلة</label><select id="holiday-overtime" value={String(operations.enable_holiday_overtime)} onChange={(e) => setOperations({ ...operations, enable_holiday_overtime: e.target.value })}><option value="true">مفعل</option><option value="false">غير مفعل</option></select></div><div className="wide"><button className="btn btn-primary">حفظ الإعدادات الأساسية</button></div></form></section><section className="panel settings-section"><div className="panel-head"><div><div className="eyebrow">نظام ورديات العمل</div><h3>إدارة الورديات باعتمادية عالية</h3></div><Settings2 size={21} color="var(--teal)" /></div><div className="form-grid"><div className="field"><label htmlFor="shift-name-ar">اسم الوردية بالعربي</label><input id="shift-name-ar" value={shiftDraft.name_ar ?? ""} onChange={(e) => setShiftDraft({ ...shiftDraft, name_ar: e.target.value })} /></div><div className="field"><label htmlFor="shift-name-en">اسم الوردية بالإنجليزي</label><input id="shift-name-en" value={shiftDraft.name_en ?? ""} onChange={(e) => setShiftDraft({ ...shiftDraft, name_en: e.target.value })} /></div><div className="field"><label htmlFor="shift-start">بداية الوردية</label><input id="shift-start" type="time" value={shiftDraft.start_time ?? "08:00"} onChange={(e) => setShiftDraft({ ...shiftDraft, start_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-end">نهاية الوردية</label><input id="shift-end" type="time" value={shiftDraft.end_time ?? "16:00"} onChange={(e) => setShiftDraft({ ...shiftDraft, end_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-early">السماح بتسجيل الحضور مبكرًا</label><select id="shift-early" value={String(shiftDraft.early_checkin_minutes ?? 15)} onChange={(e) => setShiftDraft({ ...shiftDraft, early_checkin_minutes: Number(e.target.value) })}>{attendanceWindowOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}</select></div><div className="field"><label htmlFor="shift-late">السماح بتسجيل الخروج متأخرًا</label><select id="shift-late" value={String(shiftDraft.late_checkout_minutes ?? 15)} onChange={(e) => setShiftDraft({ ...shiftDraft, late_checkout_minutes: Number(e.target.value) })}>{attendanceWindowOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}</select></div><div className="field"><label htmlFor="shift-next-day">وقت دخول اليوم الثاني</label><input id="shift-next-day" type="time" value={shiftDraft.next_day_checkin_time ?? "06:00"} onChange={(e) => setShiftDraft({ ...shiftDraft, next_day_checkin_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-missing-policy">خيار عند عدم تسجيل الخروج</label><select id="shift-missing-policy" value={shiftDraft.missing_checkout_policy ?? "end_of_shift"} onChange={(e) => setShiftDraft({ ...shiftDraft, missing_checkout_policy: e.target.value })}>{missingCheckoutPolicies.map((policy) => <option key={policy.value} value={policy.value}>{policy.label}</option>)}</select></div><div className="field"><label htmlFor="shift-missing-cutoff">وقت ثابت عند غياب الخروج</label><input id="shift-missing-cutoff" type="time" disabled={shiftDraft.missing_checkout_policy !== "manual_cutoff"} value={shiftDraft.missing_checkout_cutoff_time ?? ""} onChange={(e) => setShiftDraft({ ...shiftDraft, missing_checkout_cutoff_time: e.target.value })} /></div><div className="field"><label htmlFor="shift-break-duration">مدة الاستراحة</label><select id="shift-break-duration" value={String(shiftDraft.break_minutes ?? 30)} onChange={(e) => setShiftDraft({ ...shiftDraft, break_minutes: Number(e.target.value) })}>{breakDurationOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}</select></div><div className="field"><label htmlFor="shift-break-policy">طريقة احتساب الاستراحة</label><select id="shift-break-policy" value={shiftDraft.break_policy ?? "unpaid"} onChange={(e) => setShiftDraft({ ...shiftDraft, break_policy: e.target.value })}>{breakPolicies.map((policy) => <option key={policy.value} value={policy.value}>{policy.label}</option>)}</select></div><div className="wide" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" className="btn btn-primary" onClick={addOrUpdateShift}>{editingShiftId ? "تحديث الوردية" : "إضافة وردية جديدة"}</button>{editingShiftId && <button type="button" className="btn btn-muted" onClick={resetShiftDraft}>إلغاء التعديل</button>}</div></div><div className="table-wrap" style={{ marginTop: 16 }}><table><thead><tr><th>م</th><th>الوردية</th><th>الوقت</th><th>الحضور/الخروج</th><th>الاستراحة</th><th>عدم تسجيل الخروج</th><th>إجراءات</th></tr></thead><tbody>{shifts.map((shift, index) => <tr key={shift.id || index}><td>{index + 1}</td><td><strong>{shift.name_ar}</strong><small className="cell-sub">{shift.name_en}</small></td><td>{shift.start_time} → {shift.end_time}<small className="cell-sub">دخول اليوم الثاني: {shift.next_day_checkin_time || "—"}</small></td><td>مبكر: {shift.early_checkin_minutes} د<small className="cell-sub">متأخر: {shift.late_checkout_minutes} د</small></td><td>{shift.break_minutes} دقيقة<small className="cell-sub">{breakPolicies.find((policy) => policy.value === shift.break_policy)?.label || shift.break_policy}</small></td><td>{missingCheckoutPolicies.find((policy) => policy.value === shift.missing_checkout_policy)?.label || shift.missing_checkout_policy}<small className="cell-sub">{shift.missing_checkout_cutoff_time || "—"}</small></td><td><div className="actions"><button aria-label="تعديل الوردية" title="تعديل" className="btn btn-plain" onClick={() => editShift(shift)}><Pencil size={16} /></button><button aria-label="حذف الوردية" title="حذف" className="btn btn-plain" onClick={() => removeShift(shift)}><Trash2 size={16} /></button></div></td></tr>)}{shifts.length === 0 && <tr><td colSpan={7}><div className="empty" style={{ border: "none", margin: 0 }}><strong>لا توجد ورديات معرفة</strong>أضف أول وردية من النموذج أعلاه.</div></td></tr>}</tbody></table></div><div style={{ marginTop: 14 }}><button type="button" className="btn btn-primary" onClick={saveShifts}>حفظ نظام الورديات</button></div></section></div>;
+  return (
+    <div className="settings-layout">
+      <div aria-live="polite">
+        {error && <div className="error" role="alert">{error}</div>}
+        {saved && <div className="success"><Check size={16} />{saved}</div>}
+      </div>
+      <section className="panel settings-section">
+        <div className="panel-head">
+          <div>
+            <div className="eyebrow">هوية المصنع وتشغيل النظام</div>
+            <h3>الإعدادات الأساسية</h3>
+          </div>
+          <Building2 size={21} color="var(--orange)" />
+        </div>
+        <form className="form-grid" onSubmit={saveCompanyAndOperations}>
+          <div className="field">
+            <label htmlFor="profile-name-ar">اسم الشركة بالعربية</label>
+            <input id="profile-name-ar" value={profile.name_ar ?? ""} onChange={(e) => setProfile({ ...profile, name_ar: e.target.value })} />
+          </div>
+          <div className="field">
+            <label htmlFor="profile-name">اسم الشركة بالإنجليزية</label>
+            <input id="profile-name" required value={profile.name ?? ""} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
+          </div>
+          <div className="field">
+            <label htmlFor="profile-tax">الرقم الضريبي</label>
+            <input id="profile-tax" value={profile.tax_number ?? ""} onChange={(e) => setProfile({ ...profile, tax_number: e.target.value })} />
+          </div>
+          <div className="field">
+            <label htmlFor="profile-phone">الهاتف</label>
+            <input id="profile-phone" type="tel" value={profile.phone ?? ""} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} />
+          </div>
+          <div className="field">
+            <label htmlFor="profile-email">البريد الإلكتروني</label>
+            <input id="profile-email" type="email" value={profile.email ?? ""} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
+          </div>
+          <div className="field wide">
+            <label htmlFor="profile-address">العنوان</label>
+            <textarea id="profile-address" value={profile.address ?? ""} onChange={(e) => setProfile({ ...profile, address: e.target.value })} />
+          </div>
+          <div className="field wide">
+            <label htmlFor="profile-logo-file">شعار الشركة (رفع ملف)</label>
+            <input id="profile-logo-file" type="file" accept="image/*" onChange={onLogoFileChange} />
+            {logoFileName && <small className="cell-sub">الملف الحالي: {logoFileName}</small>}
+            {logoDataUrl && <img src={logoDataUrl} alt="شعار الشركة" style={{ marginTop: 8, maxHeight: 72, borderRadius: 8, border: "1px solid var(--line)" }} />}
+          </div>
+          <div className="field">
+            <label htmlFor="default-language">اللغة الافتراضية</label>
+            <select id="default-language" value={profile.default_language ?? "ar"} onChange={(e) => setProfile({ ...profile, default_language: e.target.value })}>
+              {languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="factory-timezone">المنطقة الزمنية</label>
+            <select id="factory-timezone" value={operations.timezone} onChange={(e) => setOperations({ ...operations, timezone: e.target.value })}>
+              {timezoneOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="work-hours-day">ساعات العمل اليومية</label>
+            <select id="work-hours-day" value={String(profile.working_hours_per_day ?? 8)} onChange={(e) => setProfile({ ...profile, working_hours_per_day: Number(e.target.value) })}>
+              {[6, 7, 8, 9, 10, 12].map((hours) => <option key={hours} value={hours}>{hours} ساعة</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="overtime-factor">معامل ساعة الإضافي</label>
+            <select id="overtime-factor" value={operations.overtime_factor} onChange={(e) => setOperations({ ...operations, overtime_factor: e.target.value })}>
+              {overtimeFactorOptions.map((factor) => <option key={factor} value={factor}>{factor}x</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="holiday-day">يوم العطلة الأسبوعي</label>
+            <select id="holiday-day" value={operations.weekly_holiday_day} onChange={(e) => setOperations({ ...operations, weekly_holiday_day: e.target.value })}>
+              {weeklyHolidayOptions.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="holiday-overtime">احتساب إضافي في يوم العطلة</label>
+            <select id="holiday-overtime" value={String(operations.enable_holiday_overtime)} onChange={(e) => setOperations({ ...operations, enable_holiday_overtime: e.target.value })}>
+              <option value="true">مفعل</option>
+              <option value="false">غير مفعل</option>
+            </select>
+          </div>
+          <div className="wide">
+            <button className="btn btn-primary">حفظ الإعدادات الأساسية</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
 }
 
 
@@ -699,7 +664,7 @@ function App() {
   if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} />;
   const isAdmin = can(auth.user, ["admin"]);
-  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
+  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
 }
 
 export default App;

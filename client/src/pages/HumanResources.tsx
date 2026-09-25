@@ -1,0 +1,156 @@
+import { Check, Clock3, Edit3, LocateFixed, MapPin, Plus, RefreshCw, Search, Trash2, UserRoundCheck, UsersRound, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import "./human-resources.css";
+
+type Shift = {
+  id: string; name_ar: string; name_en: string | null; start_time: string; end_time: string;
+  next_day_checkin_time: string;
+  early_checkin_minutes: number; late_checkout_minutes: number; break_minutes: number;
+  geofence_enabled: boolean; geofence_center_lat: number | null; geofence_center_lng: number | null;
+  geofence_radius_meters: number; is_active: boolean; assigned_users: number;
+  created_at?: string; updated_at?: string;
+};
+type Employee = {
+  id: number; username: string | null; display_name: string | null; display_name_ar: string | null;
+  section_id: string | null; assignment_id: number | null; shift_id: string | null; assigned_at: string | null;
+};
+type History = { id: number; user_id: number; shift_id: string; assigned_at: string; unassigned_at: string | null; assigned_by: number | null };
+type HrData = { shifts: Shift[]; users: Employee[]; history: History[] };
+
+const emptyShift: Shift = {
+  id: "", name_ar: "", name_en: "", start_time: "08:00", end_time: "16:00",
+  next_day_checkin_time: "06:00",
+  early_checkin_minutes: 15, late_checkout_minutes: 15, break_minutes: 30,
+  geofence_enabled: true, geofence_center_lat: null, geofence_center_lng: null,
+  geofence_radius_meters: 200, is_active: true, assigned_users: 0,
+};
+
+const api = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
+  const response = await fetch(`/api/hr${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || "تعذر تنفيذ الطلب");
+  return body as T;
+};
+
+const employeeName = (employee: Employee) => employee.display_name_ar || employee.display_name || employee.username || `مستخدم ${employee.id}`;
+const timeStamp = (value: string | null) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(new Date(value)) : "مستمرة";
+
+export default function HumanResources() {
+  const [data, setData] = useState<HrData>({ shifts: [], users: [], history: [] });
+  const [selected, setSelected] = useState<number[]>([]);
+  const [bulkShift, setBulkShift] = useState("");
+  const [search, setSearch] = useState("");
+  const [draft, setDraft] = useState<Shift | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try { setData(await api<HrData>("/data")); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const visibleUsers = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return data.users;
+    return data.users.filter((employee) => `${employeeName(employee)} ${employee.username || ""} ${employee.section_id || ""}`.toLowerCase().includes(term));
+  }, [data.users, search]);
+  const shiftById = useMemo(() => new Map(data.shifts.map((shift) => [shift.id, shift])), [data.shifts]);
+
+  const saveShift = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!draft) return;
+    setBusy("shift"); setError(""); setNotice("");
+    try {
+      const { assigned_users: _assignedUsers, created_at: _createdAt, updated_at: _updatedAt, ...editable } = draft;
+      const payload = {
+        ...editable,
+        name_en: draft.name_en || null,
+        geofence_center_lat: draft.geofence_center_lat === null ? null : Number(draft.geofence_center_lat),
+        geofence_center_lng: draft.geofence_center_lng === null ? null : Number(draft.geofence_center_lng),
+        geofence_radius_meters: Number(draft.geofence_radius_meters),
+        early_checkin_minutes: Number(draft.early_checkin_minutes),
+        late_checkout_minutes: Number(draft.late_checkout_minutes),
+        break_minutes: Number(draft.break_minutes),
+      };
+      await api(editingId ? `/shifts/${encodeURIComponent(editingId)}` : "/shifts", {
+        method: editingId ? "PUT" : "POST",
+        body: JSON.stringify(editingId ? (({ id: _id, ...rest }) => rest)(payload) : payload),
+      });
+      setDraft(null); setEditingId(null); setNotice(editingId ? "تم تحديث الوردية." : "تم إنشاء الوردية.");
+      await load();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const removeShift = async (shift: Shift) => {
+    if (!confirm(`حذف وردية ${shift.name_ar}؟`)) return;
+    setBusy(`delete-${shift.id}`); setError(""); setNotice("");
+    try { await api(`/shifts/${encodeURIComponent(shift.id)}`, { method: "DELETE" }); setNotice("تم حذف الوردية."); await load(); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const assign = async (userIds: number[], shiftId: string | null) => {
+    if (!userIds.length) return;
+    setBusy("assign"); setError(""); setNotice("");
+    try {
+      const result = await api<{ changed: number }>("/assignments", { method: "POST", body: JSON.stringify({ user_ids: userIds, shift_id: shiftId }) });
+      setNotice(`تم تحديث ورديات ${result.changed} مستخدم.`); setSelected([]); await load();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const useCurrentLocation = () => {
+    if (!draft || !navigator.geolocation) return setError("المتصفح لا يدعم تحديد الموقع.");
+    setBusy("location"); setError("");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => { setDraft({ ...draft, geofence_center_lat: coords.latitude, geofence_center_lng: coords.longitude }); setBusy(""); },
+      () => { setError("تعذر تحديد الموقع. اسمح للموقع ثم أعد المحاولة."); setBusy(""); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  };
+
+  return <div className="hr-page" dir="rtl">
+    <div className="hr-hero"><div><span>HR / PEOPLE OPERATIONS</span><h2>الموارد البشرية</h2><p>إدارة ورديات الفريق وتكليفاته من مركز واحد.</p></div><button type="button" onClick={() => void load()} disabled={loading || !!busy}><RefreshCw size={17} /> تحديث</button></div>
+    <div className="hr-tabs" role="tablist"><button className="active" role="tab" aria-selected="true"><Clock3 size={17} /> إدارة الورديات</button></div>
+    {error && <div className="hr-alert error">{error}</div>}{notice && <div className="hr-alert success"><Check size={16} />{notice}</div>}
+
+    <section className="hr-shift-section">
+      <div className="hr-section-head"><div><span>تعريفات التشغيل</span><h3>الورديات الحالية</h3></div><button className="hr-primary" type="button" onClick={() => { setEditingId(null); setDraft({ ...emptyShift, id: `shift-${Date.now()}` }); }}><Plus size={17} /> إضافة وردية</button></div>
+      <div className="hr-shift-grid">{data.shifts.map((shift) => <article className={`hr-shift-card ${shift.is_active ? "" : "inactive"}`} key={shift.id}>
+        <div className="hr-shift-top"><div className="hr-shift-clock"><Clock3 size={19} /></div><div><strong>{shift.name_ar}</strong><small>{shift.name_en || shift.id}</small></div><span>{shift.assigned_users} موظف</span></div>
+        <div className="hr-shift-time"><b>{shift.start_time}</b><i /><b>{shift.end_time}</b></div>
+        <div className="hr-shift-meta"><span><MapPin size={13} />{shift.geofence_enabled ? `${shift.geofence_radius_meters} متر` : "الموقع غير مفعّل"}</span><span>دخول اليوم التالي {shift.next_day_checkin_time}</span><span>سماح ± {shift.early_checkin_minutes}/{shift.late_checkout_minutes} د</span></div>
+        <footer><button type="button" onClick={() => { setEditingId(shift.id); setDraft({ ...shift }); }}><Edit3 size={15} /> تعديل</button><button type="button" disabled={busy === `delete-${shift.id}`} onClick={() => void removeShift(shift)}><Trash2 size={15} /> حذف</button></footer>
+      </article>)}{!loading && !data.shifts.length && <div className="hr-empty">لا توجد ورديات. أنشئ الوردية الأولى للبدء.</div>}</div>
+    </section>
+
+    <section className="hr-assignment-section">
+      <div className="hr-section-head"><div><span>توزيع الفريق</span><h3>تكليف المستخدمين</h3></div><div className="hr-search"><Search size={16} /><input placeholder="بحث بالاسم أو المستخدم…" value={search} onChange={(event) => setSearch(event.target.value)} /></div></div>
+      <div className="hr-bulk"><div><UsersRound size={18} /><strong>{selected.length}</strong><span>محدد</span></div><select value={bulkShift} onChange={(event) => setBulkShift(event.target.value)}><option value="">اختر الوردية</option>{data.shifts.filter((shift) => shift.is_active).map((shift) => <option key={shift.id} value={shift.id}>{shift.name_ar}</option>)}</select><button type="button" disabled={!selected.length || !bulkShift || busy === "assign"} onClick={() => void assign(selected, bulkShift)}><UserRoundCheck size={16} /> تكليف المحددين</button><button className="muted" type="button" disabled={!selected.length || busy === "assign"} onClick={() => void assign(selected, null)}><X size={16} /> إلغاء التكليف</button></div>
+      <div className="hr-table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="تحديد الجميع" checked={visibleUsers.length > 0 && visibleUsers.every((employee) => selected.includes(employee.id))} onChange={(event) => setSelected(event.target.checked ? Array.from(new Set([...selected, ...visibleUsers.map((employee) => employee.id)])) : selected.filter((id) => !visibleUsers.some((employee) => employee.id === id)))} /></th><th>المستخدم</th><th>القسم</th><th>الوردية الحالية</th><th>بداية التكليف</th><th>تغيير فردي</th></tr></thead><tbody>{visibleUsers.map((employee) => <tr key={employee.id}><td><input type="checkbox" checked={selected.includes(employee.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, employee.id] : selected.filter((id) => id !== employee.id))} /></td><td><strong>{employeeName(employee)}</strong><small>{employee.username || "—"}</small></td><td>{employee.section_id || "—"}</td><td><span className={`hr-shift-pill ${employee.shift_id ? "assigned" : "unassigned"}`}>{employee.shift_id ? shiftById.get(employee.shift_id)?.name_ar || employee.shift_id : "غير مكلف"}</span></td><td>{timeStamp(employee.assigned_at)}</td><td><select aria-label={`وردية ${employeeName(employee)}`} value={employee.shift_id || ""} disabled={busy === "assign"} onChange={(event) => void assign([employee.id], event.target.value || null)}><option value="">بدون وردية</option>{data.shifts.filter((shift) => shift.is_active).map((shift) => <option key={shift.id} value={shift.id}>{shift.name_ar}</option>)}</select></td></tr>)}</tbody></table></div>
+    </section>
+
+    <section className="hr-history"><div className="hr-section-head"><div><span>سجل التدقيق</span><h3>آخر تغييرات الورديات</h3></div></div><div className="hr-history-list">{data.history.slice(0, 20).map((entry) => { const employee = data.users.find((item) => item.id === entry.user_id); return <div key={entry.id}><span className={entry.unassigned_at ? "closed" : "open"} /><strong>{employee ? employeeName(employee) : `مستخدم ${entry.user_id}`}</strong><b>{shiftById.get(entry.shift_id)?.name_ar || entry.shift_id}</b><small>{timeStamp(entry.assigned_at)} ← {timeStamp(entry.unassigned_at)}</small></div>; })}</div></section>
+
+    {draft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDraft(null)}><form className="hr-modal" onSubmit={saveShift}><header><div><span>SHIFT DEFINITION</span><h3>{editingId ? "تعديل الوردية" : "إضافة وردية"}</h3></div><button type="button" onClick={() => setDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
+      {!editingId && <label><span>رمز الوردية</span><input required value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} /></label>}
+      <label><span>اسم الوردية بالعربية</span><input required value={draft.name_ar} onChange={(event) => setDraft({ ...draft, name_ar: event.target.value })} /></label><label><span>الاسم بالإنجليزية</span><input value={draft.name_en || ""} onChange={(event) => setDraft({ ...draft, name_en: event.target.value })} /></label>
+      <label><span>وقت البداية</span><input type="time" required value={draft.start_time} onChange={(event) => setDraft({ ...draft, start_time: event.target.value })} /></label><label><span>وقت النهاية</span><input type="time" required value={draft.end_time} onChange={(event) => setDraft({ ...draft, end_time: event.target.value })} /></label><label><span>وقت دخول اليوم التالي</span><input type="time" required value={draft.next_day_checkin_time} onChange={(event) => setDraft({ ...draft, next_day_checkin_time: event.target.value })} /></label>
+      <label><span>السماح المبكر (دقيقة)</span><input type="number" min="0" max="240" value={draft.early_checkin_minutes} onChange={(event) => setDraft({ ...draft, early_checkin_minutes: Number(event.target.value) })} /></label><label><span>السماح المتأخر (دقيقة)</span><input type="number" min="0" max="240" value={draft.late_checkout_minutes} onChange={(event) => setDraft({ ...draft, late_checkout_minutes: Number(event.target.value) })} /></label><label><span>مدة الاستراحة (دقيقة)</span><input type="number" min="0" max="240" value={draft.break_minutes} onChange={(event) => setDraft({ ...draft, break_minutes: Number(event.target.value) })} /></label>
+      <label><span>تفعيل النطاق الجغرافي</span><select value={String(draft.geofence_enabled)} onChange={(event) => setDraft({ ...draft, geofence_enabled: event.target.value === "true" })}><option value="true">مفعّل</option><option value="false">غير مفعّل</option></select></label>
+      <label><span>خط العرض</span><input type="number" step="any" disabled={!draft.geofence_enabled} value={draft.geofence_center_lat ?? ""} onChange={(event) => setDraft({ ...draft, geofence_center_lat: event.target.value ? Number(event.target.value) : null })} /></label><label><span>خط الطول</span><input type="number" step="any" disabled={!draft.geofence_enabled} value={draft.geofence_center_lng ?? ""} onChange={(event) => setDraft({ ...draft, geofence_center_lng: event.target.value ? Number(event.target.value) : null })} /></label><label><span>نصف القطر بالمتر</span><input type="number" min="20" max="5000" disabled={!draft.geofence_enabled} value={draft.geofence_radius_meters} onChange={(event) => setDraft({ ...draft, geofence_radius_meters: Number(event.target.value) })} /></label>
+      <button className="hr-location" type="button" disabled={!draft.geofence_enabled || busy === "location"} onClick={useCurrentLocation}><LocateFixed size={16} />{busy === "location" ? "جارٍ تحديد الموقع…" : "استخدام موقعي كمركز"}</button>
+    </div><footer><button className="hr-primary" disabled={busy === "shift"}>{busy === "shift" ? "جارٍ الحفظ…" : "حفظ الوردية"}</button><button type="button" onClick={() => setDraft(null)}>إلغاء</button></footer></form></div>}
+  </div>;
+}

@@ -1,22 +1,32 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
-import { aliasedTable, and, desc, eq, ne, or, sql } from "drizzle-orm";
-import { z } from "zod";
 import {
   administrative_requests,
   attendance_events,
   internal_messages,
+  shift_definitions,
+  user_shift_assignments,
   user_violations,
   users,
 } from "@shared/schema";
-import { db } from "./db";
+import { aliasedTable, and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { z } from "zod";
+
 import { requireAuth, requirePermission } from "./auth";
-import { attendanceStatus, canRecordAttendance, presentDaysInMonth } from "./self-service-rules";
+import { db } from "./db";
+import { attendanceSessionSummary, attendanceStatus, canRecordAttendance, presentDaysInMonth } from "./self-service-rules";
+import {
+  distanceMeters,
+  currentShiftWindow,
+  toActiveShift,
+  validGeofence,
+  type ShiftDefinition,
+} from "./shift-geofence";
 
 const router = Router();
 const admin = requirePermission("admin");
 
-function httpError(message: string, status: number): Error & { status: number } {
-  return Object.assign(new Error(message), { status });
+function httpError(message: string, status: number, code?: string): Error & { status: number; code?: string } {
+  return Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 }
 
 function handle(
@@ -70,17 +80,54 @@ function currentRiyadhMonth() {
   return { month, start, end };
 }
 
+function shiftDefinition(row: typeof shift_definitions.$inferSelect): ShiftDefinition {
+  return {
+    id: row.id,
+    nameAr: row.name_ar,
+    nameEn: row.name_en ?? undefined,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    nextDayCheckinTime: row.next_day_checkin_time,
+    earlyCheckinMinutes: row.early_checkin_minutes,
+    lateCheckoutMinutes: row.late_checkout_minutes,
+    geofenceEnabled: row.geofence_enabled,
+    geofenceCenterLat: row.geofence_center_lat == null ? undefined : Number(row.geofence_center_lat),
+    geofenceCenterLng: row.geofence_center_lng == null ? undefined : Number(row.geofence_center_lng),
+    geofenceRadiusMeters: row.geofence_radius_meters,
+  };
+}
+
+function enforceShiftAndGeofence(shift: ShiftDefinition, input: { latitude: number; longitude: number }) {
+  const window = currentShiftWindow(shift);
+  if (!window) {
+    throw httpError("لا يمكن تنفيذ العملية خارج النطاق الزمني لورديتك", 403, "OUTSIDE_SHIFT_WINDOW");
+  }
+  if (!shift.geofenceEnabled) return window;
+  const geofence = validGeofence(shift);
+  if (!geofence) throw httpError("إعداد النطاق الجغرافي للوردية غير مكتمل", 409, "INVALID_GEOFENCE");
+  const distance = distanceMeters(input.latitude, input.longitude, geofence.centerLat, geofence.centerLng);
+  if (distance > geofence.radiusMeters) {
+    const shiftName = shift.nameAr || shift.nameEn || "الوردية الحالية";
+    throw httpError(
+      `موقعك خارج نطاق الحضور المسموح لوردية ${shiftName}. يجب أن تكون داخل ${Math.round(geofence.radiusMeters)} متر.`,
+      403,
+      "OUTSIDE_GEOFENCE",
+    );
+  }
+  return window;
+}
+
 router.use(requireAuth);
 
 router.get("/attendance", handle(async (req, res) => {
   const userId = req.user!.id;
   const { month, start, end } = currentRiyadhMonth();
-  const [recent, beforeMonth, events] = await Promise.all([
-    db.select({ action: attendance_events.action })
+  const [recent, beforeMonth, events, assignmentRows] = await Promise.all([
+    db.select({ action: attendance_events.action, occurred_at: attendance_events.occurred_at })
       .from(attendance_events)
       .where(eq(attendance_events.user_id, userId))
       .orderBy(desc(attendance_events.id))
-      .limit(1),
+      .limit(200),
     db.select({ action: attendance_events.action })
       .from(attendance_events)
       .where(and(eq(attendance_events.user_id, userId), sql`${attendance_events.occurred_at} < ${start}`))
@@ -101,8 +148,25 @@ router.get("/attendance", handle(async (req, res) => {
         sql`${attendance_events.occurred_at} < ${end}`,
       ))
       .orderBy(attendance_events.occurred_at, attendance_events.id),
+    db.select({ assignment_id: user_shift_assignments.id, shift: shift_definitions })
+      .from(user_shift_assignments)
+      .innerJoin(shift_definitions, eq(user_shift_assignments.shift_id, shift_definitions.id))
+      .where(and(
+        eq(user_shift_assignments.user_id, userId),
+        isNull(user_shift_assignments.unassigned_at),
+        eq(shift_definitions.is_active, true),
+      ))
+      .limit(1),
   ]);
-  const status = attendanceStatus(recent[0]?.action);
+  const serverNow = new Date();
+  const assignedShift = assignmentRows[0] ? shiftDefinition(assignmentRows[0].shift) : null;
+  const shiftWindow = assignedShift ? currentShiftWindow(assignedShift, serverNow) : null;
+  const currentEvents = shiftWindow
+    ? recent.filter((event) => event.occurred_at >= shiftWindow.start && event.occurred_at <= shiftWindow.end)
+    : [];
+  const status = attendanceStatus(currentEvents[0]?.action);
+  const session = attendanceSessionSummary(currentEvents, serverNow);
+  const withinShiftWindow = Boolean(shiftWindow);
   const daysPresent = presentDaysInMonth(
     events.map((event) => ({ action: event.action, occurred_at: event.occurred_at })),
     beforeMonth[0]?.action, start, end,
@@ -117,6 +181,12 @@ router.get("/attendance", handle(async (req, res) => {
     status,
     month,
     daysPresent,
+    activeShift: toActiveShift(assignedShift),
+    withinShiftWindow,
+    serverNow,
+    workedSeconds: session.workedSeconds,
+    sessionStartedAt: session.startedAt,
+    actionTimes: Object.fromEntries(Object.entries(session.actionTimes).map(([action, time]) => [action, time.toISOString()])),
   });
 }));
 
@@ -126,9 +196,24 @@ router.post("/attendance", handle(async (req, res) => {
   await db.transaction(async (tx) => {
     // Serialize actions per employee so simultaneous requests cannot skip a state.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${18497}, ${userId})`);
+    const assignment = await tx.select({ id: user_shift_assignments.id, shift: shift_definitions })
+      .from(user_shift_assignments)
+      .innerJoin(shift_definitions, eq(user_shift_assignments.shift_id, shift_definitions.id))
+      .where(and(
+        eq(user_shift_assignments.user_id, userId),
+        isNull(user_shift_assignments.unassigned_at),
+        eq(shift_definitions.is_active, true),
+      ))
+      .limit(1);
+    if (!assignment[0]) throw httpError("لم يتم تعيين وردية لك. تواصل مع إدارة الموارد البشرية", 409, "NO_SHIFT_ASSIGNMENT");
+    const shiftWindow = enforceShiftAndGeofence(shiftDefinition(assignment[0].shift), input);
     const latest = await tx.select({ action: attendance_events.action })
       .from(attendance_events)
-      .where(eq(attendance_events.user_id, userId))
+      .where(and(
+        eq(attendance_events.user_id, userId),
+        sql`${attendance_events.occurred_at} >= ${shiftWindow.start}`,
+        sql`${attendance_events.occurred_at} <= ${shiftWindow.end}`,
+      ))
       .orderBy(desc(attendance_events.id))
       .limit(1);
     const lastAction = latest[0]?.action;
@@ -137,6 +222,7 @@ router.post("/attendance", handle(async (req, res) => {
     }
     await tx.insert(attendance_events).values({
       user_id: userId,
+      shift_assignment_id: assignment[0].id,
       action: input.action,
       // clock_timestamp is evaluated at insertion after the per-user lock is acquired.
       occurred_at: sql`clock_timestamp()`,

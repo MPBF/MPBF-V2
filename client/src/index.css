@@ -91,6 +91,8 @@ th { text-align:right; background:#f2f7f4; color:var(--muted); font-size:11px; f
 td { padding:13px 16px; border-top:1px solid #edf2f0; white-space:nowrap; }
 tr:hover td { background:#fbfdfc; }
 .actions { display:flex; gap:4px; justify-content:flex-start; }
+.users-table th, .users-table td { text-align:center; }
+.users-table .actions { justify-content:center; }
 .tag { background:#e4f2ee; color:var(--teal-deep); border-radius:4px; padding:4px 8px; font-size:11px; font-weight:700; }
 .tag.orange { background:#faeadf; color:#a94e26; } .tag.red { background:#fae5e3; color:var(--danger); }
 .tag.neutral { background:#edf0ef; color:#536360; }

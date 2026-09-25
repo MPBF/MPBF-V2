@@ -14,6 +14,39 @@ export function canRecordAttendance(action: AttendanceAction, lastAction?: strin
     || (action === "check_out" && status === "working");
 }
 
+export function attendanceSessionSummary(
+  events: { action: string; occurred_at: Date }[],
+  now = new Date(),
+) {
+  const ordered = [...events].sort((a, b) => a.occurred_at.getTime() - b.occurred_at.getTime());
+  let sessionStartIndex = -1;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    if (ordered[index].action === "check_in") {
+      sessionStartIndex = index;
+      break;
+    }
+  }
+  if (sessionStartIndex < 0) return { startedAt: null, workedSeconds: 0, actionTimes: {} as Record<string, Date> };
+  const session = ordered.slice(sessionStartIndex);
+  let workingSince: number | null = null;
+  let workedMilliseconds = 0;
+  const actionTimes: Record<string, Date> = {};
+  for (const event of session) {
+    actionTimes[event.action] = event.occurred_at;
+    if (event.action === "check_in" || event.action === "break_end") workingSince = event.occurred_at.getTime();
+    if ((event.action === "break_start" || event.action === "check_out") && workingSince !== null) {
+      workedMilliseconds += Math.max(0, event.occurred_at.getTime() - workingSince);
+      workingSince = null;
+    }
+  }
+  if (workingSince !== null) workedMilliseconds += Math.max(0, now.getTime() - workingSince);
+  return {
+    startedAt: session[0].occurred_at,
+    workedSeconds: Math.floor(workedMilliseconds / 1000),
+    actionTimes,
+  };
+}
+
 function riyadhDay(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Riyadh",

@@ -1,12 +1,11 @@
 import http from "node:http";
-import path from "node:path";
 
 import connectPgSimple from "connect-pg-simple";
 import express, { type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
 
-import { pool, sessionPool } from "./db";
 import { populateUser } from "./auth";
+import { pool, sessionPool } from "./db";
 import api from "./routes";
 import { serveStatic, setupVite } from "./vite";
 
@@ -21,7 +20,7 @@ app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 const PgSession = connectPgSimple(session);
 const sessionStore = new PgSession({
-  pool: sessionPool,
+  pool: sessionPool as any,
   tableName: "sessions",
   createTableIfMissing: false,
   pruneSessionInterval: 60 * 60,
@@ -51,10 +50,17 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error("API error:", error instanceof Error ? error.message : error);
   if (res.headersSent) return;
   if ((error as { name?: string })?.name === "ZodError") {
-    return res.status(400).json({ message: "البيانات المدخلة غير صالحة", details: (error as any).issues });
+    return res.status(400).json({
+      message: "البيانات المدخلة غير صالحة",
+      details: (error as { issues?: unknown }).issues,
+    });
   }
   const status = Number((error as { status?: number })?.status) || 500;
-  res.status(status).json({ message: status === 500 ? "حدث خطأ داخلي" : String((error as Error)?.message || error) });
+  const code = (error as { code?: unknown })?.code;
+  res.status(status).json({
+    message: status === 500 ? "حدث خطأ داخلي" : String((error as Error)?.message || error),
+    ...(typeof code === "string" && code ? { code } : {}),
+  });
 });
 
 async function start() {

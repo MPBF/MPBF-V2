@@ -1,4 +1,4 @@
-export type Row = Record<string, any>;
+export type Row = Record<string, unknown>;
 
 export type BrandingSnapshot = {
   companyNameAr: string;
@@ -16,19 +16,19 @@ const apiFetch = async (path: string) => {
   return body;
 };
 
-const firstString = (...values: any[]): string => {
+const firstString = (...values: unknown[]): string => {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
 };
 
-const normalizeSettings = (settings: any): Row[] => (Array.isArray(settings) ? settings : []);
+const normalizeSettings = (settings: unknown): Row[] => (Array.isArray(settings) ? (settings as Row[]) : []);
 
-export const brandingFromSources = (profile: Row | null | undefined, settingsRaw: any): BrandingSnapshot => {
+export const brandingFromSources = (profile: Row | null | undefined, settingsRaw: unknown): BrandingSnapshot => {
   const settings = normalizeSettings(settingsRaw);
   const byKey = Object.fromEntries(settings.map((row) => [String(row.setting_key), row]));
-  const settingLogo = firstString(byKey.company_logo_data_url?.setting_value);
+  const settingLogo = firstString((byKey.company_logo_data_url as Row | undefined)?.setting_value);
   const profileLogo = firstString(profile?.logo_url);
   return {
     companyNameAr: firstString(profile?.name_ar, profile?.name, "MPBF"),
