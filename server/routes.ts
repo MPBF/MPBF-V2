@@ -35,6 +35,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
+import selfService from "./self-service";
 
 const router = Router();
 const admin = requirePermission("admin");
@@ -84,6 +85,7 @@ function userId(raw: string) {
 }
 
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
+router.use("/self", selfService);
 router.get("/public-branding", async (_req, res, next) => {
   try {
     const profile = (await db.select().from(company_profile).limit(1))[0] ?? null;
@@ -171,7 +173,7 @@ router.post("/change-password", requireAuth, async (req, res, next) => {
   }
 });
 
-router.get("/dashboard", requireAuth, async (_req, res, next) => {
+router.get("/dashboard", admin, async (_req, res, next) => {
   try {
     const names = [
       ["customers", customers],

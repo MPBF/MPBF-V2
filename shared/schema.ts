@@ -78,6 +78,78 @@ export const users = pgTable(
   ],
 );
 
+export const attendance_events = pgTable(
+  "attendance_events",
+  {
+    id: serial("id").primaryKey(),
+    user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    action: varchar("action", { length: 20 }).notNull(),
+    occurred_at: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    latitude: decimal("latitude", { precision: 9, scale: 6 }).notNull(),
+    longitude: decimal("longitude", { precision: 9, scale: 6 }).notNull(),
+    accuracy: decimal("accuracy", { precision: 10, scale: 2 }).notNull(),
+  },
+  (table) => [
+    index("idx_attendance_events_user_time").on(table.user_id, table.occurred_at),
+    check("attendance_events_action_check", sql`${table.action} IN ('check_in', 'break_start', 'break_end', 'check_out')`),
+    check("attendance_events_latitude_check", sql`${table.latitude} BETWEEN -90 AND 90`),
+    check("attendance_events_longitude_check", sql`${table.longitude} BETWEEN -180 AND 180`),
+    check("attendance_events_accuracy_check", sql`${table.accuracy} BETWEEN 0 AND 10000`),
+  ],
+);
+
+export const internal_messages = pgTable(
+  "internal_messages",
+  {
+    id: serial("id").primaryKey(),
+    sender_id: integer("sender_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    recipient_id: integer("recipient_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    reply_to_id: integer("reply_to_id").references((): any => internal_messages.id, { onDelete: "set null" }),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    read_at: timestamp("read_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_internal_messages_sender_created").on(table.sender_id, table.created_at),
+    index("idx_internal_messages_recipient_created").on(table.recipient_id, table.created_at),
+    check("internal_messages_check", sql`${table.sender_id} <> ${table.recipient_id}`),
+  ],
+);
+
+export const administrative_requests = pgTable(
+  "administrative_requests",
+  {
+    id: serial("id").primaryKey(),
+    user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 20 }).notNull(),
+    title: varchar("title", { length: 200 }).notNull(),
+    details: text("details").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    response: text("response"),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    responded_at: timestamp("responded_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_administrative_requests_user_created").on(table.user_id, table.created_at),
+    index("idx_administrative_requests_status_created").on(table.status, table.created_at),
+    check("administrative_requests_type_check", sql`${table.type} IN ('leave', 'permission', 'other')`),
+    check("administrative_requests_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
+  ],
+);
+
+export const user_violations = pgTable(
+  "user_violations",
+  {
+    id: serial("id").primaryKey(),
+    user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 200 }).notNull(),
+    details: text("details").notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    acknowledged_at: timestamp("acknowledged_at", { withTimezone: true }),
+  },
+  (table) => [index("idx_user_violations_user_created").on(table.user_id, table.created_at)],
+);
+
 export const customers = pgTable(
   "customers",
   {
