@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { and, count, desc, eq, getTableColumns, ilike, or, aliasedTable } from "drizzle-orm";
+import { and, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import {
   categories,
@@ -413,6 +413,28 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           .leftJoin(customers, eq(orders.customer_id, customers.id))
           .where(search ? or(...conditions) : undefined)
           .orderBy(desc(orders.id)).limit(limit).offset(offset);
+        if (rows.length) {
+          const linked = await db.select({
+            id: production_orders.id,
+            order_id: production_orders.order_id,
+            production_order_number: production_orders.production_order_number,
+            quantity_kg: production_orders.quantity_kg,
+            item_name: items.name,
+            item_name_ar: items.name_ar,
+            item_id: customer_products.item_id,
+          }).from(production_orders)
+            .leftJoin(customer_products, eq(production_orders.customer_product_id, customer_products.id))
+            .leftJoin(items, eq(customer_products.item_id, items.id))
+            .where(inArray(production_orders.order_id, rows.map((row) => row.id)))
+            .orderBy(production_orders.id);
+          const byOrder = new Map<number, typeof linked>();
+          for (const production of linked) {
+            const entries = byOrder.get(production.order_id) ?? [];
+            entries.push(production);
+            byOrder.set(production.order_id, entries);
+          }
+          rows = rows.map((order) => ({ ...order, production_orders_summary: byOrder.get(order.id) ?? [] }));
+        }
       } else if (path === "production-orders") {
         const conditions = [
           ...entitySearch[path], orders.order_number, customer_products.size_caption,
