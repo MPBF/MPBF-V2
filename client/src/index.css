@@ -112,6 +112,13 @@ tr:hover td { background:#fbfdfc; }
 .color-stack span { display:block; max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; font-weight:600; }
 .input-with-preview { display:flex; align-items:center; gap:8px; }.input-with-preview input { flex:1; min-width:0; }.color-preview { width:28px; height:28px; flex:0 0 28px; border:1px solid rgba(0,0,0,.18); border-radius:50%; }
 .mobile-cards { display:none; }
+.order-production-list { display:grid; gap:6px; min-width:0; }
+.order-production-item { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; padding:6px 0; border-bottom:1px solid var(--line); font-size:12px; white-space:normal; }
+.order-production-item:last-child { border-bottom:0; }
+.order-production-item strong { color:var(--teal-deep); direction:ltr; unicode-bidi:isolate; }
+.order-production-item span { overflow-wrap:anywhere; }
+.order-production-quantity { font-weight:700; color:var(--ink); }
+@media(max-width:700px){ .entity-card .card-line:has(.order-production-list){display:block}.entity-card .card-line b:has(.order-production-list){display:block;max-width:100%;white-space:normal;overflow:visible;margin-top:6px} }
 .empty { padding:55px 20px; text-align:center; color:var(--muted); } .empty strong { display:block;color:var(--ink);font-size:16px;margin-bottom:4px; }
 .error { background:#fae5e3; color:var(--danger); padding:12px 15px; margin-bottom:15px; border:1px solid #edc3be; }
 .skeleton { height:19px; background:linear-gradient(90deg,#e8efeb,#f7faf8,#e8efeb); background-size:200% 100%; animation:shimmer 1.3s infinite; border-radius:4px; }
