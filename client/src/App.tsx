@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Boxes, ClipboardList, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, ClipboardList, Copy, Factory, FileText, Gauge, LogOut, MapPin, Package, Pencil, Plus, Search, Shield, Trash2, Users, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Route, Switch, useLocation, useRoute } from "wouter";
 import UserDashboard from "./pages/UserDashboard";
 import SelfServiceAdmin from "./pages/SelfServiceAdmin";
+import ShiftGeofenceAdmin from "./pages/ShiftGeofenceAdmin";
 import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
 
 type Row = Record<string, any>;
@@ -335,6 +336,10 @@ function SettingsAdmin() {
     missing_checkout_cutoff_time: "",
     break_minutes: 30,
     break_policy: "unpaid",
+    geofence_enabled: false,
+    geofence_center_lat: "",
+    geofence_center_lng: "",
+    geofence_radius_meters: 200,
   });
   const [editingShiftId, setEditingShiftId] = useState("");
   const [error, setError] = useState("");
@@ -418,6 +423,10 @@ function SettingsAdmin() {
       missing_checkout_cutoff_time: "",
       break_minutes: 30,
       break_policy: "unpaid",
+      geofence_enabled: false,
+      geofence_center_lat: "",
+      geofence_center_lng: "",
+      geofence_radius_meters: 200,
     });
   };
 
@@ -561,6 +570,15 @@ function SettingsAdmin() {
     const nextDayCheckin = normalizeTime(String(shiftDraft.next_day_checkin_time || ""));
     if (overnight && !/^([01]\d|2[0-3]):[0-5]\d$/.test(nextDayCheckin)) return "وقت دخول اليوم الثاني مطلوب للورديات الممتدة لليوم التالي";
 
+    if (parseBoolean(shiftDraft.geofence_enabled, false)) {
+      const lat = Number(shiftDraft.geofence_center_lat);
+      const lng = Number(shiftDraft.geofence_center_lng);
+      const radius = Number(shiftDraft.geofence_radius_meters);
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) return "خط عرض نطاق الوردية غير صالح";
+      if (!Number.isFinite(lng) || lng < -180 || lng > 180) return "خط طول نطاق الوردية غير صالح";
+      if (!Number.isFinite(radius) || radius < 20 || radius > 5000) return "نصف قطر نطاق الوردية يجب أن يكون بين 20 و 5000 متر";
+    }
+
     const duplicateName = shifts.find((item) => item.id !== editingShiftId && (String(item.name_ar || "").trim() === nameAr || String(item.name_en || "").trim().toLowerCase() === nameEn.toLowerCase()));
     if (duplicateName) return "اسم الوردية مكرر";
 
@@ -598,6 +616,10 @@ function SettingsAdmin() {
       break_minutes: Number(shiftDraft.break_minutes || 0),
       next_day_checkin_time: isOvernight ? normalizeTime(String(shiftDraft.next_day_checkin_time || "")) : "",
       missing_checkout_cutoff_time: String(shiftDraft.missing_checkout_policy) === "manual_cutoff" ? normalizeTime(String(shiftDraft.missing_checkout_cutoff_time || "")) : "",
+      geofence_enabled: parseBoolean(shiftDraft.geofence_enabled, false),
+      geofence_center_lat: shiftDraft.geofence_center_lat === "" || shiftDraft.geofence_center_lat === undefined || shiftDraft.geofence_center_lat === null ? null : Number(shiftDraft.geofence_center_lat),
+      geofence_center_lng: shiftDraft.geofence_center_lng === "" || shiftDraft.geofence_center_lng === undefined || shiftDraft.geofence_center_lng === null ? null : Number(shiftDraft.geofence_center_lng),
+      geofence_radius_meters: Number(shiftDraft.geofence_radius_meters || 0),
     };
     setShifts((current) => editingShiftId ? current.map((item) => (item.id === editingShiftId ? normalized : item)) : [...current, normalized]);
     resetShiftDraft();
@@ -612,6 +634,10 @@ function SettingsAdmin() {
       break_minutes: Number(row.break_minutes || 0),
       next_day_checkin_time: row.next_day_checkin_time || "06:00",
       missing_checkout_cutoff_time: row.missing_checkout_cutoff_time || "",
+      geofence_enabled: parseBoolean(row.geofence_enabled, false),
+      geofence_center_lat: row.geofence_center_lat ?? "",
+      geofence_center_lng: row.geofence_center_lng ?? "",
+      geofence_radius_meters: Number(row.geofence_radius_meters || 200),
     });
   };
 
@@ -639,10 +665,10 @@ function SettingsAdmin() {
 
 
 function Admin({ user }: { user: Row }) {
-  const tabs = [["users", "المستخدمون", Users, ["manage_users", "admin"]], ["roles", "الأدوار والصلاحيات", KeyRound, ["manage_roles", "admin"]], ["sections", "الأقسام", Boxes, ["manage_sections", "admin"]], ["machines", "الماكينات", Cog, ["manage_machines", "admin"]], ["components", "مكونات الصيانة", Wrench, ["manage_maintenance", "admin"]], ["categories", "التصنيفات", Boxes, configs.categories.read], ["items", "الأصناف", Package, configs.items.read], ["colors", "ألوان الماستر باتش", Cog, configs.colors.read], ["settings", "إعدادات المصنع", Settings2, ["manage_settings", "admin"]], ["self-requests", "الطلبات الإدارية", ClipboardList, ["admin"]], ["self-violations", "المخالفات", AlertTriangle, ["admin"]]] as const;
+  const tabs = [["users", "المستخدمون", Users, ["manage_users", "admin"]], ["roles", "الأدوار والصلاحيات", KeyRound, ["manage_roles", "admin"]], ["sections", "الأقسام", Boxes, ["manage_sections", "admin"]], ["machines", "الماكينات", Cog, ["manage_machines", "admin"]], ["components", "مكونات الصيانة", Wrench, ["manage_maintenance", "admin"]], ["categories", "التصنيفات", Boxes, configs.categories.read], ["items", "الأصناف", Package, configs.items.read], ["colors", "ألوان الماستر باتش", Cog, configs.colors.read], ["settings", "إعدادات المصنع", Settings2, ["manage_settings", "admin"]], ["shift-geofence", "نطاق حضور الورديات", MapPin, ["manage_settings", "admin"]], ["self-requests", "الطلبات الإدارية", ClipboardList, ["admin"]], ["self-violations", "المخالفات", AlertTriangle, ["admin"]]] as const;
   const visibleTabs = tabs.filter(([, , , permissions]) => can(user, permissions));
   const [tab, setTab] = useState(visibleTabs[0]?.[0] || "users");
-  return <><div className="admin-intro"><div><div className="eyebrow">مركز الإدارة · صلاحياتك مفعلة</div><h2>مكتب التحكم</h2><p>إدارة الهوية، الأصول، والتعريفات من مساحة واحدة منظمة.</p></div><div className="admin-mark"><Shield size={24} /><span>ADMIN / CORE</span></div></div><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{label}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} /> : tab === "roles" ? <RolesAdmin user={user} /> : tab === "settings" ? <SettingsAdmin /> : tab === "self-requests" ? <SelfServiceAdmin mode="requests" /> : tab === "self-violations" ? <SelfServiceAdmin mode="violations" /> : <EntityPage kind={tab} user={user} />}</div></>;
+  return <><div className="admin-intro"><div><div className="eyebrow">مركز الإدارة · صلاحياتك مفعلة</div><h2>مكتب التحكم</h2><p>إدارة الهوية، الأصول، والتعريفات من مساحة واحدة منظمة.</p></div><div className="admin-mark"><Shield size={24} /><span>ADMIN / CORE</span></div></div><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{label}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} /> : tab === "roles" ? <RolesAdmin user={user} /> : tab === "settings" ? <SettingsAdmin /> : tab === "shift-geofence" ? <ShiftGeofenceAdmin /> : tab === "self-requests" ? <SelfServiceAdmin mode="requests" /> : tab === "self-violations" ? <SelfServiceAdmin mode="violations" /> : <EntityPage kind={tab} user={user} />}</div></>;
 }
 
 function CustomerDetail({ user }: { user: Row }) {

@@ -1,22 +1,33 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
-import { aliasedTable, and, desc, eq, ne, or, sql } from "drizzle-orm";
-import { z } from "zod";
 import {
   administrative_requests,
   attendance_events,
   internal_messages,
+  system_settings,
   user_violations,
   users,
 } from "@shared/schema";
-import { db } from "./db";
+import { aliasedTable, and, desc, eq, ne, or, sql } from "drizzle-orm";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import { z } from "zod";
+
 import { requireAuth, requirePermission } from "./auth";
+import { db } from "./db";
 import { attendanceStatus, canRecordAttendance, presentDaysInMonth } from "./self-service-rules";
+import {
+  distanceMeters,
+  parseWorkShifts,
+  resolveActiveShift,
+  riyadhNowMinutes,
+  toActiveShift,
+  validGeofence,
+  type ShiftDefinition,
+} from "./shift-geofence";
 
 const router = Router();
 const admin = requirePermission("admin");
 
-function httpError(message: string, status: number): Error & { status: number } {
-  return Object.assign(new Error(message), { status });
+function httpError(message: string, status: number, code?: string): Error & { status: number; code?: string } {
+  return Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 }
 
 function handle(
@@ -70,12 +81,37 @@ function currentRiyadhMonth() {
   return { month, start, end };
 }
 
+async function loadActiveShift(): Promise<ShiftDefinition | null> {
+  const row = await db.select({ value: system_settings.setting_value })
+    .from(system_settings)
+    .where(eq(system_settings.setting_key, "work_shifts"))
+    .limit(1);
+  return resolveActiveShift(parseWorkShifts(row[0]?.value), riyadhNowMinutes());
+}
+
+async function enforceGeofence(input: { latitude: number; longitude: number }) {
+  const shift = await loadActiveShift();
+  if (!shift?.geofenceEnabled) return;
+  const geofence = validGeofence(shift);
+  if (!geofence) return;
+
+  const distance = distanceMeters(input.latitude, input.longitude, geofence.centerLat, geofence.centerLng);
+  if (distance > geofence.radiusMeters) {
+    const shiftName = shift.nameAr || shift.nameEn || "الوردية الحالية";
+    throw httpError(
+      `موقعك خارج نطاق الحضور المسموح لوردية ${shiftName}. يجب أن تكون داخل ${Math.round(geofence.radiusMeters)} متر.`,
+      403,
+      "OUTSIDE_GEOFENCE",
+    );
+  }
+}
+
 router.use(requireAuth);
 
 router.get("/attendance", handle(async (req, res) => {
   const userId = req.user!.id;
   const { month, start, end } = currentRiyadhMonth();
-  const [recent, beforeMonth, events] = await Promise.all([
+  const [recent, beforeMonth, events, activeShift] = await Promise.all([
     db.select({ action: attendance_events.action })
       .from(attendance_events)
       .where(eq(attendance_events.user_id, userId))
@@ -101,6 +137,7 @@ router.get("/attendance", handle(async (req, res) => {
         sql`${attendance_events.occurred_at} < ${end}`,
       ))
       .orderBy(attendance_events.occurred_at, attendance_events.id),
+    loadActiveShift(),
   ]);
   const status = attendanceStatus(recent[0]?.action);
   const daysPresent = presentDaysInMonth(
@@ -117,12 +154,14 @@ router.get("/attendance", handle(async (req, res) => {
     status,
     month,
     daysPresent,
+    activeShift: toActiveShift(activeShift),
   });
 }));
 
 router.post("/attendance", handle(async (req, res) => {
   const input = attendanceInput.parse(req.body);
   const userId = req.user!.id;
+  await enforceGeofence(input);
   await db.transaction(async (tx) => {
     // Serialize actions per employee so simultaneous requests cannot skip a state.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${18497}, ${userId})`);

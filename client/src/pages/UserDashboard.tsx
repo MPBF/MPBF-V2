@@ -1,5 +1,5 @@
+import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, FilePlus2, MapPin, MessageCircle, Navigation, RefreshCw, Send, ShieldAlert, Timer } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, FilePlus2, MapPin, MessageCircle, RefreshCw, Send, ShieldAlert, Timer, UserRound } from "lucide-react";
 import "./user-dashboard.css";
 
 type AttendanceAction = "check_in" | "break_start" | "break_end" | "check_out";
@@ -8,7 +8,28 @@ type Recipient = { id: number; display_name: string | null; display_name_ar: str
 type Message = { id: number; sender_id: number; recipient_id: number; sender_name: string; recipient_name: string; body: string; reply_to_id: number | null; created_at: string; read_at: string | null };
 type RequestRecord = { id: number; type: "leave" | "permission" | "other"; title: string; details: string; status: "pending" | "approved" | "rejected"; response: string | null; created_at: string };
 type Violation = { id: number; title: string; details: string; created_at: string; acknowledged_at: string | null };
-type AttendanceData = { events: AttendanceEvent[]; status: "out" | "working" | "break"; month: string; daysPresent: number };
+type DashboardUser = { id: number; display_name_ar?: string | null; display_name?: string | null; username?: string | null };
+type ActiveShift = {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  geofenceStatus: "enabled" | "disabled" | "invalid";
+  radiusMeters: number | null;
+};
+type AttendanceData = { events: AttendanceEvent[]; status: "out" | "working" | "break"; month: string; daysPresent: number; activeShift: ActiveShift | null };
+
+class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 const api = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
   const response = await fetch(`/api/self${path}`, {
@@ -16,8 +37,8 @@ const api = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || "تعذر تنفيذ الطلب");
+  const body = await response.json().catch(() => ({})) as { message?: string; code?: string };
+  if (!response.ok) throw new ApiError(body.message || "تعذر تنفيذ الطلب", response.status, body.code);
   return body as T;
 };
 
@@ -55,7 +76,7 @@ function locate(): Promise<{ latitude: number; longitude: number; accuracy: numb
   });
 }
 
-export default function UserDashboard({ user }: { user: Record<string, any> }) {
+export default function UserDashboard({ user }: { user: DashboardUser }) {
   const [attendance, setAttendance] = useState<AttendanceData | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,6 +85,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [errorTitle, setErrorTitle] = useState("");
   const [notice, setNotice] = useState("");
   const [recipientId, setRecipientId] = useState("");
   const [messageBody, setMessageBody] = useState("");
@@ -72,7 +94,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
-    setError("");
+    setError(""); setErrorTitle("");
     const results = await Promise.allSettled([
       api<AttendanceData>("/attendance"),
       api<Recipient[]>("/recipients"),
@@ -103,14 +125,16 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
   }, [attendance?.status]);
 
   const registerAttendance = async (action: AttendanceAction) => {
-    setBusy(action); setError(""); setNotice("");
+    setBusy(action); setError(""); setErrorTitle(""); setNotice("");
     try {
       const location = await locate();
       await post("/attendance", { action, ...location });
       setNotice(`تم ${actionNames[action]} بنجاح بعد التحقق من الموقع.`);
       await load(true);
     } catch (cause) {
-      setError((cause as Error).message);
+      const apiError = cause as ApiError;
+      setError(apiError.message);
+      if (apiError.code === "OUTSIDE_GEOFENCE") setErrorTitle("تعذر تسجيل الحضور من هذا الموقع");
     } finally {
       setBusy("");
     }
@@ -119,7 +143,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
   const sendMessage = async (event: FormEvent) => {
     event.preventDefault();
     if (!recipientId || !messageBody.trim()) return;
-    setBusy("message"); setError(""); setNotice("");
+    setBusy("message"); setError(""); setErrorTitle(""); setNotice("");
     try {
       await post("/messages", { recipient_id: Number(recipientId), body: messageBody.trim(), ...(replyTo ? { reply_to_id: replyTo } : {}) });
       setMessageBody(""); setReplyTo(null);
@@ -130,7 +154,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
   };
 
   const markRead = async (message: Message) => {
-    setBusy(`read-${message.id}`); setError("");
+    setBusy(`read-${message.id}`); setError(""); setErrorTitle("");
     try { await post(`/messages/${message.id}/read`, {}); await load(true); }
     catch (cause) { setError((cause as Error).message); }
     finally { setBusy(""); }
@@ -138,7 +162,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
 
   const submitRequest = async (event: FormEvent) => {
     event.preventDefault();
-    setBusy("request"); setError(""); setNotice("");
+    setBusy("request"); setError(""); setErrorTitle(""); setNotice("");
     try {
       await post("/requests", requestForm);
       setRequestForm({ type: "leave", title: "", details: "" });
@@ -149,7 +173,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
   };
 
   const acknowledge = async (violation: Violation) => {
-    setBusy(`violation-${violation.id}`); setError(""); setNotice("");
+    setBusy(`violation-${violation.id}`); setError(""); setErrorTitle(""); setNotice("");
     try {
       await post(`/violations/${violation.id}/ack`, {});
       setNotice("تم تأكيد الاطلاع على المخالفة.");
@@ -174,7 +198,7 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
         </button>
       </div>
 
-      {error && <div className="self-alert self-alert-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div>}
+      {error && <div className="self-alert self-alert-error" role="alert"><AlertCircle size={18} /><div className="self-alert-copy">{errorTitle ? <strong>{errorTitle}</strong> : null}<span>{error}</span></div></div>}
       {notice && <div className="self-alert self-alert-success" role="status"><Check size={18} /><span>{notice}</span></div>}
 
       <div className="self-summary" aria-label="إحصاءاتك الشخصية">
@@ -189,6 +213,29 @@ export default function UserDashboard({ user }: { user: Record<string, any> }) {
           <div className="self-section-kicker"><MapPin size={15} /> الحضور والانصراف</div>
           <h3 id="self-attendance-title">{loading && !attendance ? "جارٍ تحميل الحالة…" : statusLabel}</h3>
           <p>الموقع إلزامي لكل تسجيل. سيُطلب إذن الموقع عند تنفيذ كل إجراء.</p>
+          <div className={`self-shift-context is-${attendance?.activeShift?.geofenceStatus || "none"}`}>
+            <span className="self-shift-icon"><Navigation size={18} /></span>
+            <div className="self-shift-copy">
+              <span className="self-shift-label">وردية اليوم</span>
+              {loading && !attendance ? <strong>جارٍ تحديد الوردية…</strong> : attendance?.activeShift ? (
+                <>
+                  <div className="self-shift-title"><strong>{attendance.activeShift.name}</strong><span>{attendance.activeShift.startTime}–{attendance.activeShift.endTime}</span></div>
+                  <div className="self-shift-geofence">
+                    <span className="self-shift-badge">
+                      {attendance.activeShift.geofenceStatus === "enabled" ? "نطاق الموقع مفعّل" : attendance.activeShift.geofenceStatus === "disabled" ? "دون تقييد جغرافي" : "إعداد النطاق غير مكتمل"}
+                    </span>
+                    <small>
+                      {attendance.activeShift.geofenceStatus === "enabled"
+                        ? `يجب أن تكون داخل ${attendance.activeShift.radiusMeters} متر لإتمام التسجيل.`
+                        : attendance.activeShift.geofenceStatus === "disabled"
+                          ? "لا يوجد تقييد جغرافي لهذه الوردية."
+                          : "يرجى التواصل مع الإدارة."}
+                    </small>
+                  </div>
+                </>
+              ) : <strong>لا توجد وردية نشطة في الوقت الحالي</strong>}
+            </div>
+          </div>
           <div className="self-attendance-actions">
             {allAttendanceActions.map((action) => (
               <button
