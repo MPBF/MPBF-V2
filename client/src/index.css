@@ -98,6 +98,7 @@ tr:hover td { background:#fbfdfc; }
 .compact-customer { width:210px; min-width:190px; max-width:230px; }
 .compact-customer strong { display:block; font-size:15px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .compact-customer .cell-sub { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.column-order-customer { width:145px; min-width:120px; max-width:155px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .centered-column { text-align:center; vertical-align:middle; }
 .centered-column strong,.centered-column .cell-sub { text-align:center; }
 .column-category { width:132px; min-width:118px; max-width:145px; }

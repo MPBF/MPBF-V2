@@ -401,15 +401,11 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
             order_id: production_orders.order_id,
             production_order_number: production_orders.production_order_number,
             quantity_kg: production_orders.quantity_kg,
-            category_name: categories.name,
-            category_name_ar: categories.name_ar,
-            category_id: customer_products.category_id,
             item_name: items.name,
             item_name_ar: items.name_ar,
             item_id: customer_products.item_id,
           }).from(production_orders)
             .leftJoin(customer_products, eq(production_orders.customer_product_id, customer_products.id))
-            .leftJoin(categories, eq(customer_products.category_id, categories.id))
             .leftJoin(items, eq(customer_products.item_id, items.id))
             .where(inArray(production_orders.order_id, rows.map((row) => row.id)))
             .orderBy(production_orders.id);
