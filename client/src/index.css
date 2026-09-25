@@ -98,7 +98,21 @@ tr:hover td { background:#fbfdfc; }
 .compact-customer { width:210px; min-width:190px; max-width:230px; }
 .compact-customer strong { display:block; font-size:15px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .compact-customer .cell-sub { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.column-order-customer { width:145px; min-width:120px; max-width:155px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.column-order-customer { width:185px; min-width:165px; max-width:195px; text-align:right; direction:rtl; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.table-wrap:has(.order-number-column) { background:#f5f8f6; padding:0 12px 12px; }
+.table-wrap table:has(.order-number-column) { border-collapse:separate; border-spacing:0 8px; min-width:690px; }
+.table-wrap table:has(.order-number-column) th { background:transparent; padding:10px 13px 4px; color:#667c76; }
+.table-wrap table:has(.order-number-column) td { background:#fff; border-top:1px solid #e7efeb; border-bottom:1px solid #e7efeb; padding:13px; vertical-align:middle; transition:background .15s ease; }
+.table-wrap table:has(.order-number-column) tbody tr:hover td { background:#f9fcfa; }
+.table-wrap table:has(.order-number-column) td:first-child { border-right:3px solid var(--teal); border-radius:0 8px 8px 0; }
+.table-wrap table:has(.order-number-column) td:last-child { border-left:1px solid #e7efeb; border-radius:8px 0 0 8px; }
+.table-wrap table:has(.order-number-column) .order-production-item { background:#f4f8f6; border:0; border-radius:6px; padding:6px 9px; }
+.table-wrap table:has(.order-number-column) .order-production-item + .order-production-item { margin-top:3px; }
+.order-number-stack { display:grid; justify-items:start; gap:4px; min-width:0; }
+.order-number-code { font-size:14px; line-height:1.3; font-weight:800; color:var(--teal-deep); direction:ltr; unicode-bidi:isolate; }
+.order-number-date { font-size:11px; line-height:1.4; font-weight:500; color:var(--muted); white-space:nowrap; }
+.entity-card:has(.order-number-stack) { border-right:3px solid var(--teal); }
+.entity-card > strong:has(.order-number-stack) { white-space:normal; overflow:visible; }
 .centered-column { text-align:center; vertical-align:middle; }
 .centered-column strong,.centered-column .cell-sub { text-align:center; }
 .column-category { width:132px; min-width:118px; max-width:145px; }
