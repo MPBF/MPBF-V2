@@ -78,11 +78,52 @@ export const users = pgTable(
   ],
 );
 
+export const shift_definitions = pgTable(
+  "shift_definitions",
+  {
+    id: varchar("id", { length: 80 }).primaryKey(),
+    name_ar: varchar("name_ar", { length: 120 }).notNull(),
+    name_en: varchar("name_en", { length: 120 }),
+    start_time: varchar("start_time", { length: 5 }).notNull(),
+    end_time: varchar("end_time", { length: 5 }).notNull(),
+    next_day_checkin_time: varchar("next_day_checkin_time", { length: 5 }).notNull().default("06:00"),
+    early_checkin_minutes: integer("early_checkin_minutes").notNull().default(15),
+    late_checkout_minutes: integer("late_checkout_minutes").notNull().default(15),
+    break_minutes: integer("break_minutes").notNull().default(30),
+    geofence_enabled: boolean("geofence_enabled").notNull().default(true),
+    geofence_center_lat: decimal("geofence_center_lat", { precision: 9, scale: 6 }),
+    geofence_center_lng: decimal("geofence_center_lng", { precision: 9, scale: 6 }),
+    geofence_radius_meters: integer("geofence_radius_meters").notNull().default(200),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_shift_definitions_active").on(table.is_active)],
+);
+
+export const user_shift_assignments = pgTable(
+  "user_shift_assignments",
+  {
+    id: serial("id").primaryKey(),
+    user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    shift_id: varchar("shift_id", { length: 80 }).notNull().references(() => shift_definitions.id, { onDelete: "restrict" }),
+    assigned_at: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+    unassigned_at: timestamp("unassigned_at", { withTimezone: true }),
+    assigned_by: integer("assigned_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (table) => [
+    index("idx_user_shift_assignments_user_history").on(table.user_id, table.assigned_at),
+    index("idx_user_shift_assignments_shift_active").on(table.shift_id, table.unassigned_at),
+    uniqueIndex("uniq_user_active_shift").on(table.user_id).where(sql`${table.unassigned_at} IS NULL`),
+  ],
+);
+
 export const attendance_events = pgTable(
   "attendance_events",
   {
     id: serial("id").primaryKey(),
     user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    shift_assignment_id: integer("shift_assignment_id").references(() => user_shift_assignments.id, { onDelete: "set null" }),
     action: varchar("action", { length: 20 }).notNull(),
     occurred_at: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
     latitude: decimal("latitude", { precision: 9, scale: 6 }).notNull(),
@@ -487,6 +528,16 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   role: one(roles, { fields: [users.role_id], references: [roles.id] }),
   salesCustomers: many(customers),
   createdOrders: many(orders),
+  shiftAssignments: many(user_shift_assignments, { relationName: "shift_assignee" }),
+}));
+export const shiftDefinitionsRelations = relations(shift_definitions, ({ many }) => ({
+  assignments: many(user_shift_assignments),
+}));
+export const userShiftAssignmentsRelations = relations(user_shift_assignments, ({ one, many }) => ({
+  user: one(users, { fields: [user_shift_assignments.user_id], references: [users.id], relationName: "shift_assignee" }),
+  assignedBy: one(users, { fields: [user_shift_assignments.assigned_by], references: [users.id], relationName: "shift_assigner" }),
+  shift: one(shift_definitions, { fields: [user_shift_assignments.shift_id], references: [shift_definitions.id] }),
+  attendanceEvents: many(attendance_events),
 }));
 export const customersRelations = relations(customers, ({ one, many }) => ({
   salesRep: one(users, { fields: [customers.sales_rep_id], references: [users.id] }),
@@ -532,6 +583,7 @@ const omitGenerated = { id: true, created_at: true, updated_at: true } as const;
 export const insertRoleSchema = createInsertSchema(roles).omit({ id: true });
 export const insertSectionSchema = createInsertSchema(sections);
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, created_at: true, updated_at: true });
+export const insertShiftDefinitionSchema = createInsertSchema(shift_definitions).omit({ created_at: true, updated_at: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ created_at: true });
 export const insertCategorySchema = createInsertSchema(categories);
 export const insertItemSchema = createInsertSchema(items);

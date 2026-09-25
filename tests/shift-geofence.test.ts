@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 
 import {
   distanceMeters,
+  currentShiftWindow,
   parseWorkShifts,
   resolveActiveShift,
   toActiveShift,
@@ -82,5 +83,20 @@ describe("shift geofence context", () => {
   test("calculates distance in meters for enforcement", () => {
     expect(distanceMeters(24.7136, 46.6753, 24.7136, 46.6753)).toBe(0);
     expect(distanceMeters(24.7136, 46.6753, 24.7226, 46.6753)).toBeGreaterThan(990);
+  });
+
+  test("scopes attendance state to the current shift occurrence", () => {
+    const morning = parseWorkShifts([shift({ start_time: "08:00", end_time: "16:00", early_checkin_minutes: 15, late_checkout_minutes: 15 })])[0];
+    const current = currentShiftWindow(morning, new Date("2026-09-25T09:00:00+03:00"));
+    expect(current?.start.toISOString()).toBe("2026-09-25T04:45:00.000Z");
+    expect(current?.end.toISOString()).toBe("2026-09-25T13:15:00.000Z");
+    expect(currentShiftWindow(morning, new Date("2026-09-25T18:00:00+03:00"))).toBeNull();
+  });
+
+  test("finds the same overnight shift before and after midnight", () => {
+    const night = parseWorkShifts([shift({ start_time: "19:00", end_time: "03:00", early_checkin_minutes: 60, late_checkout_minutes: 60 })])[0];
+    expect(currentShiftWindow(night, new Date("2026-09-25T20:00:00+03:00"))).not.toBeNull();
+    expect(currentShiftWindow(night, new Date("2026-09-26T02:00:00+03:00"))).not.toBeNull();
+    expect(currentShiftWindow(night, new Date("2026-09-26T08:00:00+03:00"))).toBeNull();
   });
 });

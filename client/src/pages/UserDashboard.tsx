@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, FilePlus2, MapPin, MessageCircle, Navigation, RefreshCw, Send, ShieldAlert, Timer } from "lucide-react";
+import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, Coffee, FilePlus2, Fingerprint, LogIn, LogOut, MapPin, MessageCircle, Navigation, Play, RefreshCw, Send, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import "./user-dashboard.css";
 
@@ -8,7 +8,7 @@ type Recipient = { id: number; display_name: string | null; display_name_ar: str
 type Message = { id: number; sender_id: number; recipient_id: number; sender_name: string; recipient_name: string; body: string; reply_to_id: number | null; created_at: string; read_at: string | null };
 type RequestRecord = { id: number; type: "leave" | "permission" | "other"; title: string; details: string; status: "pending" | "approved" | "rejected"; response: string | null; created_at: string };
 type Violation = { id: number; title: string; details: string; created_at: string; acknowledged_at: string | null };
-type DashboardUser = { id: number; display_name_ar?: string | null; display_name?: string | null; username?: string | null };
+type DashboardUser = { id?: number; display_name_ar?: string | null; display_name?: string | null; username?: string | null };
 type ActiveShift = {
   id: string;
   name: string;
@@ -17,7 +17,7 @@ type ActiveShift = {
   geofenceStatus: "enabled" | "disabled" | "invalid";
   radiusMeters: number | null;
 };
-type AttendanceData = { events: AttendanceEvent[]; status: "out" | "working" | "break"; month: string; daysPresent: number; activeShift: ActiveShift | null };
+type AttendanceData = { events: AttendanceEvent[]; status: "out" | "working" | "break"; month: string; daysPresent: number; activeShift: ActiveShift | null; withinShiftWindow: boolean; serverNow: string; workedSeconds: number; sessionStartedAt: string | null; actionTimes: Partial<Record<AttendanceAction, string>> };
 
 class ApiError extends Error {
   status: number;
@@ -52,11 +52,20 @@ const monthName = (value: string) => {
     .format(new Date(Date.UTC(year, month - 1, 15, 9)));
 };
 const actionNames: Record<AttendanceAction, string> = {
-  check_in: "تسجيل الحضور", break_start: "بدء الاستراحة", break_end: "العودة من الاستراحة", check_out: "تسجيل الخروج",
+  check_in: "حضور", break_start: "استراحة", break_end: "استكمال", check_out: "خروج",
 };
 const allAttendanceActions: AttendanceAction[] = ["check_in", "break_start", "break_end", "check_out"];
 const requestNames: Record<RequestRecord["type"], string> = { leave: "إجازة", permission: "استئذان", other: "أخرى" };
 const requestStatus: Record<RequestRecord["status"], string> = { pending: "قيد المراجعة", approved: "مقبول", rejected: "مرفوض" };
+const attendanceIcons = { check_in: LogIn, break_start: Coffee, break_end: Play, check_out: LogOut } as const;
+const formatDuration = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const remaining = safe % 60;
+  return [hours, minutes, remaining].map((value) => String(value).padStart(2, "0")).join(":");
+};
+const actionTime = (value?: string) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Riyadh" }).format(new Date(value)) : "—";
 
 function locate(): Promise<{ latitude: number; longitude: number; accuracy: number }> {
   return new Promise((resolve, reject) => {
@@ -91,6 +100,7 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
   const [messageBody, setMessageBody] = useState("");
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const [requestForm, setRequestForm] = useState({ type: "leave" as RequestRecord["type"], title: "", details: "" });
+  const [timerTick, setTimerTick] = useState(Date.now());
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -117,6 +127,11 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (attendance?.status !== "working") return;
+    const timer = window.setInterval(() => setTimerTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [attendance?.status]);
 
   const attendanceActions = useMemo(() => {
     if (attendance?.status === "working") return ["break_start", "check_out"] as AttendanceAction[];
@@ -135,6 +150,9 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
       const apiError = cause as ApiError;
       setError(apiError.message);
       if (apiError.code === "OUTSIDE_GEOFENCE") setErrorTitle("تعذر تسجيل الحضور من هذا الموقع");
+      else if (apiError.code === "OUTSIDE_SHIFT_WINDOW") setErrorTitle("العملية خارج وقت الوردية");
+      else if (apiError.code === "NO_SHIFT_ASSIGNMENT") setErrorTitle("لا توجد وردية مكلّف بها");
+      else if (apiError.code === "INVALID_GEOFENCE") setErrorTitle("إعداد موقع الوردية غير مكتمل");
     } finally {
       setBusy("");
     }
@@ -184,6 +202,7 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
 
   const displayName = user.display_name_ar || user.display_name || user.username || "زميل";
   const statusLabel = attendance?.status === "working" ? "على رأس العمل" : attendance?.status === "break" ? "في الاستراحة" : "خارج العمل";
+  const liveWorkedSeconds = attendance ? attendance.workedSeconds + (attendance.status === "working" ? Math.max(0, Math.floor((timerTick - new Date(attendance.serverNow).getTime()) / 1000)) : 0) : 0;
 
   return (
     <div className="self-page" dir="rtl">
@@ -210,8 +229,8 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
 
       <section className="self-attendance self-panel" aria-labelledby="self-attendance-title">
         <div className="self-attendance-main">
-          <div className="self-section-kicker"><MapPin size={15} /> الحضور والانصراف</div>
-          <h3 id="self-attendance-title">{loading && !attendance ? "جارٍ تحميل الحالة…" : statusLabel}</h3>
+          <div className="self-section-kicker"><Fingerprint size={15} /> نظام البصمة</div>
+          <div className="self-attendance-status-line"><h3 id="self-attendance-title">{loading && !attendance ? "جارٍ تحميل الحالة…" : statusLabel}</h3><span className={`self-current-status is-${attendance?.status || "out"}`}>{statusLabel}</span></div>
           <p>الموقع إلزامي لكل تسجيل. سيُطلب إذن الموقع عند تنفيذ كل إجراء.</p>
           <div className={`self-shift-context is-${attendance?.activeShift?.geofenceStatus || "none"}`}>
             <span className="self-shift-icon"><Navigation size={18} /></span>
@@ -233,22 +252,21 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
                     </small>
                   </div>
                 </>
-              ) : <strong>لا توجد وردية نشطة في الوقت الحالي</strong>}
+              ) : <strong>لم يتم تعيين وردية لك</strong>}
             </div>
           </div>
+          <div className={`self-live-timer is-${attendance?.status || "out"}`}><div><span>وقت العمل الفعلي</span><strong dir="ltr">{formatDuration(liveWorkedSeconds)}</strong></div><small>{attendance?.status === "working" ? "العداد يعمل الآن" : attendance?.status === "break" ? "العداد متوقف مؤقتًا أثناء الاستراحة" : attendance?.sessionStartedAt ? "انتهت جلسة العمل" : "يبدأ عند تسجيل الحضور"}</small></div>
+          {attendance?.activeShift && !attendance.withinShiftWindow && <div className="self-window-warning"><Clock3 size={15} /> أنت خارج النطاق الزمني المسموح للوردية، جميع عمليات البصمة متوقفة.</div>}
           <div className="self-attendance-actions">
-            {allAttendanceActions.map((action) => (
-              <button
-                className={`self-attendance-btn ${action === "check_out" ? "is-out" : ""}`}
-                key={action}
-                type="button"
-                onClick={() => void registerAttendance(action)}
-                disabled={loading || !!busy || !attendance || !attendanceActions.includes(action)}
-              >
-                {busy === action ? <span className="self-spinner" /> : action === "check_out" ? <ArrowUpLeft size={18} /> : action === "break_start" ? <Timer size={18} /> : <MapPin size={18} />}
-                {busy === action ? "جارٍ تحديد الموقع…" : actionNames[action]}
-              </button>
-            ))}
+            {allAttendanceActions.map((action) => { const Icon = attendanceIcons[action]; return <div className={`self-attendance-action action-${action}`} key={action}><button
+              className={`self-attendance-btn action-${action}`}
+              type="button"
+              onClick={() => void registerAttendance(action)}
+              disabled={loading || !!busy || !attendance || !attendance.withinShiftWindow || !attendanceActions.includes(action)}
+            >
+              {busy === action ? <span className="self-spinner" /> : <Icon size={19} />}
+              {busy === action ? "جارٍ التحقق…" : actionNames[action]}
+            </button><time>{actionTime(attendance?.actionTimes[action])}</time></div>; })}
           </div>
         </div>
         <div className="self-attendance-stat">

@@ -35,6 +35,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
+import hr from "./hr";
 import selfService from "./self-service";
 
 const router = Router();
@@ -86,6 +87,7 @@ function userId(raw: string) {
 
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
 router.use("/self", selfService);
+router.use("/hr", hr);
 router.get("/public-branding", async (_req, res, next) => {
   try {
     const profile = (await db.select().from(company_profile).limit(1))[0] ?? null;
@@ -274,9 +276,25 @@ router.delete("/users/:id", admin, async (req, res, next) => {
   try {
     const id = userId(req.params.id);
     if (id === req.user!.id) return res.status(409).json({ message: "لا يمكن حذف المستخدم الحالي" });
-    const row: any[] = (await db.delete(users).where(eq(users.id, id)).returning({ id: users.id })) as any;
-    if (!row[0]) return res.status(404).json({ message: "المستخدم غير موجود" });
-    res.json({ success: true, id: row[0].id });
+    const target = (await db
+      .select({ id: users.id, is_system_user: users.is_system_user })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1))[0];
+    if (!target) return res.status(404).json({ message: "المستخدم غير موجود" });
+    if (target.is_system_user) return res.status(409).json({ message: "لا يمكن حذف مستخدم النظام" });
+
+    const row = await db.transaction(async (tx) => {
+      // These are historical/assignment references and should survive deleting
+      // the login account. Clear them explicitly because the live database uses
+      // NO ACTION/RESTRICT for these nullable foreign keys.
+      await tx.update(customers).set({ sales_rep_id: null }).where(eq(customers.sales_rep_id, id));
+      await tx.update(rolls).set({ created_by: null }).where(eq(rolls.created_by, id));
+      await tx.update(system_settings).set({ updated_by: null }).where(eq(system_settings.updated_by, id));
+      return (await tx.delete(users).where(eq(users.id, id)).returning({ id: users.id }))[0];
+    });
+    if (!row) return res.status(404).json({ message: "المستخدم غير موجود" });
+    res.json({ success: true, id: row.id });
   } catch (error) { next(error); }
 });
 

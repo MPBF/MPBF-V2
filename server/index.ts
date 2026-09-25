@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 const PgSession = connectPgSimple(session);
 const sessionStore = new PgSession({
-  pool: sessionPool,
+  pool: sessionPool as any,
   tableName: "sessions",
   createTableIfMissing: false,
   pruneSessionInterval: 60 * 60,

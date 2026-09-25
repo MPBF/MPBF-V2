@@ -4,6 +4,7 @@ export type ShiftDefinition = {
   nameEn?: string;
   startTime: string;
   endTime: string;
+  nextDayCheckinTime?: string;
   earlyCheckinMinutes: number;
   lateCheckoutMinutes: number;
   geofenceEnabled: boolean;
@@ -20,6 +21,8 @@ export type ActiveShift = {
   geofenceStatus: "enabled" | "disabled" | "invalid";
   radiusMeters: number | null;
 };
+
+export type ShiftWindow = { start: Date; end: Date };
 
 type ValidGeofence = {
   centerLat: number;
@@ -60,6 +63,25 @@ export function riyadhNowMinutes(now = new Date()): number {
   const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
   const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
   return hour * 60 + minute;
+}
+
+export function currentShiftWindow(shift: ShiftDefinition, now = new Date()): ShiftWindow | null {
+  const startMinutes = parseTimeMinutes(shift.startTime);
+  const endMinutes = parseTimeMinutes(shift.endTime);
+  if (startMinutes === null || endMinutes === null) return null;
+  const riyadhOffset = 3 * 60 * 60 * 1000;
+  const localNow = new Date(now.getTime() + riyadhOffset);
+  const year = localNow.getUTCFullYear();
+  const month = localNow.getUTCMonth();
+  const day = localNow.getUTCDate();
+  const overnight = endMinutes <= startMinutes;
+  for (const dayOffset of [0, -1]) {
+    const localMidnightUtc = Date.UTC(year, month, day + dayOffset);
+    const start = new Date(localMidnightUtc + startMinutes * 60_000 - riyadhOffset - shift.earlyCheckinMinutes * 60_000);
+    const end = new Date(localMidnightUtc + (endMinutes + (overnight ? 1440 : 0)) * 60_000 - riyadhOffset + shift.lateCheckoutMinutes * 60_000);
+    if (now >= start && now <= end) return { start, end };
+  }
+  return null;
 }
 
 export function parseWorkShifts(raw: unknown): ShiftDefinition[] {
