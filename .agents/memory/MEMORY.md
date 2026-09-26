@@ -20,7 +20,7 @@
 - [HR permission parity](hr-permission-parity.md) — HR tab UI gating must mirror each backend route's exact permission set; training routes also accept view_training/manage_training, so don't reuse generic HR flags there.
 - [Server-authoritative derived fields](derived-field-server-authority.md) — computed columns must be omitted from insert/update schemas and recomputed in storage (never trust client); frontend keeps a display-only copy of the same formula.
 - [Bag weight formula](bag-weight-formula.md) — customer_products weight = flatWidth × length × 2 layers × universal_thickness(µm→cm) × density; use universal (computed/hidden) thickness, never raw thickness.
-- [HR/schema tables need ensure-block](hr-ensure-block-tables.md) — drizzle-kit push doesn't run on existing DBs; tables only in schema.ts (not in server/index.ts ensure-block) are absent and 500 every query touching them.
+- [HR schema drift on existing DBs](hr-ensure-block-tables.md) — a declared HR table may be absent from a live DB; inspect actual columns and apply narrow additive dev migrations, not startup DDL.
 - [Vite @/ alias fragility](vite-at-alias-resolution.md) — `@/` imports can break dev server during Vite dep re-optimization after lockfile churn; use relative imports in client code.
 - [Approved leave/permission → attendance](approved-requests-attendance.md) — leave = attendance rows status "إجازة" (engine-derived, not absent); approved استئذان minutes credit late→early→withdrawn in engine; status is "موافق".
 - [Wage computation](wage-computation.md) — monthly net = basic+OT-deductions-penalties+rewards; no-checkout (incomplete) days must be deducted as non-payable or they get full pay (overpayment).
