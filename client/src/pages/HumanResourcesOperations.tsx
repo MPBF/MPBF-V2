@@ -1,0 +1,248 @@
+import { AlertTriangle, CalendarDays, Check, Download, Edit3, FileDown, Plus, Printer, Search, ShieldAlert, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+
+export type HrEmployee = {
+  id: number;
+  username: string | null;
+  display_name: string | null;
+  display_name_ar: string | null;
+  section_id: string | null;
+  section_name?: string | null;
+};
+
+type OperationsTab = "audit" | "report" | "violations";
+type AttendanceEvent = HrEmployee & {
+  id: number;
+  user_id: number;
+  action: AttendanceAction;
+  occurred_at: string;
+  source: "employee" | "manual";
+  created_by: number | null;
+  updated_by: number | null;
+  updated_at: string;
+};
+type AttendanceAction = "check_in" | "break_start" | "break_end" | "check_out";
+type SummaryRow = HrEmployee & {
+  workedMinutes: number;
+  daysWorked: number;
+  absentDays: number;
+  overtimeMinutes: number;
+};
+type Violation = HrEmployee & {
+  id: number;
+  user_id: number;
+  title: string;
+  details: string;
+  created_at: string;
+  acknowledged_at: string | null;
+};
+type Filters = { section: string; user: string };
+type EventDraft = { id?: number; user_id: string; action: AttendanceAction; occurred_at: string };
+type ViolationDraft = { user_id: string; title: string; details: string };
+
+const actionLabels: Record<AttendanceAction, string> = {
+  check_in: "تسجيل حضور",
+  break_start: "بدء استراحة",
+  break_end: "إنهاء استراحة",
+  check_out: "تسجيل انصراف",
+};
+
+const hrApi = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
+  const response = await fetch(`/api/hr${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.message || "تعذر تنفيذ الطلب");
+  return body as T;
+};
+
+const employeeName = (employee: HrEmployee) => employee.display_name_ar || employee.display_name || employee.username || `مستخدم ${employee.id}`;
+const reportArabicName = (employee: HrEmployee) => employee.display_name_ar || "—";
+const reportEnglishName = (employee: HrEmployee) => employee.display_name || "—";
+const sectionName = (employee: HrEmployee) => employee.section_name || "—";
+const riyadhToday = () => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const riyadhMonth = () => riyadhToday().slice(0, 7);
+const localDateTime = (value = new Date()) => {
+  const shifted = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
+  return shifted.toISOString().slice(0, 16);
+};
+const formatDateTime = (value: string) => new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
+  dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh",
+}).format(new Date(value));
+const formatMinutes = (minutes: number) => `${Math.floor(minutes / 60).toLocaleString("ar-SA-u-nu-latn")} س ${String(minutes % 60).padStart(2, "0")} د`;
+const query = (values: Record<string, string>) => new URLSearchParams(Object.entries(values).filter(([, value]) => value)).toString();
+const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]!);
+
+function printDocument(title: string, body: string) {
+  const popup = window.open("", "_blank", "width=1100,height=800");
+  if (!popup) throw new Error("اسمح بالنوافذ المنبثقة لإتمام الطباعة");
+  popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Tahoma,Arial,sans-serif;color:#183033;padding:28px}h1{font-size:22px;border-bottom:3px solid #08756e;padding-bottom:12px}table{width:100%;border-collapse:collapse;margin-top:18px}th,td{border:1px solid #cfded9;padding:9px;text-align:center}th{background:#e7f3ef}small{color:#647774}.signature{margin-top:60px;display:flex;justify-content:space-between}</style></head><body><h1>${title}</h1>${body}</body></html>`);
+  popup.document.close();
+  popup.focus();
+  window.setTimeout(() => popup.print(), 250);
+}
+
+export default function HumanResourcesOperations({ tab, employees }: { tab: OperationsTab; employees: HrEmployee[] }) {
+  const [filters, setFilters] = useState<Filters>({ section: "", user: "" });
+  const [day, setDay] = useState(riyadhToday);
+  const [month, setMonth] = useState(riyadhMonth);
+  const [events, setEvents] = useState<AttendanceEvent[]>([]);
+  const [summary, setSummary] = useState<SummaryRow[]>([]);
+  const [violations, setViolations] = useState<Violation[]>([]);
+  const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
+  const [violationDraft, setViolationDraft] = useState<ViolationDraft | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  const sections = useMemo(() => Array.from(new Map(employees.filter((employee) => employee.section_id).map((employee) => [employee.section_id!, sectionName(employee)])).entries()), [employees]);
+  const filteredEmployees = useMemo(() => employees.filter((employee) => !filters.section || employee.section_id === filters.section), [employees, filters.section]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const common = { section_id: filters.section, user_id: filters.user };
+      if (tab === "audit") setEvents(await hrApi<AttendanceEvent[]>(`/attendance-events?${query({ ...common, day })}`));
+      if (tab === "report") setSummary((await hrApi<{ rows: SummaryRow[] }>(`/attendance-summary?${query({ ...common, month })}`)).rows);
+      if (tab === "violations") setViolations(await hrApi<Violation[]>(`/violations?${query(common)}`));
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setLoading(false); }
+  }, [day, filters.section, filters.user, month, tab]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (filters.user && !filteredEmployees.some((employee) => String(employee.id) === filters.user)) setFilters((current) => ({ ...current, user: "" }));
+  }, [filteredEmployees, filters.user]);
+
+  const saveEvent = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!eventDraft) return;
+    setBusy("event"); setError(""); setNotice("");
+    try {
+      await hrApi(eventDraft.id ? `/attendance-events/${eventDraft.id}` : "/attendance-events", {
+        method: eventDraft.id ? "PUT" : "POST",
+        body: JSON.stringify({ user_id: Number(eventDraft.user_id), action: eventDraft.action, occurred_at: new Date(eventDraft.occurred_at).toISOString() }),
+      });
+      setEventDraft(null); setNotice(eventDraft.id ? "تم تعديل سجل الحضور." : "تمت إضافة سجل الحضور اليدوي."); await load();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const saveViolation = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!violationDraft) return;
+    setBusy("violation"); setError(""); setNotice("");
+    try {
+      await hrApi("/violations", { method: "POST", body: JSON.stringify({ ...violationDraft, user_id: Number(violationDraft.user_id) }) });
+      setViolationDraft(null); setNotice("تم تسجيل المخالفة وإتاحتها للموظف."); await load();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const deleteAttendanceEvent = async (entry: AttendanceEvent) => {
+    if (!window.confirm(`حذف سجل ${actionLabels[entry.action]} للموظف ${reportArabicName(entry)} بتاريخ ${formatDateTime(entry.occurred_at)}؟`)) return;
+    setBusy(`delete-event-${entry.id}`); setError(""); setNotice("");
+    try {
+      await hrApi(`/attendance-events/${entry.id}`, { method: "DELETE" });
+      setNotice("تم حذف سجل الحضور.");
+      await load();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const exportExcel = async () => {
+    setBusy("excel"); setError("");
+    try {
+      const XLSX = await import("xlsx");
+      const rows = summary.map((row) => ({
+        "اسم المستخدم": `${reportArabicName(row)}\n${reportEnglishName(row)}`, "القسم": sectionName(row), "م ساعات العمل": formatMinutes(row.workedMinutes),
+        "م أيام العمل": row.daysWorked, "م الغياب": row.absentDays, "م الاضافي": formatMinutes(row.overtimeMinutes),
+      }));
+      const workbook = XLSX.utils.book_new();
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      sheet["!cols"] = [{ wch: 28 }, { wch: 22 }, { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 22 }];
+      XLSX.utils.book_append_sheet(workbook, sheet, "كشف الحضور");
+      XLSX.writeFile(workbook, `كشف-الحضور-${month}.xlsx`);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const exportPdf = async () => {
+    if (!reportRef.current) return;
+    setBusy("pdf"); setError("");
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+      const canvas = await html2canvas(reportRef.current, { scale: 2, backgroundColor: "#ffffff", ignoreElements: (element) => element.classList.contains("hr-no-export") });
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const width = 277;
+      const height = canvas.height * width / canvas.width;
+      const image = canvas.toDataURL("image/png");
+      const pageHeight = 190;
+      let position = 10;
+      let remaining = height;
+      pdf.addImage(image, "PNG", 10, position, width, height);
+      while (remaining > pageHeight) {
+        remaining -= pageHeight;
+        position -= pageHeight;
+        pdf.addPage();
+        pdf.addImage(image, "PNG", 10, position, width, height);
+      }
+      pdf.save(`كشف-الحضور-${month}.pdf`);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const printSummary = (rows: SummaryRow[], title = `كشف الحضور الشهري — ${month}`) => {
+    const body = `<table><thead><tr><th>اسم المستخدم</th><th>القسم</th><th>م ساعات العمل</th><th>م أيام العمل</th><th>م الغياب</th><th>م الاضافي</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${escapeHtml(reportArabicName(row))}</strong><br><small>${escapeHtml(reportEnglishName(row))}</small></td><td>${escapeHtml(sectionName(row))}</td><td>${formatMinutes(row.workedMinutes)}</td><td>${row.daysWorked}</td><td>${row.absentDays}</td><td>${formatMinutes(row.overtimeMinutes)}</td></tr>`).join("")}</tbody></table>`;
+    printDocument(escapeHtml(title), body);
+  };
+
+  const printViolation = (violation: Violation) => printDocument("مخالفة موظف", `<p><strong>الموظف:</strong> ${escapeHtml(employeeName(violation))}</p><p><strong>القسم:</strong> ${escapeHtml(sectionName(violation))}</p><p><strong>التاريخ:</strong> ${escapeHtml(formatDateTime(violation.created_at))}</p><h2>${escapeHtml(violation.title)}</h2><p>${escapeHtml(violation.details)}</p><div class="signature"><span>توقيع الموظف: ________________</span><span>اعتماد الإدارة: ________________</span></div>`);
+
+  return <>
+    {error && <div className="hr-alert error"><AlertTriangle size={16} />{error}</div>}
+    {notice && <div className="hr-alert success"><Check size={16} />{notice}</div>}
+
+    <section className="hr-ops-section">
+      <div className="hr-filters">
+        <div className="hr-filter-title"><Search size={17} /><div><strong>تصفية النتائج</strong><small>تتحدث النتائج تلقائياً</small></div></div>
+        {tab === "audit" && <label><span>اليوم</span><input type="date" value={day} onChange={(event) => setDay(event.target.value)} /></label>}
+        {tab === "report" && <label><span>الشهر</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>}
+        <label><span>القسم</span><select value={filters.section} onChange={(event) => setFilters({ section: event.target.value, user: "" })}><option value="">كل الأقسام</option>{sections.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label><span>الموظف</span><select value={filters.user} onChange={(event) => setFilters((current) => ({ ...current, user: event.target.value }))}><option value="">كل الموظفين</option>{filteredEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}</select></label>
+        <button type="button" className="hr-filter-refresh" disabled={loading} onClick={() => void load()}>{loading ? "جارٍ التحميل…" : "تحديث"}</button>
+      </div>
+
+      {tab === "audit" && <>
+        <div className="hr-ops-head"><div><span>ATTENDANCE AUDIT</span><h3>سجل التدقيق</h3><p>جميع حركات الحضور مرتبة من الأحدث إلى الأقدم.</p></div><button className="hr-primary" type="button" onClick={() => setEventDraft({ user_id: filters.user, action: "check_in", occurred_at: localDateTime() })}><Plus size={17} /> إضافة سجل يدوي</button></div>
+        <div className="hr-table-wrap"><table className="hr-data-table hr-audit-table"><thead><tr><th>الموظف</th><th>القسم</th><th>الحركة</th><th>الوقت</th><th>المصدر</th><th>الإجراء</th></tr></thead><tbody>{events.map((entry) => <tr key={entry.id}><td className="hr-employee-cell"><strong>{reportArabicName(entry)}</strong><small>{reportEnglishName(entry)}</small></td><td>{sectionName(entry)}</td><td><span className={`hr-action-pill ${entry.action}`}>{actionLabels[entry.action]}</span></td><td>{formatDateTime(entry.occurred_at)}</td><td><span className={`hr-source ${entry.source}`}>{entry.source === "manual" ? "يدوي" : "الموظف"}</span></td><td><div className="hr-row-actions"><button className="hr-icon-action" type="button" onClick={() => setEventDraft({ id: entry.id, user_id: String(entry.user_id), action: entry.action, occurred_at: localDateTime(new Date(entry.occurred_at)) })}><Edit3 size={15} /> تعديل</button><button className="hr-icon-action danger" type="button" disabled={busy === `delete-event-${entry.id}`} onClick={() => void deleteAttendanceEvent(entry)}><Trash2 size={15} />{busy === `delete-event-${entry.id}` ? "جارٍ الحذف…" : "حذف"}</button></div></td></tr>)}</tbody></table>{!loading && !events.length && <div className="hr-empty">لا توجد سجلات مطابقة لهذا اليوم.</div>}</div>
+      </>}
+
+      {tab === "report" && <>
+        <div className="hr-ops-head"><div><span>MONTHLY ATTENDANCE</span><h3>كشف الحضور الشهري</h3><p>ملخص تراكمي محسوب من حركات الحضور والورديات الفعلية.</p></div><div className="hr-export-actions"><button type="button" onClick={() => printSummary(summary)}><Printer size={16} /> طباعة الكل</button><button type="button" disabled={busy === "excel"} onClick={() => void exportExcel()}><Download size={16} /> Excel</button><button type="button" disabled={busy === "pdf"} onClick={() => void exportPdf()}><FileDown size={16} /> PDF</button></div></div>
+        <div ref={reportRef} className="hr-report-sheet"><div className="hr-report-caption"><CalendarDays size={19} /><div><strong>كشف الحضور</strong><small>الشهر {month}</small></div></div><div className="hr-table-wrap"><table className="hr-data-table"><thead><tr><th>اسم المستخدم</th><th>القسم</th><th>م ساعات العمل</th><th>م أيام العمل</th><th>م الغياب</th><th>م الاضافي</th><th className="hr-no-export">طباعة</th></tr></thead><tbody>{summary.map((row) => <tr key={row.id}><td className="hr-employee-cell"><strong>{reportArabicName(row)}</strong><small>{reportEnglishName(row)}</small></td><td>{sectionName(row)}</td><td>{formatMinutes(row.workedMinutes)}</td><td><b>{row.daysWorked}</b></td><td><b className={row.absentDays ? "hr-negative" : ""}>{row.absentDays}</b></td><td><b className="hr-positive">{formatMinutes(row.overtimeMinutes)}</b></td><td className="hr-no-export"><button className="hr-icon-action" type="button" onClick={() => printSummary([row], `كشف حضور — ${reportArabicName(row)} — ${month}`)}><Printer size={15} /> طباعة</button></td></tr>)}</tbody></table>{!loading && !summary.length && <div className="hr-empty">لا توجد بيانات مطابقة للفلاتر.</div>}</div></div>
+      </>}
+
+      {tab === "violations" && <>
+        <div className="hr-ops-head"><div><span>EMPLOYEE COMPLIANCE</span><h3>مخالفات الموظفين</h3><p>سجل المخالفات وحالة اطلاع الموظف عليها.</p></div><button className="hr-primary" type="button" onClick={() => setViolationDraft({ user_id: filters.user, title: "", details: "" })}><ShieldAlert size={17} /> إعطاء مخالفة</button></div>
+        <div className="hr-violations-grid">{violations.map((violation) => <article className="hr-violation-card" key={violation.id}><div className="hr-violation-mark"><ShieldAlert size={20} /></div><div><div className="hr-violation-meta"><strong>{employeeName(violation)}</strong><time>{formatDateTime(violation.created_at)}</time></div><h4>{violation.title}</h4><p>{violation.details}</p><footer><span className={violation.acknowledged_at ? "seen" : "pending"}>{violation.acknowledged_at ? `تم الاطلاع ${formatDateTime(violation.acknowledged_at)}` : "بانتظار اطلاع الموظف"}</span><button type="button" onClick={() => printViolation(violation)}><Printer size={15} /> طباعة المخالفة</button></footer></div></article>)}{!loading && !violations.length && <div className="hr-empty">لا توجد مخالفات مطابقة للفلاتر.</div>}</div>
+      </>}
+    </section>
+
+    {eventDraft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEventDraft(null)}><form className="hr-modal hr-compact-modal" onSubmit={saveEvent}><header><div><span>ATTENDANCE RECORD</span><h3>{eventDraft.id ? "تعديل سجل الحضور" : "إضافة سجل يدوي"}</h3></div><button type="button" onClick={() => setEventDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
+      <label><span>الموظف</span><select required value={eventDraft.user_id} onChange={(event) => setEventDraft({ ...eventDraft, user_id: event.target.value })}><option value="">اختر الموظف</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)} — {sectionName(employee)}</option>)}</select></label>
+      <label><span>الحركة</span><select value={eventDraft.action} onChange={(event) => setEventDraft({ ...eventDraft, action: event.target.value as AttendanceAction })}>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label><span>التاريخ والوقت</span><input required type="datetime-local" value={eventDraft.occurred_at} onChange={(event) => setEventDraft({ ...eventDraft, occurred_at: event.target.value })} /></label>
+    </div><footer><button className="hr-primary" disabled={busy === "event"}>{busy === "event" ? "جارٍ الحفظ…" : "حفظ السجل"}</button><button type="button" onClick={() => setEventDraft(null)}>إلغاء</button></footer></form></div>}
+
+    {violationDraft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setViolationDraft(null)}><form className="hr-modal hr-compact-modal" onSubmit={saveViolation}><header><div><span>EMPLOYEE VIOLATION</span><h3>إعطاء مخالفة</h3></div><button type="button" onClick={() => setViolationDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid hr-violation-form">
+      <label><span>الموظف</span><select required value={violationDraft.user_id} onChange={(event) => setViolationDraft({ ...violationDraft, user_id: event.target.value })}><option value="">اختر الموظف</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)} — {sectionName(employee)}</option>)}</select></label>
+      <label><span>عنوان المخالفة</span><input required maxLength={200} value={violationDraft.title} onChange={(event) => setViolationDraft({ ...violationDraft, title: event.target.value })} /></label>
+      <label className="full"><span>تفاصيل المخالفة</span><textarea required rows={5} maxLength={5000} value={violationDraft.details} onChange={(event) => setViolationDraft({ ...violationDraft, details: event.target.value })} /></label>
+    </div><footer><button className="hr-primary" disabled={busy === "violation"}>{busy === "violation" ? "جارٍ الحفظ…" : "تسجيل المخالفة"}</button><button type="button" onClick={() => setViolationDraft(null)}>إلغاء</button></footer></form></div>}
+  </>;
+}

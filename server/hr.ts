@@ -1,10 +1,11 @@
-import { shift_definitions, user_shift_assignments, users } from "@shared/schema";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { attendance_events, sections, shift_definitions, user_shift_assignments, user_violations, users } from "@shared/schema";
+import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 
 import { requireAnyPermission } from "./auth";
 import { db } from "./db";
+import { dayRange, monthRange, summarizeAttendance } from "./hr-report";
 
 const router = Router();
 const hrAdmin = requireAnyPermission("manage_hr", "manage_attendance", "admin");
@@ -38,6 +39,28 @@ const assignmentsInput = z.object({
   user_ids: z.array(z.number().int().positive()).min(1).max(500),
   shift_id: z.string().trim().min(1).max(80).nullable(),
 }).strict();
+const attendanceAction = z.enum(["check_in", "break_start", "break_end", "check_out"]);
+const attendanceEventInput = z.object({
+  user_id: z.number().int().positive(),
+  action: attendanceAction,
+  occurred_at: z.string().datetime(),
+}).strict();
+const violationInput = z.object({
+  user_id: z.number().int().positive(),
+  title: z.string().trim().min(1).max(200),
+  details: z.string().trim().min(1).max(5000),
+}).strict();
+
+function positiveId(value: unknown, label: string) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw Object.assign(new Error(`${label} غير صالح`), { status: 400 });
+  return parsed;
+}
+
+function textFilter(value: unknown, max = 80) {
+  return typeof value === "string" ? value.trim().slice(0, max) : "";
+}
 
 function handle(fn: (req: Request, res: Response) => Promise<unknown>) {
   return (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).catch(next);
@@ -54,10 +77,12 @@ router.get("/data", handle(async (_req, res) => {
       display_name: users.display_name,
       display_name_ar: users.display_name_ar,
       section_id: users.section_id,
+      section_name: sql<string | null>`COALESCE(${sections.name_ar}, ${sections.name})`,
       assignment_id: user_shift_assignments.id,
       shift_id: user_shift_assignments.shift_id,
       assigned_at: user_shift_assignments.assigned_at,
     }).from(users)
+      .leftJoin(sections, eq(users.section_id, sections.id))
       .leftJoin(user_shift_assignments, and(
         eq(user_shift_assignments.user_id, users.id),
         isNull(user_shift_assignments.unassigned_at),
@@ -89,6 +114,180 @@ router.get("/data", handle(async (_req, res) => {
     users: employeeRows,
     history,
   });
+}));
+
+router.get("/attendance-events", handle(async (req, res) => {
+  const day = textFilter(req.query.day, 10) || new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { start, end } = dayRange(day);
+  const userId = positiveId(req.query.user_id, "الموظف");
+  const sectionId = textFilter(req.query.section_id, 20);
+  const conditions: SQL[] = [gte(attendance_events.occurred_at, start), lt(attendance_events.occurred_at, end)];
+  if (userId) conditions.push(eq(attendance_events.user_id, userId));
+  if (sectionId) conditions.push(eq(users.section_id, sectionId));
+  const rows = await db.select({
+    id: attendance_events.id,
+    user_id: attendance_events.user_id,
+    username: users.username,
+    display_name: users.display_name,
+    display_name_ar: users.display_name_ar,
+    section_id: users.section_id,
+    section_name: sql<string | null>`COALESCE(${sections.name_ar}, ${sections.name})`,
+    action: attendance_events.action,
+    occurred_at: attendance_events.occurred_at,
+    source: attendance_events.source,
+    created_by: attendance_events.created_by,
+    updated_by: attendance_events.updated_by,
+    updated_at: attendance_events.updated_at,
+  }).from(attendance_events)
+    .innerJoin(users, eq(attendance_events.user_id, users.id))
+    .leftJoin(sections, eq(users.section_id, sections.id))
+    .where(and(...conditions))
+    .orderBy(desc(attendance_events.occurred_at), desc(attendance_events.id));
+  res.json(rows);
+}));
+
+router.post("/attendance-events", handle(async (req, res) => {
+  const input = attendanceEventInput.parse(req.body);
+  const occurredAt = new Date(input.occurred_at);
+  const eligible = await db.select({ id: users.id }).from(users).where(and(
+    eq(users.id, input.user_id), eq(users.status, "active"), eq(users.include_in_attendance, true),
+  )).limit(1);
+  if (!eligible[0]) return res.status(404).json({ message: "الموظف غير موجود أو غير مشمول بالحضور" });
+  const assignment = await db.select({ id: user_shift_assignments.id }).from(user_shift_assignments).where(and(
+    eq(user_shift_assignments.user_id, input.user_id),
+    lte(user_shift_assignments.assigned_at, occurredAt),
+    or(isNull(user_shift_assignments.unassigned_at), gt(user_shift_assignments.unassigned_at, occurredAt)),
+  )).orderBy(desc(user_shift_assignments.assigned_at)).limit(1);
+  const [created] = await db.insert(attendance_events).values({
+    user_id: input.user_id,
+    shift_assignment_id: assignment[0]?.id ?? null,
+    action: input.action,
+    occurred_at: occurredAt,
+    latitude: "0",
+    longitude: "0",
+    accuracy: "0",
+    source: "manual",
+    created_by: req.user!.id,
+    updated_by: req.user!.id,
+  }).returning();
+  res.status(201).json(created);
+}));
+
+router.put("/attendance-events/:id", handle(async (req, res) => {
+  const id = positiveId(req.params.id, "السجل");
+  const input = attendanceEventInput.parse(req.body);
+  const occurredAt = new Date(input.occurred_at);
+  const employee = await db.select({ id: users.id }).from(users).where(eq(users.id, input.user_id)).limit(1);
+  if (!employee[0]) return res.status(404).json({ message: "الموظف غير موجود" });
+  const assignment = await db.select({ id: user_shift_assignments.id }).from(user_shift_assignments).where(and(
+    eq(user_shift_assignments.user_id, input.user_id),
+    lte(user_shift_assignments.assigned_at, occurredAt),
+    or(isNull(user_shift_assignments.unassigned_at), gt(user_shift_assignments.unassigned_at, occurredAt)),
+  )).orderBy(desc(user_shift_assignments.assigned_at)).limit(1);
+  const [updated] = await db.update(attendance_events).set({
+    user_id: input.user_id,
+    shift_assignment_id: assignment[0]?.id ?? null,
+    action: input.action,
+    occurred_at: occurredAt,
+    updated_by: req.user!.id,
+    updated_at: new Date(),
+  }).where(eq(attendance_events.id, id!)).returning();
+  if (!updated) return res.status(404).json({ message: "سجل الحضور غير موجود" });
+  res.json(updated);
+}));
+
+router.delete("/attendance-events/:id", handle(async (req, res) => {
+  const id = positiveId(req.params.id, "السجل");
+  const [removed] = await db.delete(attendance_events)
+    .where(eq(attendance_events.id, id!))
+    .returning({ id: attendance_events.id });
+  if (!removed) return res.status(404).json({ message: "سجل الحضور غير موجود" });
+  res.json({ success: true, id: removed.id });
+}));
+
+router.get("/attendance-summary", handle(async (req, res) => {
+  const month = textFilter(req.query.month, 7) || new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 7);
+  const range = monthRange(month);
+  const userId = positiveId(req.query.user_id, "الموظف");
+  const sectionId = textFilter(req.query.section_id, 20);
+  const userConditions: SQL[] = [eq(users.status, "active"), eq(users.include_in_attendance, true)];
+  if (userId) userConditions.push(eq(users.id, userId));
+  if (sectionId) userConditions.push(eq(users.section_id, sectionId));
+  const [employeeRows, eventRows, assignmentRows] = await Promise.all([
+    db.select({
+      id: users.id,
+      username: users.username,
+      display_name: users.display_name,
+      display_name_ar: users.display_name_ar,
+      section_id: users.section_id,
+      section_name: sql<string | null>`COALESCE(${sections.name_ar}, ${sections.name})`,
+    }).from(users).leftJoin(sections, eq(users.section_id, sections.id)).where(and(...userConditions))
+      .orderBy(users.display_name_ar, users.display_name, users.username),
+    db.select({
+      id: attendance_events.id,
+      userId: attendance_events.user_id,
+      assignmentId: attendance_events.shift_assignment_id,
+      action: attendance_events.action,
+      occurredAt: attendance_events.occurred_at,
+    }).from(attendance_events).innerJoin(users, eq(attendance_events.user_id, users.id)).where(and(
+      ...userConditions,
+      gte(attendance_events.occurred_at, range.start),
+      lt(attendance_events.occurred_at, range.end),
+    )).orderBy(attendance_events.occurred_at, attendance_events.id),
+    db.select({
+      id: user_shift_assignments.id,
+      userId: user_shift_assignments.user_id,
+      assignedAt: user_shift_assignments.assigned_at,
+      unassignedAt: user_shift_assignments.unassigned_at,
+      startTime: shift_definitions.start_time,
+      endTime: shift_definitions.end_time,
+      breakMinutes: shift_definitions.break_minutes,
+    }).from(user_shift_assignments)
+      .innerJoin(shift_definitions, eq(user_shift_assignments.shift_id, shift_definitions.id))
+      .innerJoin(users, eq(user_shift_assignments.user_id, users.id))
+      .where(and(...userConditions, lt(user_shift_assignments.assigned_at, range.end), or(
+        isNull(user_shift_assignments.unassigned_at), gt(user_shift_assignments.unassigned_at, range.start),
+      ))),
+  ]);
+  const rows = employeeRows.map((employee) => ({
+    ...employee,
+    ...summarizeAttendance(employee.id, eventRows, assignmentRows, range),
+  }));
+  res.json({ month, rows });
+}));
+
+router.get("/violations", handle(async (req, res) => {
+  const userId = positiveId(req.query.user_id, "الموظف");
+  const sectionId = textFilter(req.query.section_id, 20);
+  const conditions: SQL[] = [];
+  if (userId) conditions.push(eq(user_violations.user_id, userId));
+  if (sectionId) conditions.push(eq(users.section_id, sectionId));
+  const rows = await db.select({
+    id: user_violations.id,
+    user_id: user_violations.user_id,
+    username: users.username,
+    display_name: users.display_name,
+    display_name_ar: users.display_name_ar,
+    section_id: users.section_id,
+    section_name: sql<string | null>`COALESCE(${sections.name_ar}, ${sections.name})`,
+    title: user_violations.title,
+    details: user_violations.details,
+    created_at: user_violations.created_at,
+    acknowledged_at: user_violations.acknowledged_at,
+  }).from(user_violations)
+    .innerJoin(users, eq(user_violations.user_id, users.id))
+    .leftJoin(sections, eq(users.section_id, sections.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(user_violations.created_at), desc(user_violations.id));
+  res.json(rows);
+}));
+
+router.post("/violations", handle(async (req, res) => {
+  const input = violationInput.parse(req.body);
+  const employee = await db.select({ id: users.id }).from(users).where(eq(users.id, input.user_id)).limit(1);
+  if (!employee[0]) return res.status(404).json({ message: "الموظف غير موجود" });
+  const [created] = await db.insert(user_violations).values(input).returning();
+  res.status(201).json(created);
 }));
 
 router.post("/shifts", handle(async (req, res) => {

@@ -129,6 +129,10 @@ export const attendance_events = pgTable(
     latitude: decimal("latitude", { precision: 9, scale: 6 }).notNull(),
     longitude: decimal("longitude", { precision: 9, scale: 6 }).notNull(),
     accuracy: decimal("accuracy", { precision: 10, scale: 2 }).notNull(),
+    source: varchar("source", { length: 20 }).notNull().default("employee"),
+    created_by: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    updated_by: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("idx_attendance_events_user_time").on(table.user_id, table.occurred_at),
@@ -136,6 +140,7 @@ export const attendance_events = pgTable(
     check("attendance_events_latitude_check", sql`${table.latitude} BETWEEN -90 AND 90`),
     check("attendance_events_longitude_check", sql`${table.longitude} BETWEEN -180 AND 180`),
     check("attendance_events_accuracy_check", sql`${table.accuracy} BETWEEN 0 AND 10000`),
+    check("attendance_events_source_check", sql`${table.source} IN ('employee', 'manual')`),
   ],
 );
 

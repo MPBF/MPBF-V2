@@ -1,5 +1,7 @@
-import { Check, Clock3, Edit3, LocateFixed, MapPin, Plus, RefreshCw, Search, Trash2, UserRoundCheck, UsersRound, X } from "lucide-react";
+import { Check, ClipboardList, Clock3, Edit3, FileSpreadsheet, LocateFixed, MapPin, Plus, RefreshCw, Search, ShieldAlert, Trash2, UserRoundCheck, UsersRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+
+import HumanResourcesOperations from "./HumanResourcesOperations";
 import "./human-resources.css";
 
 type Shift = {
@@ -12,7 +14,7 @@ type Shift = {
 };
 type Employee = {
   id: number; username: string | null; display_name: string | null; display_name_ar: string | null;
-  section_id: string | null; assignment_id: number | null; shift_id: string | null; assigned_at: string | null;
+  section_id: string | null; section_name?: string | null; assignment_id: number | null; shift_id: string | null; assigned_at: string | null;
 };
 type History = { id: number; user_id: number; shift_id: string; assigned_at: string; unassigned_at: string | null; assigned_by: number | null };
 type HrData = { shifts: Shift[]; users: Employee[]; history: History[] };
@@ -50,6 +52,7 @@ export default function HumanResources() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [tab, setTab] = useState<"shifts" | "audit" | "report" | "violations">("shifts");
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -121,10 +124,16 @@ export default function HumanResources() {
   };
 
   return <div className="hr-page" dir="rtl">
-    <div className="hr-hero"><div><span>HR / PEOPLE OPERATIONS</span><h2>الموارد البشرية</h2><p>إدارة ورديات الفريق وتكليفاته من مركز واحد.</p></div><button type="button" onClick={() => void load()} disabled={loading || !!busy}><RefreshCw size={17} /> تحديث</button></div>
-    <div className="hr-tabs" role="tablist"><button className="active" role="tab" aria-selected="true"><Clock3 size={17} /> إدارة الورديات</button></div>
+    <div className="hr-hero"><div><span>HR / PEOPLE OPERATIONS</span><h2>الموارد البشرية</h2><p>إدارة الورديات والحضور والتقارير والمخالفات من مركز واحد.</p></div><button type="button" onClick={() => void load()} disabled={loading || !!busy}><RefreshCw size={17} /> تحديث</button></div>
+    <div className="hr-tabs" role="tablist">
+      <button className={tab === "shifts" ? "active" : ""} role="tab" aria-selected={tab === "shifts"} onClick={() => setTab("shifts")}><Clock3 size={17} /> إدارة الورديات</button>
+      <button className={tab === "audit" ? "active" : ""} role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}><ClipboardList size={17} /> سجل التدقيق</button>
+      <button className={tab === "report" ? "active" : ""} role="tab" aria-selected={tab === "report"} onClick={() => setTab("report")}><FileSpreadsheet size={17} /> كشف الحضور</button>
+      <button className={tab === "violations" ? "active" : ""} role="tab" aria-selected={tab === "violations"} onClick={() => setTab("violations")}><ShieldAlert size={17} /> مخالفات الموظفين</button>
+    </div>
     {error && <div className="hr-alert error">{error}</div>}{notice && <div className="hr-alert success"><Check size={16} />{notice}</div>}
 
+    {tab === "shifts" && <>
     <section className="hr-shift-section">
       <div className="hr-section-head"><div><span>تعريفات التشغيل</span><h3>الورديات الحالية</h3></div><button className="hr-primary" type="button" onClick={() => { setEditingId(null); setDraft({ ...emptyShift, id: `shift-${Date.now()}` }); }}><Plus size={17} /> إضافة وردية</button></div>
       <div className="hr-shift-grid">{data.shifts.map((shift) => <article className={`hr-shift-card ${shift.is_active ? "" : "inactive"}`} key={shift.id}>
@@ -141,7 +150,10 @@ export default function HumanResources() {
       <div className="hr-table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="تحديد الجميع" checked={visibleUsers.length > 0 && visibleUsers.every((employee) => selected.includes(employee.id))} onChange={(event) => setSelected(event.target.checked ? Array.from(new Set([...selected, ...visibleUsers.map((employee) => employee.id)])) : selected.filter((id) => !visibleUsers.some((employee) => employee.id === id)))} /></th><th>المستخدم</th><th>القسم</th><th>الوردية الحالية</th><th>بداية التكليف</th><th>تغيير فردي</th></tr></thead><tbody>{visibleUsers.map((employee) => <tr key={employee.id}><td><input type="checkbox" checked={selected.includes(employee.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, employee.id] : selected.filter((id) => id !== employee.id))} /></td><td><strong>{employeeName(employee)}</strong><small>{employee.username || "—"}</small></td><td>{employee.section_id || "—"}</td><td><span className={`hr-shift-pill ${employee.shift_id ? "assigned" : "unassigned"}`}>{employee.shift_id ? shiftById.get(employee.shift_id)?.name_ar || employee.shift_id : "غير مكلف"}</span></td><td>{timeStamp(employee.assigned_at)}</td><td><select aria-label={`وردية ${employeeName(employee)}`} value={employee.shift_id || ""} disabled={busy === "assign"} onChange={(event) => void assign([employee.id], event.target.value || null)}><option value="">بدون وردية</option>{data.shifts.filter((shift) => shift.is_active).map((shift) => <option key={shift.id} value={shift.id}>{shift.name_ar}</option>)}</select></td></tr>)}</tbody></table></div>
     </section>
 
-    <section className="hr-history"><div className="hr-section-head"><div><span>سجل التدقيق</span><h3>آخر تغييرات الورديات</h3></div></div><div className="hr-history-list">{data.history.slice(0, 20).map((entry) => { const employee = data.users.find((item) => item.id === entry.user_id); return <div key={entry.id}><span className={entry.unassigned_at ? "closed" : "open"} /><strong>{employee ? employeeName(employee) : `مستخدم ${entry.user_id}`}</strong><b>{shiftById.get(entry.shift_id)?.name_ar || entry.shift_id}</b><small>{timeStamp(entry.assigned_at)} ← {timeStamp(entry.unassigned_at)}</small></div>; })}</div></section>
+    <section className="hr-history"><div className="hr-section-head"><div><span>سجل التكليفات</span><h3>آخر تغييرات الورديات</h3></div></div><div className="hr-history-list">{data.history.slice(0, 20).map((entry) => { const employee = data.users.find((item) => item.id === entry.user_id); return <div key={entry.id}><span className={entry.unassigned_at ? "closed" : "open"} /><strong>{employee ? employeeName(employee) : `مستخدم ${entry.user_id}`}</strong><b>{shiftById.get(entry.shift_id)?.name_ar || entry.shift_id}</b><small>{timeStamp(entry.assigned_at)} ← {timeStamp(entry.unassigned_at)}</small></div>; })}</div></section>
+    </>}
+
+    {tab !== "shifts" && <HumanResourcesOperations tab={tab} employees={data.users} />}
 
     {draft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDraft(null)}><form className="hr-modal" onSubmit={saveShift}><header><div><span>SHIFT DEFINITION</span><h3>{editingId ? "تعديل الوردية" : "إضافة وردية"}</h3></div><button type="button" onClick={() => setDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
       {!editingId && <label><span>رمز الوردية</span><input required value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} /></label>}
