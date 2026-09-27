@@ -1,8 +1,9 @@
-import { Check, ClipboardList, Clock3, Edit3, FileSpreadsheet, LocateFixed, MapPin, Plus, RefreshCw, Search, ShieldAlert, Trash2, UserRoundCheck, UsersRound, X } from "lucide-react";
+import { Check, ClipboardList, Clock3, Edit3, FileSpreadsheet, LocateFixed, MapPin, Plus, Search, ShieldAlert, Trash2, UserRoundCheck, UsersRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import HumanResourcesOperations from "./HumanResourcesOperations";
 import SelfServiceAdmin from "./SelfServiceAdmin";
+import PageHero from "../components/PageHero";
 import "./human-resources.css";
 
 type Shift = {
@@ -54,6 +55,7 @@ export default function HumanResources({ canReviewRequests }: { canReviewRequest
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<"shifts" | "audit" | "report" | "violations" | "requests">("shifts");
+  const [refreshToken, setRefreshToken] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -125,7 +127,7 @@ export default function HumanResources({ canReviewRequests }: { canReviewRequest
   };
 
   return <div className="hr-page" dir="rtl">
-    <div className="hr-hero"><div><span>HR / PEOPLE OPERATIONS</span><h2>الموارد البشرية</h2><p>إدارة الورديات والحضور والتقارير والمخالفات من مركز واحد.</p></div><button type="button" onClick={() => void load()} disabled={loading || !!busy}><RefreshCw size={17} /> تحديث</button></div>
+    <PageHero kicker="HR / PEOPLE OPERATIONS" title="الموارد البشرية" description="إدارة الورديات والحضور والتقارير والمخالفات من مركز واحد." onRefresh={() => { void load(); setRefreshToken((token) => token + 1); }} refreshing={loading || !!busy} />
     <div className="hr-tabs" role="tablist">
       <button className={tab === "shifts" ? "active" : ""} role="tab" aria-selected={tab === "shifts"} onClick={() => setTab("shifts")}><Clock3 size={17} /> إدارة الورديات</button>
       <button className={tab === "audit" ? "active" : ""} role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}><ClipboardList size={17} /> سجل التدقيق</button>
@@ -155,8 +157,8 @@ export default function HumanResources({ canReviewRequests }: { canReviewRequest
     <section className="hr-history"><div className="hr-section-head"><div><span>سجل التكليفات</span><h3>آخر تغييرات الورديات</h3></div></div><div className="hr-history-list">{data.history.slice(0, 20).map((entry) => { const employee = data.users.find((item) => item.id === entry.user_id); return <div key={entry.id}><span className={entry.unassigned_at ? "closed" : "open"} /><strong>{employee ? employeeName(employee) : `مستخدم ${entry.user_id}`}</strong><b>{shiftById.get(entry.shift_id)?.name_ar || entry.shift_id}</b><small>{timeStamp(entry.assigned_at)} ← {timeStamp(entry.unassigned_at)}</small></div>; })}</div></section>
     </>}
 
-    {tab === "requests" && canReviewRequests && <SelfServiceAdmin mode="requests" />}
-    {tab !== "shifts" && tab !== "requests" && <HumanResourcesOperations tab={tab} employees={data.users} />}
+    {tab === "requests" && canReviewRequests && <SelfServiceAdmin mode="requests" refreshToken={refreshToken} />}
+    {tab !== "shifts" && tab !== "requests" && <HumanResourcesOperations tab={tab} employees={data.users} refreshToken={refreshToken} />}
 
     {draft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDraft(null)}><form className="hr-modal" onSubmit={saveShift}><header><div><span>SHIFT DEFINITION</span><h3>{editingId ? "تعديل الوردية" : "إضافة وردية"}</h3></div><button type="button" onClick={() => setDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
       {!editingId && <label><span>رمز الوردية</span><input required value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} /></label>}

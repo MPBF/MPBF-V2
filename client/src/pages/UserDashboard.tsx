@@ -1,6 +1,7 @@
-import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, Coffee, FilePlus2, Fingerprint, LogIn, LogOut, MapPin, MessageCircle, Navigation, Play, RefreshCw, Send, ShieldAlert } from "lucide-react";
+import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, Coffee, FilePlus2, Fingerprint, LogIn, LogOut, MapPin, MessageCircle, Navigation, Play, Send, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import "./user-dashboard.css";
+import PageHero from "../components/PageHero";
 
 type AttendanceAction = "check_in" | "break_start" | "break_end" | "check_out";
 type AttendanceEvent = { id: number; action: AttendanceAction; occurred_at: string; latitude: number; longitude: number; accuracy: number | null };
@@ -206,16 +207,7 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
 
   return (
     <div className="self-page" dir="rtl">
-      <div className="self-welcome">
-        <div>
-          <div className="self-eyebrow">مساحة الموظف · {displayName}</div>
-          <h2>مرحباً بعودتك</h2>
-          <p>تابع يومك وسجلاتك وتواصل مع فريقك من مكان واحد.</p>
-        </div>
-        <button className="self-refresh" type="button" onClick={() => void load()} disabled={loading || !!busy} aria-label="تحديث البيانات">
-          <RefreshCw size={16} /> تحديث
-        </button>
-      </div>
+      <PageHero kicker={`مساحة الموظف · ${displayName}`} title="لوحة المستخدم" description="تابع يومك وسجلاتك وتواصل مع فريقك من مكان واحد." onRefresh={() => void load()} refreshing={loading || !!busy} />
 
       {error && <div className="self-alert self-alert-error" role="alert"><AlertCircle size={18} /><div className="self-alert-copy">{errorTitle ? <strong>{errorTitle}</strong> : null}<span>{error}</span></div></div>}
       {notice && <div className="self-alert self-alert-success" role="status"><Check size={18} /><span>{notice}</span></div>}

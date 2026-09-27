@@ -84,7 +84,7 @@ function printDocument(title: string, body: string) {
   window.setTimeout(() => popup.print(), 250);
 }
 
-export default function HumanResourcesOperations({ tab, employees }: { tab: OperationsTab; employees: HrEmployee[] }) {
+export default function HumanResourcesOperations({ tab, employees, refreshToken = 0 }: { tab: OperationsTab; employees: HrEmployee[]; refreshToken?: number }) {
   const [filters, setFilters] = useState<Filters>({ section: "", user: "" });
   const [day, setDay] = useState(riyadhToday);
   const [month, setMonth] = useState(riyadhMonth);
@@ -113,7 +113,7 @@ export default function HumanResourcesOperations({ tab, employees }: { tab: Oper
     finally { setLoading(false); }
   }, [day, filters.section, filters.user, month, tab]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshToken]);
   useEffect(() => {
     if (filters.user && !filteredEmployees.some((employee) => String(employee.id) === filters.user)) setFilters((current) => ({ ...current, user: "" }));
   }, [filteredEmployees, filters.user]);

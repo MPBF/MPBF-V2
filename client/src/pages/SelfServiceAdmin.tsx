@@ -24,7 +24,7 @@ const dateTime = (value: string) => new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
 }).format(new Date(value));
 const requestTypeNames: Record<RequestRecord["type"], string> = { leave: "إجازة", permission: "استئذان", other: "أخرى" };
 
-export default function SelfServiceAdmin({ mode }: { mode: "requests" | "violations" }) {
+export default function SelfServiceAdmin({ mode, refreshToken = 0 }: { mode: "requests" | "violations"; refreshToken?: number }) {
   const [requests, setRequests] = useState<RequestRecord[]>([]);
   const [violations, setViolations] = useState<Violation[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -50,7 +50,7 @@ export default function SelfServiceAdmin({ mode }: { mode: "requests" | "violati
     } catch (cause) { setError((cause as Error).message); }
     finally { setLoading(false); }
   }, [mode]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshToken]);
 
   const decide = async (request: RequestRecord) => {
     const draft = drafts[request.id] || { status: "approved" as const, response: request.response || "" };
