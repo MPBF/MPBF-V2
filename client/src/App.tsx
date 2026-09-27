@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, Boxes, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
-import { Link, Route, Switch, useLocation, useRoute } from "wouter";
+import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import UserDashboard from "./pages/UserDashboard";
 import HumanResources from "./pages/HumanResources";
 import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
@@ -125,7 +125,7 @@ const configs: Record<string, Config> = {
 };
 
 const nav = [
-  ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read], ["/products", "المنتجات", Boxes, configs.products.read],
+  ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read],
   ["/orders", "الطلبات", FileText, configs.orders.read], ["/production", "الإنتاج", Factory, configs.production.read], ["/rolls", "الرولات", Package, configs.rolls.read],
   ["/hr", "الموارد البشرية", UsersRound, ["manage_hr", "manage_attendance", "admin"]],
   ["/admin", "الإدارة", Shield, ["manage_users", "manage_roles", "manage_sections", "manage_settings", "manage_machines", "manage_maintenance", "manage_categories", "manage_items", "manage_master_batch", "manage_definitions", "view_orders", "manage_customers", "manage_orders", "admin"]],
@@ -631,6 +631,31 @@ function Admin({ user }: { user: Row }) {
   return <><PageHero kicker="مركز الإدارة · صلاحياتك مفعلة" title="الإدارة" description="إدارة الهوية والأصول والتعريفات من مساحة واحدة منظمة." onRefresh={() => setRefreshToken((token) => token + 1)} actions={<span className="tag"><Shield size={16} /> ADMIN / CORE</span>} /><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{label}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} refreshToken={refreshToken} /> : tab === "roles" ? <RolesAdmin user={user} refreshToken={refreshToken} /> : tab === "settings" ? <SettingsAdmin refreshToken={refreshToken} /> : <EntityPage kind={tab} user={user} refreshToken={refreshToken} showHero={false} />}</div></>;
 }
 
+function CustomersPage({ user }: { user: Row }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [refreshToken, setRefreshToken] = useState(0);
+  const tab = searchParams.get("tab") === "products" ? "products" : "customers";
+  const selectTab = (next: "customers" | "products") => {
+    setSearchParams((previous) => {
+      const updated = new URLSearchParams(previous);
+      if (next === "products") updated.set("tab", "products");
+      else updated.delete("tab");
+      return updated;
+    });
+  };
+
+  return <>
+    <PageHero kicker="سجل العملاء" title="العملاء" description="إدارة العملاء ومنتجاتهم من صفحة واحدة." onRefresh={() => setRefreshToken((token) => token + 1)} />
+    <div className="customer-tabs" role="tablist" aria-label="أقسام العملاء">
+      <button id="customer-tab-customers" type="button" role="tab" aria-controls="customer-panel-customers" aria-selected={tab === "customers"} className={tab === "customers" ? "active" : ""} onClick={() => selectTab("customers")}><Users size={17} /> العملاء</button>
+      <button id="customer-tab-products" type="button" role="tab" aria-controls="customer-panel-products" aria-selected={tab === "products"} className={tab === "products" ? "active" : ""} onClick={() => selectTab("products")}><Boxes size={17} /> منتجات العملاء</button>
+    </div>
+    <div id={`customer-panel-${tab}`} role="tabpanel" aria-labelledby={`customer-tab-${tab}`}>
+      <EntityPage key={tab} kind={tab} user={user} refreshToken={refreshToken} showHero={false} />
+    </div>
+  </>;
+}
+
 function CustomerDetail({ user }: { user: Row }) {
   const [, params] = useRoute("/customers/:id");
   const [location, setLocation] = useLocation();
@@ -669,7 +694,7 @@ function App() {
   if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} />;
   const isAdmin = can(auth.user, ["admin"]);
-  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><EntityPage kind="customers" user={auth.user} /></Route><Route path="/products"><EntityPage kind="products" user={auth.user} /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
+  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><CustomersPage user={auth.user} /></Route><Route path="/products"><Redirect to="/customers?tab=products" replace /></Route><Route path="/orders"><EntityPage kind="orders" user={auth.user} /></Route><Route path="/production"><EntityPage kind="production" user={auth.user} /></Route><Route path="/rolls"><EntityPage kind="rolls" user={auth.user} /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
 }
 
 export default App;
