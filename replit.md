@@ -76,6 +76,12 @@ If a credential still can't be decrypted (e.g. the previous secret was lost), co
 - **Multi-channel Notifications**: Integrates with Meta WhatsApp Business API, Taqnyat SMS, and Twilio WhatsApp for alerts and customer communication.
 - **PWA & Mobile Apps**: Offers a Progressive Web App (PWA) and a native Expo mobile application for enhanced accessibility and offline capabilities.
 
+## Development-stage data policy
+
+- Until the project owner says development is complete, the system architecture and database schema may be changed as needed for development; existing structures are not a reason to avoid necessary improvements.
+- Existing records are test data **except** records for **customers, customer products, categories, and items**. Preserve those four datasets through refactors and migrations: do not delete, reset, or overwrite them. Schema changes affecting them must retain their data.
+- This policy is not a request to delete test records proactively. Scope any cleanup to the task at hand and confirm the target environment before a destructive database operation.
+
 ## User preferences
 
 - Language: Arabic (RTL) primary, English fallback
