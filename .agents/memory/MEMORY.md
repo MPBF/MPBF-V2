@@ -8,7 +8,6 @@
 - [MCP tool metadata](mcp-tool-metadata.md) — ChatGPT-facing MCP tools need `registerTool` config with explicit descriptions and safety annotations; legacy `.tool` is deprecated.
 - [Theme system](theme-system.md) — 3 opt-in themes (light/dark/blue); blue is its own `.theme-blue` root class redefining the same CSS vars, not a dark variant; high-contrast is a separate overlay; pickers in Header/Settings/MobileShell.
 - [Roll creation deadlock](roll-creation-deadlock.md) — roll-create paths must share one transaction + a single lock order (advisory then row); nested cross-connection txns hang undetectably.
-- [Production stage computation](production-stage-computation.md) — never advance a PO past 'film' on filmRolls===0 alone; inline-printed rolls skip film stage, so gate on film actually being done.
 - [Plastic-roll products skip cutting](roll-products-skip-cutting.md) — name-detected roll items bypass cutting (film→[printing]→done→hall); gate order 'done' on filmDone; pinning created_at avoids cut_completed_at CHECK violation.
 - [Film dashboard visibility](film-dashboard-visibility.md) — film-operator order list must filter `production_stage='film'`; film_completed only set by Final Roll button, so quantity-complete orders otherwise linger.
 - [Roll-create stage trust](roll-create-stage-trust.md) — roll-create routes must force stage='film' & strip client transition fields; only server logic advances to printing (inline-printing bypass risk).
@@ -58,7 +57,6 @@
 - [Publish snapshot exclusions](publish-snapshot-exclusions.md) — root .gitignore must explicitly exclude Replit/editor caches; global ignore rules may not keep them out of the 8 GiB publish image.
 - [Shift roster consistency](shift-roster-consistency.md) — validate roster revision and active employee set inside the month lock; open-session stamps stay bound by attendance date/snapshot.
 - [Strict English display fallbacks](strict-english-display-fallbacks.md) — English UI must not fall back to Arabic names/errors, even through generic or mislabeled API fields.
-- [Order status synchronization](order-status-synchronization.md) — parent/production statuses transition atomically; production_stage stays roll-driven; structural child edits require an atomic server operation.
 - [Operator machine selection](operator-machine-selection.md) — worker dashboards save machine choice immediately, close edit mode, and keep “Change” available.
 - [Attendance action ordering](attendance-action-ordering.md) — serialize per-user punches and determine current state by insertion order, not transaction-start timestamps.
 - [Unfinished Git merges](unfinished-git-merges.md) — when conflicts recur after a passing preview, check MERGE_HEAD and resolve/complete the merge, not just the working tree.
