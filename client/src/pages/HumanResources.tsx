@@ -2,6 +2,7 @@ import { Check, ClipboardList, Clock3, Edit3, FileSpreadsheet, LocateFixed, MapP
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import HumanResourcesOperations from "./HumanResourcesOperations";
+import SelfServiceAdmin from "./SelfServiceAdmin";
 import "./human-resources.css";
 
 type Shift = {
@@ -41,7 +42,7 @@ const api = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
 const employeeName = (employee: Employee) => employee.display_name_ar || employee.display_name || employee.username || `مستخدم ${employee.id}`;
 const timeStamp = (value: string | null) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(new Date(value)) : "مستمرة";
 
-export default function HumanResources() {
+export default function HumanResources({ canReviewRequests }: { canReviewRequests: boolean }) {
   const [data, setData] = useState<HrData>({ shifts: [], users: [], history: [] });
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkShift, setBulkShift] = useState("");
@@ -52,7 +53,7 @@ export default function HumanResources() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<"shifts" | "audit" | "report" | "violations">("shifts");
+  const [tab, setTab] = useState<"shifts" | "audit" | "report" | "violations" | "requests">("shifts");
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -130,6 +131,7 @@ export default function HumanResources() {
       <button className={tab === "audit" ? "active" : ""} role="tab" aria-selected={tab === "audit"} onClick={() => setTab("audit")}><ClipboardList size={17} /> سجل التدقيق</button>
       <button className={tab === "report" ? "active" : ""} role="tab" aria-selected={tab === "report"} onClick={() => setTab("report")}><FileSpreadsheet size={17} /> كشف الحضور</button>
       <button className={tab === "violations" ? "active" : ""} role="tab" aria-selected={tab === "violations"} onClick={() => setTab("violations")}><ShieldAlert size={17} /> مخالفات الموظفين</button>
+      {canReviewRequests && <button className={tab === "requests" ? "active" : ""} role="tab" aria-selected={tab === "requests"} onClick={() => setTab("requests")}><ClipboardList size={17} /> الطلبات الإدارية</button>}
     </div>
     {error && <div className="hr-alert error">{error}</div>}{notice && <div className="hr-alert success"><Check size={16} />{notice}</div>}
 
@@ -153,7 +155,8 @@ export default function HumanResources() {
     <section className="hr-history"><div className="hr-section-head"><div><span>سجل التكليفات</span><h3>آخر تغييرات الورديات</h3></div></div><div className="hr-history-list">{data.history.slice(0, 20).map((entry) => { const employee = data.users.find((item) => item.id === entry.user_id); return <div key={entry.id}><span className={entry.unassigned_at ? "closed" : "open"} /><strong>{employee ? employeeName(employee) : `مستخدم ${entry.user_id}`}</strong><b>{shiftById.get(entry.shift_id)?.name_ar || entry.shift_id}</b><small>{timeStamp(entry.assigned_at)} ← {timeStamp(entry.unassigned_at)}</small></div>; })}</div></section>
     </>}
 
-    {tab !== "shifts" && <HumanResourcesOperations tab={tab} employees={data.users} />}
+    {tab === "requests" && canReviewRequests && <SelfServiceAdmin mode="requests" />}
+    {tab !== "shifts" && tab !== "requests" && <HumanResourcesOperations tab={tab} employees={data.users} />}
 
     {draft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDraft(null)}><form className="hr-modal" onSubmit={saveShift}><header><div><span>SHIFT DEFINITION</span><h3>{editingId ? "تعديل الوردية" : "إضافة وردية"}</h3></div><button type="button" onClick={() => setDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
       {!editingId && <label><span>رمز الوردية</span><input required value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} /></label>}
