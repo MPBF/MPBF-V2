@@ -146,10 +146,20 @@ router.get("/attendance", handle(async (req, res) => {
       accuracy: attendance_events.accuracy,
     })
       .from(attendance_events)
+      .leftJoin(attendance_sessions, eq(attendance_events.session_id, attendance_sessions.id))
       .where(and(
         eq(attendance_events.user_id, userId),
-        sql`${attendance_events.occurred_at} >= ${start}`,
-        sql`${attendance_events.occurred_at} < ${end}`,
+        or(
+          and(
+            isNull(attendance_events.session_id),
+            sql`${attendance_events.occurred_at} >= ${start}`,
+            sql`${attendance_events.occurred_at} < ${end}`,
+          ),
+          and(
+            sql`${attendance_sessions.shift_date} >= ${shiftDateStart}`,
+            sql`${attendance_sessions.shift_date} < ${nextMonth}`,
+          ),
+        ),
       ))
       .orderBy(attendance_events.occurred_at, attendance_events.id),
     db.select().from(attendance_sessions)

@@ -22,7 +22,7 @@
 - [HR schema drift on existing DBs](hr-ensure-block-tables.md) — a declared HR table may be absent from a live DB; inspect actual columns and apply narrow additive dev migrations, not startup DDL.
 - [Vite @/ alias fragility](vite-at-alias-resolution.md) — `@/` imports can break dev server during Vite dep re-optimization after lockfile churn; use relative imports in client code.
 - [Approved leave/permission → attendance](approved-requests-attendance.md) — leave = attendance rows status "إجازة" (engine-derived, not absent); approved استئذان minutes credit late→early→withdrawn in engine; status is "موافق".
-- [Wage computation](wage-computation.md) — monthly net = basic+OT-deductions-penalties+rewards; no-checkout (incomplete) days must be deducted as non-payable or they get full pay (overpayment).
+- [Incomplete attendance and pay](wage-computation.md) — treat shifts with no verified checkout as non-payable pending correction; do not assume a payroll engine currently exists.
 - [Number display formatting](number-formatting.md) — displayed numbers group thousands via central helpers (formatNumber / formatNumberAr); never group GPS coords/CSS/payloads/percentages, and never re-parse grouped output.
 - [Attendance engine aggregation](attendance-engine-aggregation.md) — self check-in writes many rows per shift-day; coalesce stamps to one record, MAX cumulative withdrawn, compute break once (never per-row sum).
 - [Legacy→new product prefill guard](legacy-map-prefill.md) — prefilling the reactive customer-product form needs a ref that preserves cutting_length through category select, releases on cylinder/length edit, resets on dialog close.

@@ -87,7 +87,7 @@ export function currentShiftOccurrence(shift: ShiftDefinition, now = new Date())
   const month = localNow.getUTCMonth();
   const day = localNow.getUTCDate();
   const overnight = endMinutes <= startMinutes;
-  for (const dayOffset of [0, -1]) {
+  for (const dayOffset of [0, -1, 1]) {
     const localMidnightUtc = Date.UTC(year, month, day + dayOffset);
     const shiftStartAt = new Date(localMidnightUtc + startMinutes * 60_000 - riyadhOffset);
     const shiftEndAt = new Date(localMidnightUtc + (endMinutes + (overnight ? 1440 : 0)) * 60_000 - riyadhOffset);

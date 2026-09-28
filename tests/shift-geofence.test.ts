@@ -119,4 +119,15 @@ describe("shift geofence context", () => {
       expectedMinutes: 8 * 60,
     });
   });
+
+  test("accepts a midnight shift's early check-in on the preceding calendar day", () => {
+    const shiftDefinition = parseWorkShifts([shift({
+      start_time: "00:30",
+      end_time: "08:30",
+      early_checkin_minutes: 60,
+    })])[0];
+    const occurrence = currentShiftOccurrence(shiftDefinition, new Date("2026-02-01T23:45:00+03:00"));
+    expect(occurrence?.shiftDate).toBe("2026-02-02");
+    expect(occurrence?.shiftStartAt.toISOString()).toBe("2026-02-01T21:30:00.000Z");
+  });
 });

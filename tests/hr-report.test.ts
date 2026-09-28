@@ -33,7 +33,7 @@ describe("HR attendance reports", () => {
     expect(totals.workedMinutes).toBe(510);
     expect(totals.overtimeMinutes).toBe(60);
     expect(totals.daysWorked).toBe(1);
-    expect(totals.absentDays).toBe(2);
+    expect(totals.absentDays).toBe(1);
   });
 
   it("does not count Friday and Saturday as absence", () => {
@@ -48,7 +48,25 @@ describe("HR attendance reports", () => {
       breakMinutes: 0,
     };
     const totals = summarizeAttendance(2, [], [assignment], range, new Date("2026-09-06T08:00:00.000Z"));
-    expect(totals.absentDays).toBe(4);
+    expect(totals.absentDays).toBe(3);
+  });
+
+  it("waits until an overnight shift ends before counting absence, including assignments made after noon", () => {
+    const range = monthRange("2026-09");
+    const assignment = {
+      id: 91,
+      userId: 91,
+      assignedAt: new Date("2026-09-28T13:00:00.000Z"),
+      unassignedAt: null,
+      startTime: "19:00",
+      endTime: "03:00",
+      breakMinutes: 0,
+      lateCheckoutMinutes: 15,
+    };
+    const duringShift = summarizeAttendance(91, [], [assignment], range, new Date("2026-09-28T17:00:00.000Z"));
+    expect(duringShift.absentDays).toBe(0);
+    const afterShift = summarizeAttendance(91, [], [assignment], range, new Date("2026-09-29T01:00:00.000Z"));
+    expect(afterShift.absentDays).toBe(1);
   });
 
   it("attributes an overnight session to its Riyadh shift date", () => {

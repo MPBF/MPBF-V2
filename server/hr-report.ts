@@ -26,6 +26,7 @@ export type ReportAssignment = {
   startTime: string;
   endTime: string;
   breakMinutes: number;
+  lateCheckoutMinutes?: number;
 };
 
 export type AttendanceTotals = {
@@ -189,8 +190,19 @@ export function summarizeAttendance(
   let absentDays = 0;
   for (const day of dateKeys(range.start, range.end, cutoff)) {
     if (!workingDay(day) || presentDays.has(day)) continue;
-    const noon = new Date(`${day}T12:00:00+03:00`);
-    if (userAssignments.some((assignment) => assignment.assignedAt <= noon && (!assignment.unassignedAt || assignment.unassignedAt > noon))) absentDays += 1;
+    const localMidnight = new Date(`${day}T00:00:00+03:00`).getTime();
+    if (userAssignments.some((assignment) => {
+      const [startHour, startMinute] = assignment.startTime.split(":").map(Number);
+      const [endHour, endMinute] = assignment.endTime.split(":").map(Number);
+      if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return false;
+      const startMinutes = startHour * 60 + startMinute;
+      const endMinutes = endHour * 60 + endMinute;
+      const shiftStart = localMidnight + startMinutes * 60_000;
+      const shiftEnd = localMidnight + (endMinutes + (endMinutes <= startMinutes ? 1440 : 0)) * 60_000;
+      return assignment.assignedAt.getTime() <= shiftStart
+        && (!assignment.unassignedAt || assignment.unassignedAt.getTime() > shiftStart)
+        && now.getTime() > shiftEnd + (assignment.lateCheckoutMinutes ?? 0) * 60_000;
+    })) absentDays += 1;
   }
 
   let workedMinutes = 0;

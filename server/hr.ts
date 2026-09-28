@@ -129,7 +129,7 @@ router.get("/attendance-events", handle(async (req, res) => {
   const userId = positiveId(req.query.user_id, "الموظف");
   const sectionId = textFilter(req.query.section_id, 20);
   const conditions: SQL[] = [or(
-    and(gte(attendance_events.occurred_at, start), lt(attendance_events.occurred_at, end)),
+    and(isNull(attendance_events.session_id), gte(attendance_events.occurred_at, start), lt(attendance_events.occurred_at, end)),
     eq(attendance_sessions.shift_date, day),
   )!];
   if (userId) conditions.push(eq(attendance_events.user_id, userId));
@@ -183,6 +183,9 @@ router.post("/attendance-events", handle(async (req, res) => {
     if (occurredAt.getTime() > session.shiftStartAt.getTime() + 24 * 60 * 60 * 1000) {
       return { error: { status: 409, message: "تجاوزت الجلسة مهلة التصحيح البالغة 24 ساعة من بداية الوردية" } };
     }
+    if (occurredAt > new Date()) {
+      return { error: { status: 409, message: "لا يمكن تسجيل نهاية الاستراحة بتاريخ مستقبلي" } };
+    }
     const latestRows = await tx.select({
       action: attendance_events.action,
       occurredAt: attendance_events.occurred_at,
@@ -194,6 +197,14 @@ router.post("/attendance-events", handle(async (req, res) => {
     }
     if (occurredAt <= latest.occurredAt) {
       return { error: { status: 409, message: "يجب أن يكون وقت نهاية الاستراحة بعد آخر إجراء في الجلسة" } };
+    }
+    const nextSession = await tx.select({ checkInAt: attendance_sessions.check_in_at })
+      .from(attendance_sessions).where(and(
+        eq(attendance_sessions.user_id, session.userId),
+        gt(attendance_sessions.shift_start_at, session.shiftStartAt),
+      )).orderBy(attendance_sessions.shift_start_at).limit(1);
+    if (nextSession[0] && occurredAt >= nextSession[0].checkInAt) {
+      return { error: { status: 409, message: "وقت نهاية الاستراحة يتداخل مع وردية لاحقة" } };
     }
     const [event] = await tx.insert(attendance_events).values({
       user_id: session.userId,
@@ -434,6 +445,7 @@ router.get("/attendance-summary", handle(async (req, res) => {
       startTime: shift_definitions.start_time,
       endTime: shift_definitions.end_time,
       breakMinutes: shift_definitions.break_minutes,
+      lateCheckoutMinutes: shift_definitions.late_checkout_minutes,
     }).from(user_shift_assignments)
       .innerJoin(shift_definitions, eq(user_shift_assignments.shift_id, shift_definitions.id))
       .innerJoin(users, eq(user_shift_assignments.user_id, users.id))
