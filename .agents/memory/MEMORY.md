@@ -25,7 +25,6 @@
 - [Wage computation](wage-computation.md) — monthly net = basic+OT-deductions-penalties+rewards; no-checkout (incomplete) days must be deducted as non-payable or they get full pay (overpayment).
 - [Number display formatting](number-formatting.md) — displayed numbers group thousands via central helpers (formatNumber / formatNumberAr); never group GPS coords/CSS/payloads/percentages, and never re-parse grouped output.
 - [Attendance engine aggregation](attendance-engine-aggregation.md) — self check-in writes many rows per shift-day; coalesce stamps to one record, MAX cumulative withdrawn, compute break once (never per-row sum).
-- [Attendance shift boundary](attendance-shift-boundary.md) — previous-day status carries only for an active 19:00–07:00 night shift; 07:00 starts a fresh day session.
 - [Legacy→new product prefill guard](legacy-map-prefill.md) — prefilling the reactive customer-product form needs a ref that preserves cutting_length through category select, releases on cylinder/length edit, resets on dialog close.
 - [WhatsApp phone normalization](whatsapp-phone-normalization.md) — Meta sends must convert Saudi local (05.../5...) to intl 966 format or Meta rejects with (#100); keep in lockstep with SMS gateway.
 - [WhatsApp 24h window & templates](whatsapp-24h-window-templates.md) — business-initiated sends MUST use approved templates; free-form text outside 24h logs "sent" but never delivers; no text fallback on template failure (kills SMS fallback).
@@ -55,7 +54,6 @@
 - [Schema drift migrations](schema-drift-migrations.md) — when drizzle-kit push prompts over existing drift, do not force a broad diff for one reviewed additive change.
 - [Maintenance schedule run idempotency](maintenance-schedule-run-idempotency.md) — periodic checklist runs are date-unique; advance configurable due cycles only on completion, never on start.
 - [Publish snapshot exclusions](publish-snapshot-exclusions.md) — root .gitignore must explicitly exclude Replit/editor caches; global ignore rules may not keep them out of the 8 GiB publish image.
-- [Shift roster consistency](shift-roster-consistency.md) — validate roster revision and active employee set inside the month lock; open-session stamps stay bound by attendance date/snapshot.
 - [Strict English display fallbacks](strict-english-display-fallbacks.md) — English UI must not fall back to Arabic names/errors, even through generic or mislabeled API fields.
 - [Operator machine selection](operator-machine-selection.md) — worker dashboards save machine choice immediately, close edit mode, and keep “Change” available.
 - [Attendance action ordering](attendance-action-ordering.md) — serialize per-user punches and determine current state by insertion order, not transaction-start timestamps.
