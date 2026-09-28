@@ -7,6 +7,7 @@ export type ShiftDefinition = {
   nextDayCheckinTime?: string;
   earlyCheckinMinutes: number;
   lateCheckoutMinutes: number;
+  breakMinutes?: number;
   geofenceEnabled: boolean;
   geofenceCenterLat?: number;
   geofenceCenterLng?: number;
@@ -23,6 +24,12 @@ export type ActiveShift = {
 };
 
 export type ShiftWindow = { start: Date; end: Date };
+export type ShiftOccurrence = ShiftWindow & {
+  shiftStartAt: Date;
+  shiftEndAt: Date;
+  shiftDate: string;
+  expectedMinutes: number;
+};
 
 type ValidGeofence = {
   centerLat: number;
@@ -66,9 +73,14 @@ export function riyadhNowMinutes(now = new Date()): number {
 }
 
 export function currentShiftWindow(shift: ShiftDefinition, now = new Date()): ShiftWindow | null {
+  const occurrence = currentShiftOccurrence(shift, now);
+  return occurrence ? { start: occurrence.start, end: occurrence.end } : null;
+}
+
+export function currentShiftOccurrence(shift: ShiftDefinition, now = new Date()): ShiftOccurrence | null {
   const startMinutes = parseTimeMinutes(shift.startTime);
   const endMinutes = parseTimeMinutes(shift.endTime);
-  if (startMinutes === null || endMinutes === null) return null;
+  if (startMinutes === null || endMinutes === null || startMinutes === endMinutes) return null;
   const riyadhOffset = 3 * 60 * 60 * 1000;
   const localNow = new Date(now.getTime() + riyadhOffset);
   const year = localNow.getUTCFullYear();
@@ -77,9 +89,22 @@ export function currentShiftWindow(shift: ShiftDefinition, now = new Date()): Sh
   const overnight = endMinutes <= startMinutes;
   for (const dayOffset of [0, -1]) {
     const localMidnightUtc = Date.UTC(year, month, day + dayOffset);
-    const start = new Date(localMidnightUtc + startMinutes * 60_000 - riyadhOffset - shift.earlyCheckinMinutes * 60_000);
-    const end = new Date(localMidnightUtc + (endMinutes + (overnight ? 1440 : 0)) * 60_000 - riyadhOffset + shift.lateCheckoutMinutes * 60_000);
-    if (now >= start && now <= end) return { start, end };
+    const shiftStartAt = new Date(localMidnightUtc + startMinutes * 60_000 - riyadhOffset);
+    const shiftEndAt = new Date(localMidnightUtc + (endMinutes + (overnight ? 1440 : 0)) * 60_000 - riyadhOffset);
+    const start = new Date(shiftStartAt.getTime() - shift.earlyCheckinMinutes * 60_000);
+    const end = new Date(shiftEndAt.getTime() + shift.lateCheckoutMinutes * 60_000);
+    if (now >= start && now <= end) {
+      const localDate = new Date(localMidnightUtc);
+      const shiftDate = `${localDate.getUTCFullYear()}-${String(localDate.getUTCMonth() + 1).padStart(2, "0")}-${String(localDate.getUTCDate()).padStart(2, "0")}`;
+      return {
+        start,
+        end,
+        shiftStartAt,
+        shiftEndAt,
+        shiftDate,
+        expectedMinutes: Math.max(0, Math.round((shiftEndAt.getTime() - shiftStartAt.getTime()) / 60_000) - (shift.breakMinutes ?? 0)),
+      };
+    }
   }
   return null;
 }

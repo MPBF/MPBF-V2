@@ -3,6 +3,7 @@ import { describe, expect, test } from "@jest/globals";
 import {
   distanceMeters,
   currentShiftWindow,
+  currentShiftOccurrence,
   parseWorkShifts,
   resolveActiveShift,
   toActiveShift,
@@ -98,5 +99,24 @@ describe("shift geofence context", () => {
     expect(currentShiftWindow(night, new Date("2026-09-25T20:00:00+03:00"))).not.toBeNull();
     expect(currentShiftWindow(night, new Date("2026-09-26T02:00:00+03:00"))).not.toBeNull();
     expect(currentShiftWindow(night, new Date("2026-09-26T08:00:00+03:00"))).toBeNull();
+  });
+
+  test("anchors an overnight occurrence and its shift date to the Riyadh start day", () => {
+    const night = parseWorkShifts([shift({
+      start_time: "19:00",
+      end_time: "03:00",
+      early_checkin_minutes: 60,
+      late_checkout_minutes: 60,
+    })])[0];
+    const occurrence = currentShiftOccurrence(night, new Date("2026-09-26T02:00:00+03:00"));
+
+    expect(occurrence).toEqual({
+      start: new Date("2026-09-25T15:00:00.000Z"),
+      end: new Date("2026-09-26T01:00:00.000Z"),
+      shiftStartAt: new Date("2026-09-25T16:00:00.000Z"),
+      shiftEndAt: new Date("2026-09-26T00:00:00.000Z"),
+      shiftDate: "2026-09-25",
+      expectedMinutes: 8 * 60,
+    });
   });
 });

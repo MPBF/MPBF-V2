@@ -118,12 +118,38 @@ export const user_shift_assignments = pgTable(
   ],
 );
 
+export const attendance_sessions = pgTable(
+  "attendance_sessions",
+  {
+    id: serial("id").primaryKey(),
+    user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    shift_assignment_id: integer("shift_assignment_id").references(() => user_shift_assignments.id, { onDelete: "set null" }),
+    shift_id: varchar("shift_id", { length: 80 }).notNull(),
+    shift_date: date("shift_date").notNull(),
+    shift_start_at: timestamp("shift_start_at", { withTimezone: true }).notNull(),
+    shift_end_at: timestamp("shift_end_at", { withTimezone: true }).notNull(),
+    window_start_at: timestamp("window_start_at", { withTimezone: true }).notNull(),
+    window_end_at: timestamp("window_end_at", { withTimezone: true }).notNull(),
+    expected_minutes: integer("expected_minutes").notNull(),
+    check_in_at: timestamp("check_in_at", { withTimezone: true }).notNull(),
+    check_out_at: timestamp("check_out_at", { withTimezone: true }),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uniq_attendance_session_occurrence").on(table.user_id, table.shift_start_at),
+    index("idx_attendance_sessions_user_date").on(table.user_id, table.shift_date),
+    check("attendance_session_time_check", sql`${table.shift_start_at} < ${table.shift_end_at} AND ${table.window_start_at} <= ${table.shift_start_at} AND ${table.window_end_at} >= ${table.shift_end_at}`),
+    check("attendance_session_checkout_check", sql`${table.check_out_at} IS NULL OR ${table.check_out_at} >= ${table.check_in_at}`),
+  ],
+);
+
 export const attendance_events = pgTable(
   "attendance_events",
   {
     id: serial("id").primaryKey(),
     user_id: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     shift_assignment_id: integer("shift_assignment_id").references(() => user_shift_assignments.id, { onDelete: "set null" }),
+    session_id: integer("session_id").references(() => attendance_sessions.id, { onDelete: "set null" }),
     action: varchar("action", { length: 20 }).notNull(),
     occurred_at: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
     latitude: decimal("latitude", { precision: 9, scale: 6 }).notNull(),
@@ -136,6 +162,7 @@ export const attendance_events = pgTable(
   },
   (table) => [
     index("idx_attendance_events_user_time").on(table.user_id, table.occurred_at),
+    index("idx_attendance_events_session").on(table.session_id, table.id),
     check("attendance_events_action_check", sql`${table.action} IN ('check_in', 'break_start', 'break_end', 'check_out')`),
     check("attendance_events_latitude_check", sql`${table.latitude} BETWEEN -90 AND 90`),
     check("attendance_events_longitude_check", sql`${table.longitude} BETWEEN -180 AND 180`),

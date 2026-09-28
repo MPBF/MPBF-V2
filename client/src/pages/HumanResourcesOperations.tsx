@@ -14,6 +14,8 @@ type OperationsTab = "audit" | "report" | "violations";
 type AttendanceEvent = HrEmployee & {
   id: number;
   user_id: number;
+  session_id: number | null;
+  shift_date: string | null;
   action: AttendanceAction;
   occurred_at: string;
   source: "employee" | "manual";
@@ -22,11 +24,13 @@ type AttendanceEvent = HrEmployee & {
   updated_at: string;
 };
 type AttendanceAction = "check_in" | "break_start" | "break_end" | "check_out";
+type OpenSession = HrEmployee & { id: number; user_id: number; shift_date: string; shift_id: string; check_in_at: string; shift_end_at: string; last_action: AttendanceAction | null };
 type SummaryRow = HrEmployee & {
   workedMinutes: number;
   daysWorked: number;
   absentDays: number;
   overtimeMinutes: number;
+  incompleteDays: number;
 };
 type Violation = HrEmployee & {
   id: number;
@@ -68,6 +72,7 @@ const localDateTime = (value = new Date()) => {
   const shifted = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
   return shifted.toISOString().slice(0, 16);
 };
+const riyadhDateTimeToIso = (value: string) => new Date(`${value}:00+03:00`).toISOString();
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
   dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh",
 }).format(new Date(value));
@@ -89,6 +94,8 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
   const [day, setDay] = useState(riyadhToday);
   const [month, setMonth] = useState(riyadhMonth);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
+  const [openSessions, setOpenSessions] = useState<OpenSession[]>([]);
+  const [correction, setCorrection] = useState<{ session: OpenSession; checkout: string; breakEnd: string } | null>(null);
   const [summary, setSummary] = useState<SummaryRow[]>([]);
   const [violations, setViolations] = useState<Violation[]>([]);
   const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
@@ -106,7 +113,14 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
     setLoading(true); setError("");
     try {
       const common = { section_id: filters.section, user_id: filters.user };
-      if (tab === "audit") setEvents(await hrApi<AttendanceEvent[]>(`/attendance-events?${query({ ...common, day })}`));
+      if (tab === "audit") {
+        const [audit, open] = await Promise.all([
+          hrApi<AttendanceEvent[]>(`/attendance-events?${query({ ...common, day })}`),
+          hrApi<OpenSession[]>(`/attendance-sessions/open?${query(common)}`),
+        ]);
+        setEvents(audit);
+        setOpenSessions(open);
+      }
       if (tab === "report") setSummary((await hrApi<{ rows: SummaryRow[] }>(`/attendance-summary?${query({ ...common, month })}`)).rows);
       if (tab === "violations") setViolations(await hrApi<Violation[]>(`/violations?${query(common)}`));
     } catch (cause) { setError((cause as Error).message); }
@@ -128,6 +142,25 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
         body: JSON.stringify({ user_id: Number(eventDraft.user_id), action: eventDraft.action, occurred_at: new Date(eventDraft.occurred_at).toISOString() }),
       });
       setEventDraft(null); setNotice(eventDraft.id ? "تم تعديل سجل الحضور." : "تمت إضافة سجل الحضور اليدوي."); await load();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(""); }
+  };
+
+  const correctSession = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!correction) return;
+    setBusy("correction"); setError(""); setNotice("");
+    try {
+      await hrApi(`/attendance-sessions/${correction.session.id}/checkout`, {
+        method: "POST",
+        body: JSON.stringify({
+          occurred_at: riyadhDateTimeToIso(correction.checkout),
+          ...(correction.session.last_action === "break_start" ? { break_end_at: riyadhDateTimeToIso(correction.breakEnd) } : {}),
+        }),
+      });
+      setCorrection(null);
+      setNotice("تم تصحيح الانصراف واحتساب الوردية في تاريخ بدايتها.");
+      await load();
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(""); }
   };
@@ -160,7 +193,7 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
       const XLSX = await import("xlsx");
       const rows = summary.map((row) => ({
         "اسم المستخدم": `${reportArabicName(row)}\n${reportEnglishName(row)}`, "القسم": sectionName(row), "م ساعات العمل": formatMinutes(row.workedMinutes),
-        "م أيام العمل": row.daysWorked, "م الغياب": row.absentDays, "م الاضافي": formatMinutes(row.overtimeMinutes),
+        "م أيام العمل": row.daysWorked, "م الغياب": row.absentDays, "وردية ناقصة": row.incompleteDays, "م الاضافي": formatMinutes(row.overtimeMinutes),
       }));
       const workbook = XLSX.utils.book_new();
       const sheet = XLSX.utils.json_to_sheet(rows);
@@ -197,7 +230,7 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
   };
 
   const printSummary = (rows: SummaryRow[], title = `كشف الحضور الشهري — ${month}`) => {
-    const body = `<table><thead><tr><th>اسم المستخدم</th><th>القسم</th><th>م ساعات العمل</th><th>م أيام العمل</th><th>م الغياب</th><th>م الاضافي</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${escapeHtml(reportArabicName(row))}</strong><br><small>${escapeHtml(reportEnglishName(row))}</small></td><td>${escapeHtml(sectionName(row))}</td><td>${formatMinutes(row.workedMinutes)}</td><td>${row.daysWorked}</td><td>${row.absentDays}</td><td>${formatMinutes(row.overtimeMinutes)}</td></tr>`).join("")}</tbody></table>`;
+    const body = `<table><thead><tr><th>اسم المستخدم</th><th>القسم</th><th>م ساعات العمل</th><th>م أيام العمل</th><th>م الغياب</th><th>وردية ناقصة</th><th>م الاضافي</th></tr></thead><tbody>${rows.map((row) => `<tr><td><strong>${escapeHtml(reportArabicName(row))}</strong><br><small>${escapeHtml(reportEnglishName(row))}</small></td><td>${escapeHtml(sectionName(row))}</td><td>${formatMinutes(row.workedMinutes)}</td><td>${row.daysWorked}</td><td>${row.absentDays}</td><td>${row.incompleteDays}</td><td>${formatMinutes(row.overtimeMinutes)}</td></tr>`).join("")}</tbody></table>`;
     printDocument(escapeHtml(title), body);
   };
 
@@ -218,13 +251,15 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
       </div>
 
       {tab === "audit" && <>
-        <div className="hr-ops-head"><div><span>ATTENDANCE AUDIT</span><h3>سجل التدقيق</h3><p>جميع حركات الحضور مرتبة من الأحدث إلى الأقدم.</p></div><button className="hr-primary" type="button" onClick={() => setEventDraft({ user_id: filters.user, action: "check_in", occurred_at: localDateTime() })}><Plus size={17} /> إضافة سجل يدوي</button></div>
-        <div className="hr-table-wrap"><table className="hr-data-table hr-audit-table"><thead><tr><th>الموظف</th><th>القسم</th><th>الحركة</th><th>الوقت</th><th>المصدر</th><th>الإجراء</th></tr></thead><tbody>{events.map((entry) => <tr key={entry.id}><td className="hr-employee-cell"><strong>{reportArabicName(entry)}</strong><small>{reportEnglishName(entry)}</small></td><td>{sectionName(entry)}</td><td><span className={`hr-action-pill ${entry.action}`}>{actionLabels[entry.action]}</span></td><td>{formatDateTime(entry.occurred_at)}</td><td><span className={`hr-source ${entry.source}`}>{entry.source === "manual" ? "يدوي" : "الموظف"}</span></td><td><div className="hr-row-actions"><button className="hr-icon-action" type="button" onClick={() => setEventDraft({ id: entry.id, user_id: String(entry.user_id), action: entry.action, occurred_at: localDateTime(new Date(entry.occurred_at)) })}><Edit3 size={15} /> تعديل</button><button className="hr-icon-action danger" type="button" disabled={busy === `delete-event-${entry.id}`} onClick={() => void deleteAttendanceEvent(entry)}><Trash2 size={15} />{busy === `delete-event-${entry.id}` ? "جارٍ الحذف…" : "حذف"}</button></div></td></tr>)}</tbody></table>{!loading && !events.length && <div className="hr-empty">لا توجد سجلات مطابقة لهذا اليوم.</div>}</div>
+        <div className="hr-ops-head"><div><span>INCOMPLETE SHIFTS</span><h3>ورديات بانتظار تصحيح الانصراف</h3><p>لا تُحتسب الساعات أو الأجر قبل تسجيل وقت الانصراف الفعلي. يمكنك تصحيح استراحة مفتوحة والانصراف معًا.</p></div></div>
+        <div className="hr-table-wrap"><table className="hr-data-table"><thead><tr><th>الموظف</th><th>تاريخ احتساب الوردية</th><th>وقت الحضور الفعلي</th><th>الوردية</th><th>الإجراء</th></tr></thead><tbody>{openSessions.map((session) => <tr key={session.id}><td>{employeeName(session)}</td><td>{session.shift_date}</td><td>{formatDateTime(session.check_in_at)}</td><td>{session.shift_id}</td><td><button className="hr-icon-action" type="button" onClick={() => setCorrection({ session, checkout: "", breakEnd: "" })}>تصحيح الانصراف</button></td></tr>)}</tbody></table>{!loading && !openSessions.length && <div className="hr-empty">لا توجد ورديات غير مكتملة.</div>}</div>
+        <div className="hr-ops-head"><div><span>ATTENDANCE AUDIT</span><h3>سجل التدقيق</h3><p>جميع حركات الحضور مرتبة من الأحدث إلى الأقدم.</p></div><button className="hr-primary" type="button" onClick={() => setEventDraft({ user_id: filters.user, action: "break_end", occurred_at: localDateTime() })}><Plus size={17} /> إنهاء استراحة يدويًا</button></div>
+        <div className="hr-table-wrap"><table className="hr-data-table hr-audit-table"><thead><tr><th>الموظف</th><th>القسم</th><th>الحركة</th><th>وقت الحركة الفعلي</th><th>يوم احتساب الوردية</th><th>المصدر</th><th>الإجراء</th></tr></thead><tbody>{events.map((entry) => <tr key={entry.id}><td className="hr-employee-cell"><strong>{reportArabicName(entry)}</strong><small>{reportEnglishName(entry)}</small></td><td>{sectionName(entry)}</td><td><span className={`hr-action-pill ${entry.action}`}>{actionLabels[entry.action]}</span></td><td>{formatDateTime(entry.occurred_at)}</td><td>{entry.shift_date || "سجل قديم"}</td><td><span className={`hr-source ${entry.source}`}>{entry.source === "manual" ? "يدوي" : "الموظف"}</span></td><td>{entry.session_id != null ? <span>محفوظ ضمن الجلسة</span> : <div className="hr-row-actions"><button className="hr-icon-action" type="button" onClick={() => setEventDraft({ id: entry.id, user_id: String(entry.user_id), action: entry.action, occurred_at: localDateTime(new Date(entry.occurred_at)) })}><Edit3 size={15} /> تعديل</button><button className="hr-icon-action danger" type="button" disabled={busy === `delete-event-${entry.id}`} onClick={() => void deleteAttendanceEvent(entry)}><Trash2 size={15} />{busy === `delete-event-${entry.id}` ? "جارٍ الحذف…" : "حذف"}</button></div>}</td></tr>)}</tbody></table>{!loading && !events.length && <div className="hr-empty">لا توجد سجلات مطابقة لهذا اليوم.</div>}</div>
       </>}
 
       {tab === "report" && <>
         <div className="hr-ops-head"><div><span>MONTHLY ATTENDANCE</span><h3>كشف الحضور الشهري</h3><p>ملخص تراكمي محسوب من حركات الحضور والورديات الفعلية.</p></div><div className="hr-export-actions"><button type="button" onClick={() => printSummary(summary)}><Printer size={16} /> طباعة الكل</button><button type="button" disabled={busy === "excel"} onClick={() => void exportExcel()}><Download size={16} /> Excel</button><button type="button" disabled={busy === "pdf"} onClick={() => void exportPdf()}><FileDown size={16} /> PDF</button></div></div>
-        <div ref={reportRef} className="hr-report-sheet"><div className="hr-report-caption"><CalendarDays size={19} /><div><strong>كشف الحضور</strong><small>الشهر {month}</small></div></div><div className="hr-table-wrap"><table className="hr-data-table"><thead><tr><th>اسم المستخدم</th><th>القسم</th><th>م ساعات العمل</th><th>م أيام العمل</th><th>م الغياب</th><th>م الاضافي</th><th className="hr-no-export">طباعة</th></tr></thead><tbody>{summary.map((row) => <tr key={row.id}><td className="hr-employee-cell"><strong>{reportArabicName(row)}</strong><small>{reportEnglishName(row)}</small></td><td>{sectionName(row)}</td><td>{formatMinutes(row.workedMinutes)}</td><td><b>{row.daysWorked}</b></td><td><b className={row.absentDays ? "hr-negative" : ""}>{row.absentDays}</b></td><td><b className="hr-positive">{formatMinutes(row.overtimeMinutes)}</b></td><td className="hr-no-export"><button className="hr-icon-action" type="button" onClick={() => printSummary([row], `كشف حضور — ${reportArabicName(row)} — ${month}`)}><Printer size={15} /> طباعة</button></td></tr>)}</tbody></table>{!loading && !summary.length && <div className="hr-empty">لا توجد بيانات مطابقة للفلاتر.</div>}</div></div>
+        <div ref={reportRef} className="hr-report-sheet"><div className="hr-report-caption"><CalendarDays size={19} /><div><strong>كشف الحضور</strong><small>الشهر {month}</small></div></div><div className="hr-table-wrap"><table className="hr-data-table"><thead><tr><th>اسم المستخدم</th><th>القسم</th><th>م ساعات العمل</th><th>م أيام العمل</th><th>م الغياب</th><th>وردية ناقصة</th><th>م الاضافي</th><th className="hr-no-export">طباعة</th></tr></thead><tbody>{summary.map((row) => <tr key={row.id}><td className="hr-employee-cell"><strong>{reportArabicName(row)}</strong><small>{reportEnglishName(row)}</small></td><td>{sectionName(row)}</td><td>{formatMinutes(row.workedMinutes)}</td><td><b>{row.daysWorked}</b></td><td><b className={row.absentDays ? "hr-negative" : ""}>{row.absentDays}</b></td><td><b className={row.incompleteDays ? "hr-negative" : ""}>{row.incompleteDays}</b></td><td><b className="hr-positive">{formatMinutes(row.overtimeMinutes)}</b></td><td className="hr-no-export"><button className="hr-icon-action" type="button" onClick={() => printSummary([row], `كشف حضور — ${reportArabicName(row)} — ${month}`)}><Printer size={15} /> طباعة</button></td></tr>)}</tbody></table>{!loading && !summary.length && <div className="hr-empty">لا توجد بيانات مطابقة للفلاتر.</div>}</div></div>
       </>}
 
       {tab === "violations" && <>
@@ -233,9 +268,13 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
       </>}
     </section>
 
+    {correction && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCorrection(null)}><form className="hr-modal hr-compact-modal" onSubmit={correctSession}><header><div><span>ATTENDANCE CORRECTION</span><h3>تصحيح وردية {correction.session.shift_date}</h3></div><button type="button" onClick={() => setCorrection(null)} aria-label="إغلاق"><X /></button></header><p>الموظف: {employeeName(correction.session)} · الحضور: {formatDateTime(correction.session.check_in_at)}. أدخل وقت الانصراف الحقيقي، لا وقت إدخال التصحيح.</p><div className="hr-form-grid">
+      {correction.session.last_action === "break_start" && <label><span>وقت نهاية الاستراحة الفعلي</span><input required type="datetime-local" value={correction.breakEnd} onChange={(event) => setCorrection({ ...correction, breakEnd: event.target.value })} /></label>}
+      <label><span>وقت الانصراف الفعلي</span><input required type="datetime-local" value={correction.checkout} onChange={(event) => setCorrection({ ...correction, checkout: event.target.value })} /></label>
+    </div><footer><button className="hr-primary" disabled={busy === "correction"}>{busy === "correction" ? "جارٍ التصحيح…" : "حفظ التصحيح"}</button><button type="button" onClick={() => setCorrection(null)}>إلغاء</button></footer></form></div>}
     {eventDraft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEventDraft(null)}><form className="hr-modal hr-compact-modal" onSubmit={saveEvent}><header><div><span>ATTENDANCE RECORD</span><h3>{eventDraft.id ? "تعديل سجل الحضور" : "إضافة سجل يدوي"}</h3></div><button type="button" onClick={() => setEventDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
       <label><span>الموظف</span><select required value={eventDraft.user_id} onChange={(event) => setEventDraft({ ...eventDraft, user_id: event.target.value })}><option value="">اختر الموظف</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)} — {sectionName(employee)}</option>)}</select></label>
-      <label><span>الحركة</span><select value={eventDraft.action} onChange={(event) => setEventDraft({ ...eventDraft, action: event.target.value as AttendanceAction })}>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label><span>الحركة</span><select disabled={!eventDraft.id} value={eventDraft.action} onChange={(event) => setEventDraft({ ...eventDraft, action: event.target.value as AttendanceAction })}>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label><span>التاريخ والوقت</span><input required type="datetime-local" value={eventDraft.occurred_at} onChange={(event) => setEventDraft({ ...eventDraft, occurred_at: event.target.value })} /></label>
     </div><footer><button className="hr-primary" disabled={busy === "event"}>{busy === "event" ? "جارٍ الحفظ…" : "حفظ السجل"}</button><button type="button" onClick={() => setEventDraft(null)}>إلغاء</button></footer></form></div>}
 

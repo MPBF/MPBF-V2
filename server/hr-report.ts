@@ -2,8 +2,20 @@ export type ReportEvent = {
   id: number;
   userId: number;
   assignmentId: number | null;
+  sessionId?: number | null;
   action: string;
   occurredAt: Date;
+};
+
+export type ReportSession = {
+  id: number;
+  userId: number;
+  shiftDate: string;
+  shiftStartAt: Date;
+  shiftEndAt: Date;
+  expectedMinutes: number;
+  checkInAt: Date;
+  checkOutAt: Date | null;
 };
 
 export type ReportAssignment = {
@@ -21,6 +33,7 @@ export type AttendanceTotals = {
   daysWorked: number;
   absentDays: number;
   overtimeMinutes: number;
+  incompleteDays: number;
 };
 
 const RIYADH_OFFSET = 3 * 60 * 60 * 1000;
@@ -74,45 +87,108 @@ export function summarizeAttendance(
   assignments: ReportAssignment[],
   range: { start: Date; end: Date },
   now = new Date(),
+  sessions: ReportSession[] = [],
 ): AttendanceTotals {
-  const userEvents = events.filter((event) => event.userId === userId).sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id - b.id);
+  const userEvents = events.filter((event) => event.userId === userId && event.sessionId == null)
+    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id - b.id);
   const userAssignments = assignments.filter((assignment) => assignment.userId === userId);
+  const inMonth = (day: string) => {
+    const { start, end } = range;
+    return day >= riyadhDayKey(start) && day < riyadhDayKey(end);
+  };
   const perDay = new Map<string, { worked: number; expected: number }>();
+  const presentDays = new Set<string>();
+  const workedDays = new Set<string>();
+
+  const userSessions = sessions.filter((session) => session.userId === userId && inMonth(session.shiftDate));
+  const sessionIds = new Set(userSessions.map((session) => session.id));
+  const sessionEvents = events.filter((event) =>
+    event.userId === userId && event.sessionId != null && sessionIds.has(event.sessionId),
+  );
+
+  for (const session of userSessions) {
+    presentDays.add(session.shiftDate);
+    const row = perDay.get(session.shiftDate) ?? { worked: 0, expected: 0 };
+    row.expected += Math.max(0, session.expectedMinutes);
+    perDay.set(session.shiftDate, row);
+    if (!session.checkOutAt) continue;
+
+    const matchingEvents = sessionEvents.filter((event) => event.sessionId === session.id)
+      .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id - b.id);
+    let workingSince: Date | null = null;
+    let sessionWorked = 0;
+    const closeSessionInterval = (at: Date) => {
+      if (!workingSince) return;
+      const start = Math.max(workingSince.getTime(), session.checkInAt.getTime());
+      const end = Math.min(at.getTime(), session.checkOutAt!.getTime());
+      if (end > start) sessionWorked += Math.round((end - start) / 60_000);
+      workingSince = null;
+    };
+    for (const event of matchingEvents) {
+      if (event.occurredAt < session.checkInAt || event.occurredAt > session.checkOutAt) continue;
+      if (event.action === "check_in") {
+        closeSessionInterval(event.occurredAt);
+        workingSince = event.occurredAt;
+      } else if (event.action === "break_start" || event.action === "check_out") {
+        closeSessionInterval(event.occurredAt);
+      } else if (event.action === "break_end" && !workingSince) {
+        workingSince = event.occurredAt;
+      }
+      if (event.action === "check_out") break;
+    }
+    // The persisted checkout timestamp is authoritative even if its event is absent.
+    if (workingSince) closeSessionInterval(session.checkOutAt);
+    if (sessionWorked > 0) {
+      row.worked += sessionWorked;
+      workedDays.add(session.shiftDate);
+    }
+  }
+
+  const incompleteDaysSet = new Set(userSessions.filter((session) => !session.checkOutAt).map((session) => session.shiftDate));
+
   let workingSince: Date | null = null;
   let activeDay = "";
   let activeAssignment: ReportAssignment | undefined;
+  let legacyWorked = 0;
+  const legacyIncomplete = new Set<string>();
 
   const closeInterval = (at: Date) => {
     if (!workingSince || !activeDay) return;
-    const safeEnd = Math.min(at.getTime(), workingSince.getTime() + 24 * 60 * 60 * 1000, range.end.getTime(), now.getTime());
-    const duration = Math.max(0, safeEnd - Math.max(workingSince.getTime(), range.start.getTime()));
-    const row = perDay.get(activeDay) ?? { worked: 0, expected: activeAssignment ? shiftMinutes(activeAssignment) : 0 };
-    row.worked += Math.round(duration / 60000);
-    perDay.set(activeDay, row);
+    const safeEnd = Math.min(at.getTime(), workingSince.getTime() + 24 * 60 * 60 * 1000, now.getTime());
+    legacyWorked += Math.round(Math.max(0, safeEnd - workingSince.getTime()) / 60000);
     workingSince = null;
   };
 
   for (const event of userEvents) {
     if (event.action === "check_in") {
-      closeInterval(event.occurredAt);
+      if (activeDay && inMonth(activeDay)) legacyIncomplete.add(activeDay);
       activeDay = riyadhDayKey(event.occurredAt);
       activeAssignment = userAssignments.find((assignment) => assignment.id === event.assignmentId)
         ?? userAssignments.find((assignment) => assignment.assignedAt <= event.occurredAt && (!assignment.unassignedAt || assignment.unassignedAt > event.occurredAt));
-      const row = perDay.get(activeDay) ?? { worked: 0, expected: activeAssignment ? shiftMinutes(activeAssignment) : 0 };
-      perDay.set(activeDay, row);
+      legacyWorked = 0;
+      if (inMonth(activeDay)) presentDays.add(activeDay);
       workingSince = event.occurredAt;
     } else if (event.action === "break_start" || event.action === "check_out") {
       closeInterval(event.occurredAt);
+      if (event.action === "check_out" && activeDay) {
+        if (inMonth(activeDay) && legacyWorked > 0) {
+          const row = perDay.get(activeDay) ?? { worked: 0, expected: activeAssignment ? shiftMinutes(activeAssignment) : 0 };
+          row.worked += legacyWorked;
+          perDay.set(activeDay, row);
+          workedDays.add(activeDay);
+        }
+        activeDay = "";
+        legacyWorked = 0;
+      }
     } else if (event.action === "break_end" && activeDay) {
       workingSince = event.occurredAt;
     }
   }
-  if (workingSince) closeInterval(now < range.end ? now : range.end);
-
+  if (activeDay && inMonth(activeDay)) legacyIncomplete.add(activeDay);
   const cutoff = now < range.end ? now : range.end;
   let absentDays = 0;
   for (const day of dateKeys(range.start, range.end, cutoff)) {
-    if (!workingDay(day) || perDay.has(day)) continue;
+    if (!workingDay(day) || presentDays.has(day)) continue;
     const noon = new Date(`${day}T12:00:00+03:00`);
     if (userAssignments.some((assignment) => assignment.assignedAt <= noon && (!assignment.unassignedAt || assignment.unassignedAt > noon))) absentDays += 1;
   }
@@ -123,5 +199,5 @@ export function summarizeAttendance(
     workedMinutes += row.worked;
     if (row.expected > 0) overtimeMinutes += Math.max(0, row.worked - row.expected);
   }
-  return { workedMinutes, daysWorked: perDay.size, absentDays, overtimeMinutes };
+  return { workedMinutes, daysWorked: workedDays.size, absentDays, overtimeMinutes, incompleteDays: new Set([...incompleteDaysSet, ...legacyIncomplete]).size };
 }

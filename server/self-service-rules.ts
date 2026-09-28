@@ -47,6 +47,30 @@ export function attendanceSessionSummary(
   };
 }
 
+export function sessionEventState(events: { action: string; occurred_at: Date }[], checkOutAt?: Date | null) {
+  if (checkOutAt) return "out";
+  const latest = [...events].sort((a, b) => a.occurred_at.getTime() - b.occurred_at.getTime()).at(-1);
+  return attendanceStatus(latest?.action);
+}
+
+export function completedSessionDaysInMonth(
+  sessions: { shift_date: string; check_out_at: Date | null }[],
+  month: string,
+) {
+  return new Set(
+    sessions
+      .filter((session) => session.check_out_at !== null && session.shift_date.startsWith(`${month}-`))
+      .map((session) => session.shift_date),
+  ).size;
+}
+
+export function isPriorIncompleteSession(
+  session: { check_out_at: Date | null; window_end_at: Date },
+  now = new Date(),
+) {
+  return session.check_out_at === null && session.window_end_at.getTime() < now.getTime();
+}
+
 function riyadhDay(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Riyadh",

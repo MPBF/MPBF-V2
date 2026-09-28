@@ -18,7 +18,7 @@ type ActiveShift = {
   geofenceStatus: "enabled" | "disabled" | "invalid";
   radiusMeters: number | null;
 };
-type AttendanceData = { events: AttendanceEvent[]; status: "out" | "working" | "break"; month: string; daysPresent: number; activeShift: ActiveShift | null; withinShiftWindow: boolean; serverNow: string; workedSeconds: number; sessionStartedAt: string | null; actionTimes: Partial<Record<AttendanceAction, string>> };
+type AttendanceData = { events: AttendanceEvent[]; status: "out" | "working" | "break"; month: string; daysPresent: number; currentSession?: { id: number; shiftDate: string; incomplete: boolean } | null; unresolvedIncompleteSession?: { id: number; shiftDate: string } | null; activeShift: ActiveShift | null; withinShiftWindow: boolean; serverNow: string; workedSeconds: number; sessionStartedAt: string | null; actionTimes: Partial<Record<AttendanceAction, string>> };
 
 class ApiError extends Error {
   status: number;
@@ -224,6 +224,8 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
           <div className="self-section-kicker"><Fingerprint size={15} /> نظام البصمة</div>
           <div className="self-attendance-status-line"><h3 id="self-attendance-title">{loading && !attendance ? "جارٍ تحميل الحالة…" : statusLabel}</h3><span className={`self-current-status is-${attendance?.status || "out"}`}>{statusLabel}</span></div>
           <p>الموقع إلزامي لكل تسجيل. سيُطلب إذن الموقع عند تنفيذ كل إجراء.</p>
+          {attendance?.currentSession?.shiftDate && <p>تاريخ احتساب الوردية: <strong>{attendance.currentSession.shiftDate}</strong>، حتى لو كان الانصراف بعد منتصف الليل.</p>}
+          {attendance?.unresolvedIncompleteSession && <div className="self-window-warning" role="alert"><AlertCircle size={16} /> وردية {attendance.unresolvedIncompleteSession.shiftDate} بلا انصراف. لا تُحتسب ساعاتها أو أجرها حتى تُصححها إدارة الموارد البشرية، ويمكنك بدء ورديتك الجديدة.</div>}
           <div className={`self-shift-context is-${attendance?.activeShift?.geofenceStatus || "none"}`}>
             <span className="self-shift-icon"><Navigation size={18} /></span>
             <div className="self-shift-copy">
