@@ -57,5 +57,5 @@
 - [Strict English display fallbacks](strict-english-display-fallbacks.md) — English UI must not fall back to Arabic names/errors, even through generic or mislabeled API fields.
 - [Operator machine selection](operator-machine-selection.md) — worker dashboards save machine choice immediately, close edit mode, and keep “Change” available.
 - [Attendance action ordering](attendance-action-ordering.md) — serialize per-user punches and determine current state by insertion order, not transaction-start timestamps.
-- [Overnight shift accounting day](overnight-shift-accounting-day.md) — all hours and wages of a cross-midnight shift belong to its start date; keep actual timestamps unchanged.
+- [Overnight shift accounting day](overnight-shift-accounting-day.md) — all cross-midnight hours belong to the shift start date; keep actual timestamps unchanged, no monetary payroll for now.
 - [Unfinished Git merges](unfinished-git-merges.md) — when conflicts recur after a passing preview, check MERGE_HEAD and resolve/complete the merge, not just the working tree.
