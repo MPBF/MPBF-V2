@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { and, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable } from "drizzle-orm";
+import { and, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import {
   categories,
@@ -16,7 +16,6 @@ import {
   insertMasterBatchColorSchema,
   insertNewOrderSchema,
   insertProductionOrderSchema,
-  insertRollSchema,
   insertRoleSchema,
   insertSectionSchema,
   insertSystemSettingSchema,
@@ -27,7 +26,6 @@ import {
   master_batch_colors,
   orders,
   production_orders,
-  rolls,
   roles,
   sections,
   system_settings,
@@ -289,7 +287,14 @@ router.delete("/users/:id", admin, async (req, res, next) => {
       // the login account. Clear them explicitly because the live database uses
       // NO ACTION/RESTRICT for these nullable foreign keys.
       await tx.update(customers).set({ sales_rep_id: null }).where(eq(customers.sales_rep_id, id));
-      await tx.update(rolls).set({ created_by: null }).where(eq(rolls.created_by, id));
+      // Compatibility for databases not yet migrated: old rolls.created_by
+      // restricts user deletion. The development database no longer has rolls.
+      const legacyRolls = await tx.execute<{ table_name: string | null }>(
+        sql`SELECT to_regclass('public.rolls')::text AS table_name`,
+      );
+      if (legacyRolls.rows[0]?.table_name) {
+        await tx.execute(sql`UPDATE public.rolls SET created_by = NULL WHERE created_by = ${id}`);
+      }
       await tx.update(system_settings).set({ updated_by: null }).where(eq(system_settings.updated_by, id));
       return (await tx.delete(users).where(eq(users.id, id)).returning({ id: users.id }))[0];
     });
@@ -307,10 +312,10 @@ router.put("/sections/:id", sectionsWrite, async (req, res, next) => { try { con
 router.delete("/roles/:id", admin, async (req, res, next) => { try { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" }); const row = await db.delete(roles).where(eq(roles.id, id)).returning({ id: roles.id }); if (!row[0]) return res.status(404).json({ message: "الدور غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
 router.delete("/sections/:id", admin, async (req, res, next) => { try { const row = await db.delete(sections).where(eq(sections.id, req.params.id)).returning({ id: sections.id }); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
 
-type Entity = "customers" | "categories" | "items" | "master-batch-colors" | "customer-products" | "machines" | "orders" | "production-orders" | "rolls" | "maintenance-component-catalog" | "system-settings";
-const entities: Record<Entity, any> = { customers, categories, items, "master-batch-colors": master_batch_colors, "customer-products": customer_products, machines, orders, "production-orders": production_orders, rolls, "maintenance-component-catalog": maintenance_component_catalog, "system-settings": system_settings };
-const schemas: Record<Entity, any> = { customers: insertCustomerSchema, categories: insertCategorySchema, items: insertItemSchema, "master-batch-colors": insertMasterBatchColorSchema, "customer-products": insertCustomerProductSchema, machines: insertMachineSchema, orders: insertNewOrderSchema, "production-orders": insertProductionOrderSchema, rolls: insertRollSchema, "maintenance-component-catalog": insertMaintenanceComponentCatalogSchema, "system-settings": insertSystemSettingSchema };
-const numericEntityIds = new Set<Entity>(["customer-products", "orders", "production-orders", "rolls", "maintenance-component-catalog", "system-settings"]);
+type Entity = "customers" | "categories" | "items" | "master-batch-colors" | "customer-products" | "machines" | "orders" | "production-orders" | "maintenance-component-catalog" | "system-settings";
+const entities: Record<Entity, any> = { customers, categories, items, "master-batch-colors": master_batch_colors, "customer-products": customer_products, machines, orders, "production-orders": production_orders, "maintenance-component-catalog": maintenance_component_catalog, "system-settings": system_settings };
+const schemas: Record<Entity, any> = { customers: insertCustomerSchema, categories: insertCategorySchema, items: insertItemSchema, "master-batch-colors": insertMasterBatchColorSchema, "customer-products": insertCustomerProductSchema, machines: insertMachineSchema, orders: insertNewOrderSchema, "production-orders": insertProductionOrderSchema, "maintenance-component-catalog": insertMaintenanceComponentCatalogSchema, "system-settings": insertSystemSettingSchema };
+const numericEntityIds = new Set<Entity>(["customer-products", "orders", "production-orders", "maintenance-component-catalog", "system-settings"]);
 
 function entityId(path: Entity, raw: string) {
   if (!numericEntityIds.has(path)) return raw;
@@ -327,14 +332,14 @@ const entityRead: Record<Entity, any> = {
   customers: businessRead, categories: categoriesRead, items: itemsRead,
   "master-batch-colors": masterBatchRead, "customer-products": customerProductsRead,
   machines: machinesRead, orders: ordersRead, "production-orders": productionRead,
-  rolls: productionRead, "maintenance-component-catalog": maintenanceRead,
+  "maintenance-component-catalog": maintenanceRead,
   "system-settings": settingsRead,
 };
 const entityWrite: Record<Entity, any> = {
   customers: businessWrite, categories: categoriesWrite, items: itemsWrite,
   "master-batch-colors": masterBatchWrite, "customer-products": businessWrite,
   machines: machinesWrite, orders: ordersWrite, "production-orders": productionWrite,
-  rolls: productionWrite, "maintenance-component-catalog": maintenanceWrite,
+  "maintenance-component-catalog": maintenanceWrite,
   "system-settings": settingsRead,
 };
 const entitySearch: Record<Entity, any[]> = {
@@ -345,8 +350,7 @@ const entitySearch: Record<Entity, any[]> = {
   "customer-products": [customer_products.size_caption, customer_products.raw_material, customer_products.printing_cylinder, customer_products.master_batch_id, customer_products.cutting_unit, customer_products.punching, customer_products.notes, customer_products.status],
   machines: [machines.name, machines.name_ar, machines.type, machines.status, machines.manufacturer, machines.serial_number],
   orders: [orders.order_number, orders.status, orders.previous_status, orders.notes, orders.share_token],
-  "production-orders": [production_orders.production_order_number, production_orders.status, production_orders.previous_status, production_orders.production_stage, production_orders.batch_number],
-  rolls: [rolls.roll_number, rolls.status, rolls.current_stage, rolls.qr_code, rolls.qr_code_text, rolls.stage],
+  "production-orders": [production_orders.production_order_number, production_orders.status, production_orders.previous_status, production_orders.batch_number],
   "maintenance-component-catalog": [maintenance_component_catalog.machine_type, maintenance_component_catalog.name_ar, maintenance_component_catalog.name_en],
   "system-settings": [system_settings.setting_key, system_settings.setting_value, system_settings.setting_type, system_settings.description],
 };
@@ -354,9 +358,6 @@ const entitySearch: Record<Entity, any[]> = {
 const categoryParent = aliasedTable(categories, "category_parent");
 const itemCategory = aliasedTable(categories, "item_category");
 const customerSalesRep = aliasedTable(users, "customer_sales_rep");
-const productionAssignedMachine = aliasedTable(machines, "production_assigned_machine");
-const rollFilmMachine = aliasedTable(machines, "roll_film_machine");
-const rollCurrentMachine = aliasedTable(machines, "roll_current_machine");
 
 for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   const mutationGuard = entityWrite[path];
@@ -438,7 +439,7 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
       } else if (path === "production-orders") {
         const conditions = [
           ...entitySearch[path], orders.order_number, customer_products.size_caption,
-          customers.name, customers.name_ar, productionAssignedMachine.name, productionAssignedMachine.name_ar,
+          customers.name, customers.name_ar,
         ].map((column) => ilike(column, term));
         rows = await db.select({
           ...getTableColumns(production_orders),
@@ -446,33 +447,12 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           product_size_caption: customer_products.size_caption,
           customer_name: customers.name,
           customer_name_ar: customers.name_ar,
-          assigned_machine_name: productionAssignedMachine.name,
-          assigned_machine_name_ar: productionAssignedMachine.name_ar,
         }).from(production_orders)
           .leftJoin(orders, eq(production_orders.order_id, orders.id))
           .leftJoin(customer_products, eq(production_orders.customer_product_id, customer_products.id))
           .leftJoin(customers, eq(customer_products.customer_id, customers.id))
-          .leftJoin(productionAssignedMachine, eq(production_orders.assigned_machine_id, productionAssignedMachine.id))
           .where(search ? or(...conditions) : undefined)
           .orderBy(desc(production_orders.id)).limit(limit).offset(offset);
-      } else if (path === "rolls") {
-        const conditions = [
-          ...entitySearch[path], production_orders.production_order_number,
-          rollFilmMachine.name, rollFilmMachine.name_ar, rollCurrentMachine.name, rollCurrentMachine.name_ar,
-        ].map((column) => ilike(column, term));
-        rows = await db.select({
-          ...getTableColumns(rolls),
-          production_order_number: production_orders.production_order_number,
-          film_machine_name: rollFilmMachine.name,
-          film_machine_name_ar: rollFilmMachine.name_ar,
-          machine_name: rollCurrentMachine.name,
-          machine_name_ar: rollCurrentMachine.name_ar,
-        }).from(rolls)
-          .leftJoin(production_orders, eq(rolls.production_order_id, production_orders.id))
-          .leftJoin(rollFilmMachine, eq(rolls.film_machine_id, rollFilmMachine.id))
-          .leftJoin(rollCurrentMachine, eq(rolls.machine_id, rollCurrentMachine.id))
-          .where(search ? or(...conditions) : undefined)
-          .orderBy(desc(rolls.id)).limit(limit).offset(offset);
       } else if (path === "machines") {
         const conditions = [...entitySearch[path], sections.name, sections.name_ar].map((column) => ilike(column, term));
         rows = await db.select({
@@ -549,7 +529,7 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           .returning();
         return res.json(updated[0]);
       }
-      const readOnly = new Set(["id", "created_at", "updated_at", "universal_thickness", "roll_created_at"]);
+      const readOnly = new Set(["id", "created_at", "updated_at", "universal_thickness"]);
       const input = Object.fromEntries(Object.entries(req.body ?? {}).filter(([key]) => !readOnly.has(key)));
       const body = parsed(schemas[path].strict().partial(), input);
       const row: any[] = (await db.update(table).set(body).where(eq(table.id, key)).returning()) as any;

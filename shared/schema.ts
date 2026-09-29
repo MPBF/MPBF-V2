@@ -406,27 +406,8 @@ export const production_orders = pgTable(
     quantity_kg: decimal("quantity_kg", { precision: 10, scale: 2 }).notNull(),
     overrun_percentage: decimal("overrun_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
     final_quantity_kg: decimal("final_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
-    produced_quantity_kg: decimal("produced_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
-    printed_quantity_kg: decimal("printed_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
-    net_quantity_kg: decimal("net_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
-    waste_quantity_kg: decimal("waste_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
-    film_completion_percentage: decimal("film_completion_percentage", { precision: 5, scale: 2 }).notNull().default("0"),
-    printing_completion_percentage: decimal("printing_completion_percentage", { precision: 5, scale: 2 }).notNull().default("0"),
-    cutting_completion_percentage: decimal("cutting_completion_percentage", { precision: 5, scale: 2 }).notNull().default("0"),
-    assigned_machine_id: varchar("assigned_machine_id", { length: 20 }).references(() => machines.id, { onDelete: "set null" }),
-    assigned_operator_id: integer("assigned_operator_id").references(() => users.id, { onDelete: "set null" }),
-    production_start_time: timestamp("production_start_time"),
-    production_end_time: timestamp("production_end_time"),
-    production_time_minutes: integer("production_time_minutes"),
-    film_completed: boolean("film_completed").default(false),
-    printing_completed: boolean("printing_completed").default(false),
-    cutting_completed: boolean("cutting_completed").default(false),
-    is_final_roll_created: boolean("is_final_roll_created").default(false),
-    warehouse_received_kg: decimal("warehouse_received_kg", { precision: 10, scale: 2 }).notNull().default("0"),
-    warehouse_delivered_kg: decimal("warehouse_delivered_kg", { precision: 10, scale: 2 }).notNull().default("0"),
     status: varchar("status", { length: 30 }).notNull().default("pending"),
     previous_status: varchar("previous_status", { length: 30 }),
-    production_stage: varchar("production_stage", { length: 20 }).notNull().default("film"),
     batch_number: varchar("batch_number", { length: 50 }).unique(),
     created_at: timestamp("created_at").notNull().defaultNow(),
   },
@@ -435,77 +416,9 @@ export const production_orders = pgTable(
     overrunPercentageValid: check("overrun_percentage_valid", sql`${table.overrun_percentage} >= 0 AND ${table.overrun_percentage} <= 50`),
     finalQuantityPositive: check("final_quantity_kg_positive", sql`${table.final_quantity_kg} > 0`),
     statusValid: check("production_status_valid", sql`${table.status} IN ('pending', 'active', 'completed', 'cancelled', 'archived')`),
-    productionStageValid: check("production_stage_valid", sql`${table.production_stage} IN ('film', 'printing', 'cutting', 'done')`),
-    producedQuantityNonNegative: check("produced_quantity_non_negative", sql`${table.produced_quantity_kg} >= 0`),
-    printedQuantityNonNegative: check("printed_quantity_non_negative", sql`${table.printed_quantity_kg} >= 0`),
-    netQuantityNonNegative: check("net_quantity_non_negative", sql`${table.net_quantity_kg} >= 0`),
-    wasteQuantityNonNegative: check("waste_quantity_non_negative", sql`${table.waste_quantity_kg} >= 0`),
-    filmCompletionValid: check("film_completion_valid", sql`${table.film_completion_percentage} >= 0 AND ${table.film_completion_percentage} <= 100`),
-    printingCompletionValid: check("printing_completion_valid", sql`${table.printing_completion_percentage} >= 0 AND ${table.printing_completion_percentage} <= 100`),
-    cuttingCompletionValid: check("cutting_completion_valid", sql`${table.cutting_completion_percentage} >= 0 AND ${table.cutting_completion_percentage} <= 100`),
     idx_production_orders_order_id: index("idx_production_orders_order_id").on(table.order_id),
     idx_production_orders_status: index("idx_production_orders_status").on(table.status),
-    idx_production_orders_production_stage: index("idx_production_orders_production_stage").on(table.production_stage),
     idx_production_orders_created_at: index("idx_production_orders_created_at").on(table.created_at),
-    idx_production_orders_assigned_machine_id: index("idx_production_orders_assigned_machine_id").on(table.assigned_machine_id),
-  }),
-);
-
-export const rolls = pgTable(
-  "rolls",
-  {
-    id: serial("id").primaryKey(),
-    roll_number: varchar("roll_number", { length: 50 }).notNull().unique(),
-    weight: decimal("weight", { precision: 8, scale: 2 }),
-    status: varchar("status", { length: 30 }).default("for_printing"),
-    current_stage: varchar("current_stage", { length: 30 }).default("film"),
-    machine_id: varchar("machine_id", { length: 20 }),
-    employee_id: integer("employee_id").references(() => users.id, { onDelete: "set null" }),
-    qr_code: varchar("qr_code", { length: 255 }),
-    created_at: timestamp("created_at").defaultNow(),
-    completed_at: timestamp("completed_at"),
-    roll_seq: integer("roll_seq"),
-    qr_code_text: text("qr_code_text"),
-    qr_png_base64: text("qr_png_base64"),
-    weight_kg: decimal("weight_kg", { precision: 12, scale: 3 }),
-    cut_weight_total_kg: decimal("cut_weight_total_kg", { precision: 12, scale: 3 }).default("0"),
-    waste_kg: decimal("waste_kg", { precision: 12, scale: 3 }).default("0"),
-    printed_at: timestamp("printed_at"),
-    cut_completed_at: timestamp("cut_completed_at"),
-    performed_by: integer("performed_by").references(() => users.id, { onDelete: "set null" }),
-    stage: varchar("stage", { length: 20 }),
-    production_order_id: integer("production_order_id").references(() => production_orders.id, { onDelete: "cascade" }),
-    created_by: integer("created_by").references(() => users.id, { onDelete: "restrict" }),
-    printed_by: integer("printed_by").references(() => users.id, { onDelete: "set null" }),
-    cut_by: integer("cut_by").references(() => users.id, { onDelete: "set null" }),
-    film_machine_id: varchar("film_machine_id", { length: 20 }),
-    printing_machine_id: varchar("printing_machine_id", { length: 20 }).references(() => machines.id, { onDelete: "restrict" }),
-    cutting_machine_id: varchar("cutting_machine_id", { length: 20 }).references(() => machines.id, { onDelete: "restrict" }),
-    is_last_roll: boolean("is_last_roll").default(false),
-    production_time_minutes: integer("production_time_minutes"),
-    roll_created_at: timestamp("roll_created_at").defaultNow(),
-    roll_dimensions: varchar("roll_dimensions", { length: 100 }),
-    side_gussets: decimal("side_gussets", { precision: 8, scale: 2 }),
-  },
-  (table) => ({
-    rollSeqPositive: check("roll_seq_positive", sql`${table.roll_seq} > 0`),
-    weightPositive: check("weight_kg_positive", sql`${table.weight_kg} > 0`),
-    weightReasonable: check("weight_kg_reasonable", sql`${table.weight_kg} <= 2000`),
-    cutWeightValid: check("cut_weight_valid", sql`${table.cut_weight_total_kg} >= 0 AND ${table.cut_weight_total_kg} <= ${table.weight_kg}`),
-    wasteValid: check("waste_valid", sql`${table.waste_kg} >= 0 AND ${table.waste_kg} <= ${table.weight_kg}`),
-    stageValid: check("stage_valid", sql`${table.stage} IN ('film', 'printing', 'cutting', 'done')`),
-    printedAtValid: check("printed_at_valid", sql`${table.printed_at} IS NULL OR ${table.printed_at} >= ${table.created_at}`),
-    cutCompletedAtValid: check("cut_completed_at_valid", sql`${table.cut_completed_at} IS NULL OR (${table.cut_completed_at} >= ${table.created_at} AND (${table.printed_at} IS NULL OR ${table.cut_completed_at} >= ${table.printed_at}))`),
-    completedAtValid: check("completed_at_valid", sql`${table.completed_at} IS NULL OR ${table.completed_at} >= ${table.created_at}`),
-    machineActiveForCreation: check("machine_active_for_creation", sql`TRUE`),
-    idx_rolls_production_order_id: index("idx_rolls_production_order_id").on(table.production_order_id),
-    idx_rolls_stage: index("idx_rolls_stage").on(table.stage),
-    idx_rolls_created_at: index("idx_rolls_created_at").on(table.created_at),
-    idx_rolls_film_machine_id: index("idx_rolls_film_machine_id").on(table.film_machine_id),
-    idx_rolls_created_by: index("idx_rolls_created_by").on(table.created_by),
-    idx_rolls_created_by_created_at: index("idx_rolls_created_by_created_at").on(table.created_by, table.created_at),
-    idx_rolls_printed_by_printed_at: index("idx_rolls_printed_by_printed_at").on(table.printed_by, table.printed_at),
-    idx_rolls_cut_by_cut_completed_at: index("idx_rolls_cut_by_cut_completed_at").on(table.cut_by, table.cut_completed_at),
   }),
 );
 
@@ -590,25 +503,14 @@ export const customerProductsRelations = relations(customer_products, ({ one, ma
 }));
 export const machinesRelations = relations(machines, ({ one, many }) => ({
   section: one(sections, { fields: [machines.section_id], references: [sections.id] }),
-  rolls: many(rolls),
-  productionOrders: many(production_orders),
 }));
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   customer: one(customers, { fields: [orders.customer_id], references: [customers.id] }),
   productionOrders: many(production_orders),
 }));
-export const productionOrdersRelations = relations(production_orders, ({ one, many }) => ({
+export const productionOrdersRelations = relations(production_orders, ({ one }) => ({
   order: one(orders, { fields: [production_orders.order_id], references: [orders.id] }),
   customerProduct: one(customer_products, { fields: [production_orders.customer_product_id], references: [customer_products.id] }),
-  rolls: many(rolls),
-}));
-export const rollsRelations = relations(rolls, ({ one }) => ({
-  productionOrder: one(production_orders, { fields: [rolls.production_order_id], references: [production_orders.id] }),
-  filmMachine: one(machines, { fields: [rolls.film_machine_id], references: [machines.id], relationName: "film_machine" }),
-  printingMachine: one(machines, { fields: [rolls.printing_machine_id], references: [machines.id], relationName: "printing_machine" }),
-  cuttingMachine: one(machines, { fields: [rolls.cutting_machine_id], references: [machines.id], relationName: "cutting_machine" }),
-  machine: one(machines, { fields: [rolls.machine_id], references: [machines.id] }),
-  createdBy: one(users, { fields: [rolls.created_by], references: [users.id], relationName: "roll_created_by" }),
 }));
 
 const omitGenerated = { id: true, created_at: true, updated_at: true } as const;
@@ -624,7 +526,6 @@ export const insertCustomerProductSchema = createInsertSchema(customer_products)
 export const insertMachineSchema = createInsertSchema(machines);
 export const insertNewOrderSchema = createInsertSchema(orders).omit({ id: true, created_at: true });
 export const insertProductionOrderSchema = createInsertSchema(production_orders).omit({ id: true, created_at: true });
-export const insertRollSchema = createInsertSchema(rolls).omit({ id: true, created_at: true, roll_created_at: true });
 export const insertMaintenanceComponentCatalogSchema = createInsertSchema(maintenance_component_catalog).omit({ id: true, created_at: true });
 export const insertCompanyProfileSchema = createInsertSchema(company_profile).omit({ id: true });
 export const insertSystemSettingSchema = createInsertSchema(system_settings).omit({ id: true, updated_at: true });
@@ -647,7 +548,6 @@ export type CustomerProduct = typeof customer_products.$inferSelect;
 export type Machine = typeof machines.$inferSelect;
 export type NewOrder = typeof orders.$inferSelect;
 export type ProductionOrder = typeof production_orders.$inferSelect;
-export type Roll = typeof rolls.$inferSelect;
 export type MaintenanceComponentCatalog = typeof maintenance_component_catalog.$inferSelect;
 export type CompanyProfile = typeof company_profile.$inferSelect;
 export type SystemSetting = typeof system_settings.$inferSelect;
@@ -662,7 +562,6 @@ export type InsertCustomerProduct = z.infer<typeof insertCustomerProductSchema>;
 export type InsertMachine = z.infer<typeof insertMachineSchema>;
 export type InsertNewOrder = z.infer<typeof insertNewOrderSchema>;
 export type InsertProductionOrder = z.infer<typeof insertProductionOrderSchema>;
-export type InsertRoll = z.infer<typeof insertRollSchema>;
 export type InsertMaintenanceComponentCatalog = z.infer<typeof insertMaintenanceComponentCatalogSchema>;
 export type InsertCompanyProfile = z.infer<typeof insertCompanyProfileSchema>;
 export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;

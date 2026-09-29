@@ -67,34 +67,9 @@ export interface ProductionOrder {
 export type ProductionOrderStatus =
   | "pending"
   | "active"
-  | "extruding"
-  | "printing"
-  | "cutting"
   | "completed"
-  | "cancelled";
-
-export interface Roll {
-  id: number;
-  roll_number: string;
-  roll_seq?: number;
-  production_order_id: number;
-  stage: RollStage;
-  status: RollStatus;
-  weight_kg?: number | string | null;
-  cut_weight_total_kg?: number | string | null;
-  waste_kg?: number | string | null;
-  printed_at?: string | null;
-  cut_completed_at?: string | null;
-  created_at: string;
-}
-
-export type RollStage = "film" | "printing" | "cutting" | "done";
-export type RollStatus =
-  | "for_printing"
-  | "for_cutting"
-  | "in_production"
-  | "ready"
-  | "completed";
+  | "cancelled"
+  | "archived";
 
 export interface Machine {
   id: number;
@@ -158,7 +133,6 @@ export interface AttendanceRecord {
 export interface DashboardStats {
   total_orders?: number;
   active_production_orders?: number;
-  pending_rolls?: number;
   active_machines?: number;
   open_quality_issues?: number;
   open_maintenance_requests?: number;

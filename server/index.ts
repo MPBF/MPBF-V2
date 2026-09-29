@@ -45,6 +45,7 @@ app.use(
 
 app.use("/api", populateUser);
 app.use("/api", api);
+app.use("/api", (_req, res) => res.status(404).json({ message: "المسار غير موجود" }));
 
 app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error("API error:", error instanceof Error ? error.message : error);

@@ -12,16 +12,6 @@ export const OrderStatusLabels: Record<
   on_hold: { ar: "معلق", en: "On Hold", color: "#6b7280" },
 };
 
-export const RollStageLabels: Record<
-  string,
-  { ar: string; en: string; color: string }
-> = {
-  film: { ar: "الفيلم", en: "Film", color: "#0ea5e9" },
-  printing: { ar: "الطباعة", en: "Printing", color: "#8b5cf6" },
-  cutting: { ar: "القطع", en: "Cutting", color: "#f59e0b" },
-  done: { ar: "منجز", en: "Done", color: "#10b981" },
-};
-
 export const PriorityLabels: Record<
   string,
   { ar: string; en: string; color: string }
