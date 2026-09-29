@@ -1,0 +1,413 @@
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { AlertCircle, Boxes, CalendarDays, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import "./OrderCreateModal.css";
+
+type Row = Record<string, any>;
+type OrderLine = {
+  key: number;
+  mode: "existing" | "new";
+  customerProductId: string;
+  quantityKg: string;
+  categoryId: string;
+  itemId: string;
+  sizeCaption: string;
+  width: string;
+  thickness: string;
+  rawMaterial: string;
+};
+type ChoiceState = { values: Row[]; loading: boolean; error: string };
+
+const freshLine = (key: number): OrderLine => ({
+  key,
+  mode: "existing",
+  customerProductId: "",
+  quantityKg: "",
+  categoryId: "",
+  itemId: "",
+  sizeCaption: "",
+  width: "",
+  thickness: "",
+  rawMaterial: "",
+});
+
+const getRows = (payload: any): Row[] => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+};
+
+const readApi = async (path: string, options: RequestInit = {}) => {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+    },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const fallback: Record<number, string> = {
+      400: "البيانات المدخلة غير صالحة.",
+      401: "انتهت الجلسة؛ يرجى تسجيل الدخول من جديد.",
+      403: "لا تملك صلاحية تسجيل هذا الطلب.",
+      404: "تعذر العثور على البيانات المطلوبة.",
+      409: "يوجد تعارض في بيانات الطلب.",
+      422: "تعذر التحقق من صحة البيانات.",
+      500: "حدث خطأ في الخادم. حاول مرة أخرى.",
+    };
+    throw new Error(body?.message || fallback[response.status] || "تعذر إكمال الطلب.");
+  }
+  return body;
+};
+
+const readAllChoices = async (path: string): Promise<Row[]> => {
+  const results: Row[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = getRows(await readApi(`${path}?limit=200&offset=${offset}`));
+    results.push(...page);
+    if (page.length < 200) return results;
+  }
+};
+
+const labelFor = (row: Row) => String(row.name_ar || row.name || row.display_name_ar || row.display_name || row.id || "");
+const productLabel = (product: Row) => {
+  const details = [
+    product.category_name_ar || product.category_name,
+    product.item_name_ar || product.item_name,
+    product.size_caption,
+    product.width ? `عرض ${product.width}` : "",
+    product.thickness ? `سماكة ${product.thickness}` : "",
+  ].filter(Boolean);
+  return details.join(" · ") || `منتج رقم ${product.id}`;
+};
+
+function Alert({ children, info = false }: { children: ReactNode; info?: boolean }) {
+  return <div className={`order-create-alert${info ? " info" : ""}`} role={info ? "status" : "alert"}><AlertCircle size={17} aria-hidden="true" /><div>{children}</div></div>;
+}
+
+export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [customers, setCustomers] = useState<ChoiceState>({ values: [], loading: true, error: "" });
+  const [categories, setCategories] = useState<ChoiceState>({ values: [], loading: true, error: "" });
+  const [items, setItems] = useState<ChoiceState>({ values: [], loading: true, error: "" });
+  const [selectedCustomer, setSelectedCustomer] = useState("");
+  const [customerProducts, setCustomerProducts] = useState<Row[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState("");
+  const [reloadOptions, setReloadOptions] = useState(0);
+  const [orderNumber, setOrderNumber] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState<OrderLine[]>([freshLine(1)]);
+  const [nextLineKey, setNextLineKey] = useState(2);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    const loadChoices = async (path: string, setter: (value: ChoiceState) => void) => {
+      setter({ values: [], loading: true, error: "" });
+      try {
+        const values = await readAllChoices(path);
+        if (active) setter({ values, loading: false, error: "" });
+      } catch (e) {
+        if (active) setter({ values: [], loading: false, error: (e as Error).message });
+      }
+    };
+    void loadChoices("/api/customers", setCustomers);
+    void loadChoices("/api/categories", setCategories);
+    void loadChoices("/api/items", setItems);
+    return () => { active = false; };
+  }, [reloadOptions]);
+
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setCustomerProducts([]);
+      setProductsLoading(false);
+      setProductsError("");
+      return;
+    }
+    const controller = new AbortController();
+    setProductsLoading(true);
+    setProductsError("");
+    setCustomerProducts([]);
+    readApi(`/api/customers/${encodeURIComponent(selectedCustomer)}/detail`, { signal: controller.signal })
+      .then((payload) => {
+        const products = Array.isArray(payload?.products) ? payload.products : Array.isArray(payload?.data?.products) ? payload.data.products : [];
+        setCustomerProducts(products);
+        setProductsLoading(false);
+      })
+      .catch((e) => {
+        if (e?.name !== "AbortError") {
+          setProductsError((e as Error).message);
+          setProductsLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [selectedCustomer, reloadOptions]);
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !savingRef.current) onClose();
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  const updateLine = (key: number, patch: Partial<OrderLine>) => {
+    setLines((current) => current.map((line) => line.key === key ? { ...line, ...patch } : line));
+  };
+
+  const addLine = () => {
+    if (lines.length >= 25) return;
+    setLines((current) => [...current, freshLine(nextLineKey)]);
+    setNextLineKey((key) => key + 1);
+  };
+
+  const changeCustomer = (value: string) => {
+    setSelectedCustomer(value);
+    setLines((current) => current.map((line) => ({ ...line, customerProductId: "" })));
+  };
+
+  const retryProducts = () => {
+    if (selectedCustomer) setReloadOptions((value) => value + 1);
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (savingRef.current) return;
+    setError("");
+    const normalizedLines = lines.map((line) => ({ ...line, quantityKg: line.quantityKg.replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))) }));
+    if (!selectedCustomer) {
+      setError("يرجى اختيار العميل.");
+      return;
+    }
+    if (normalizedLines.length < 1) {
+      setError("أضف منتجاً واحداً على الأقل إلى الطلب.");
+      return;
+    }
+    for (let index = 0; index < normalizedLines.length; index += 1) {
+      const line = normalizedLines[index];
+      const quantity = Number(line.quantityKg.trim().replace(",", "."));
+      if (!/^\d{1,8}(?:\.\d{1,2})?$/.test(line.quantityKg.trim().replace(",", ".")) || !Number.isFinite(quantity) || quantity <= 0) {
+        setError(`أدخل كمية صحيحة أكبر من صفر وبحد أقصى منزلتين عشريتين للبند ${index + 1}.`);
+        return;
+      }
+      if (line.mode === "existing" && !line.customerProductId) {
+        setError(`اختر منتج العميل للبند ${index + 1}، أو أضف منتجاً جديداً.`);
+        return;
+      }
+      if (line.mode === "new" && (!line.itemId || !line.sizeCaption.trim())) {
+        setError(`نوع المنتج ومقاسه مطلوبان للبند ${index + 1}.`);
+        return;
+      }
+    }
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const payload = {
+        order_number: orderNumber.trim(),
+        customer_id: selectedCustomer,
+        ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
+        items: normalizedLines.map((line) => ({
+          ...(line.mode === "existing"
+            ? { customer_product_id: Number(line.customerProductId) }
+            : {
+                new_product: {
+                  ...(line.categoryId ? { category_id: line.categoryId } : {}),
+                  item_id: line.itemId,
+                  size_caption: line.sizeCaption.trim(),
+                  ...(line.width.trim() ? { width: line.width.trim() } : {}),
+                  ...(line.thickness.trim() ? { thickness: line.thickness.trim() } : {}),
+                  ...(line.rawMaterial.trim() ? { raw_material: line.rawMaterial.trim() } : {}),
+                },
+              }),
+          quantity_kg: line.quantityKg.trim().replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(",", "."),
+        })),
+      };
+      await readApi("/api/orders/with-items", { method: "POST", body: JSON.stringify(payload) });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message || "تعذر حفظ الطلب.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const baseOptionErrors = [customers.error, categories.error, items.error].filter(Boolean);
+
+  return (
+    <div className="order-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
+      <section className="order-create-modal" role="dialog" aria-modal="true" aria-labelledby="order-create-title">
+        <header className="order-create-head">
+          <div className="order-create-heading">
+            <span className="order-create-mark" aria-hidden="true"><ClipboardList size={21} /></span>
+            <div>
+              <h2 id="order-create-title">تسجيل طلب عميل</h2>
+              <p>أدخل بيانات الطلب ثم أضف الأصناف والكميات بالكيلوغرام.</p>
+            </div>
+          </div>
+          <button className="order-create-close" type="button" aria-label="إغلاق نافذة الطلب" title="إغلاق" disabled={saving} onClick={onClose}><X size={20} /></button>
+        </header>
+
+        <form className="order-create-form" onSubmit={submit}>
+          {error && <Alert>{error}</Alert>}
+          {baseOptionErrors.length > 0 && (
+            <Alert>
+              تعذر تحميل بعض الخيارات. يمكنك إعادة المحاولة قبل المتابعة.
+              <button type="button" className="order-options-state-retry" onClick={() => setReloadOptions((value) => value + 1)}>إعادة تحميل الخيارات</button>
+            </Alert>
+          )}
+
+          <section className="order-create-section" aria-labelledby="order-main-heading">
+            <h3 className="order-create-section-title" id="order-main-heading"><span>01</span> بيانات الطلب</h3>
+            <div className="order-create-grid">
+              <div className="order-create-field order-create-number">
+                <label htmlFor="order-number">رقم الطلب <span aria-hidden="true">*</span></label>
+                 <input id="order-number" type="text" maxLength={47} value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} placeholder="أدخل رقم الطلب" required disabled={saving} autoComplete="off" />
+                 <small className="order-create-hint">يُسجّل الرقم كما أدخلته، وتُرقّم أوامر الإنتاج التابعة له تلقائيًا.</small>
+              </div>
+              <div className="order-create-field">
+                <label htmlFor="order-customer">العميل <span aria-hidden="true">*</span></label>
+                {customers.loading ? <div className="order-create-skeleton" aria-label="جارٍ تحميل العملاء" aria-busy="true"><i /><i /></div> :
+                  <select id="order-customer" value={selectedCustomer} onChange={(event) => changeCustomer(event.target.value)} required disabled={saving || Boolean(customers.error)}>
+                    <option value="">اختر العميل</option>
+                    {customers.values.map((customer, index) => <option key={customer.id ?? index} value={customer.id}>{labelFor(customer)}</option>)}
+                  </select>}
+              </div>
+              <div className="order-create-field">
+                <label htmlFor="order-delivery-date">تاريخ التسليم المخطط <span className="order-create-hint">(اختياري)</span></label>
+                <div style={{ position: "relative" }}>
+                  <input id="order-delivery-date" type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} disabled={saving} />
+                  <CalendarDays size={16} aria-hidden="true" style={{ position: "absolute", left: 11, top: 13, color: "#879991", pointerEvents: "none" }} />
+                </div>
+              </div>
+              <div className="order-create-field">
+                <label htmlFor="order-status">حالة الطلب</label>
+                <div className="order-create-field-static" id="order-status"><span className="order-status-dot" />بانتظار المعالجة</div>
+                <small className="order-create-hint">تُحدّد الحالة تلقائياً عند الحفظ.</small>
+              </div>
+              <div className="order-create-field order-create-field-wide">
+                <label htmlFor="order-notes">ملاحظات <span className="order-create-hint">(اختياري)</span></label>
+                 <textarea id="order-notes" maxLength={5000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="أي تفاصيل تساعد فريق التخطيط أو التسليم…" disabled={saving} />
+              </div>
+            </div>
+          </section>
+
+          <section className="order-create-section" aria-labelledby="order-items-heading">
+            <h3 className="order-create-section-title" id="order-items-heading"><span>02</span> منتجات الطلب</h3>
+            {!selectedCustomer ? (
+              <div className="order-options-state">اختر العميل أولاً لعرض منتجاته المسجلة أو إضافة منتج جديد.</div>
+            ) : productsLoading ? (
+              <div className="order-create-skeleton order-products-loading" aria-label="جارٍ تحميل منتجات العميل" aria-busy="true"><i /><i /><i /></div>
+            ) : productsError ? (
+              <div className="order-options-state" role="alert">تعذر تحميل منتجات هذا العميل: {productsError}<button type="button" onClick={retryProducts}>إعادة المحاولة</button></div>
+            ) : null}
+
+            {selectedCustomer && !productsLoading && !productsError && customerProducts.length === 0 && (
+              <div className="order-options-state order-create-inline-note">لا توجد منتجات مسجلة لهذا العميل بعد. يمكنك إضافة تفاصيل منتج جديد مباشرةً في أحد البنود.</div>
+            )}
+
+            <div className="order-lines">
+              {lines.map((line, index) => {
+                const matchingItems = line.categoryId ? items.values.filter((item) => String(item.category_id ?? item.categoryId ?? "") === line.categoryId) : items.values;
+                return (
+                  <article className="order-line-card" key={line.key} aria-label={`بند رقم ${index + 1}`}>
+                    <div className="order-line-top">
+                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> بند المنتج</div>
+                      {lines.length > 1 && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`حذف البند ${index + 1}`}><Trash2 size={15} /> حذف البند</button>}
+                    </div>
+
+                    <div className="order-product-mode" role="group" aria-label={`مصدر المنتج للبند ${index + 1}`}>
+                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", categoryId: "", itemId: "", sizeCaption: "", width: "", thickness: "", rawMaterial: "" })} disabled={saving}>منتج مسجل</button>
+                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => updateLine(line.key, { mode: "new", customerProductId: "" })} disabled={saving}>منتج جديد</button>
+                    </div>
+
+                    <div className="order-line-grid" style={{ marginTop: 11 }}>
+                      {line.mode === "existing" ? (
+                        <div className="order-line-field order-line-product">
+                          <label htmlFor={`order-product-${line.key}`}>منتج العميل <span aria-hidden="true">*</span></label>
+                          <select id={`order-product-${line.key}`} value={line.customerProductId} onChange={(event) => updateLine(line.key, { customerProductId: event.target.value })} required disabled={saving || !selectedCustomer || productsLoading || Boolean(productsError)}>
+                            <option value="">اختر منتجاً</option>
+                            {customerProducts.map((product, productIndex) => <option key={product.id ?? productIndex} value={product.id}>{productLabel(product)}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="order-line-field order-line-product">
+                          <label htmlFor={`order-new-item-${line.key}`}>نوع المنتج <span aria-hidden="true">*</span></label>
+                          <select id={`order-new-item-${line.key}`} value={line.itemId} onChange={(event) => updateLine(line.key, { itemId: event.target.value })} required disabled={saving || items.loading || Boolean(items.error)}>
+                            <option value="">{items.loading ? "جارٍ تحميل الأنواع…" : "اختر نوع المنتج"}</option>
+                            {matchingItems.map((item, itemIndex) => <option key={item.id ?? itemIndex} value={item.id}>{labelFor(item)}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      <div className="order-line-field">
+                        <label htmlFor={`order-quantity-${line.key}`}>الكمية <span aria-hidden="true">*</span></label>
+                        <div className="order-quantity-wrap">
+                          <input id={`order-quantity-${line.key}`} type="text" inputMode="decimal" dir="ltr" value={line.quantityKg} onChange={(event) => updateLine(line.key, { quantityKg: event.target.value })} placeholder="0.00" required disabled={saving} aria-describedby={`order-quantity-unit-${line.key}`} />
+                          <span className="order-quantity-unit" id={`order-quantity-unit-${line.key}`}>كغ</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {line.mode === "new" && (
+                      <div className="order-new-product">
+                        <div className="order-line-field">
+                          <label htmlFor={`order-category-${line.key}`}>التصنيف <span className="order-create-hint">(اختياري)</span></label>
+                          <select id={`order-category-${line.key}`} value={line.categoryId} onChange={(event) => updateLine(line.key, { categoryId: event.target.value, itemId: "" })} disabled={saving || categories.loading || Boolean(categories.error)}>
+                            <option value="">{categories.loading ? "جارٍ تحميل التصنيفات…" : "بدون تصنيف"}</option>
+                            {categories.values.map((category, categoryIndex) => <option key={category.id ?? categoryIndex} value={category.id}>{labelFor(category)}</option>)}
+                          </select>
+                        </div>
+                        <div className="order-line-field">
+                          <label htmlFor={`order-size-${line.key}`}>المقاس <span aria-hidden="true">*</span></label>
+                           <input id={`order-size-${line.key}`} type="text" maxLength={50} value={line.sizeCaption} onChange={(event) => updateLine(line.key, { sizeCaption: event.target.value })} placeholder="مثال: 30 × 40" required disabled={saving} />
+                        </div>
+                        <div className="order-line-field">
+                          <label htmlFor={`order-width-${line.key}`}>العرض</label>
+                           <input id={`order-width-${line.key}`} type="number" min="0.01" max="999999.99" step="0.01" value={line.width} onChange={(event) => updateLine(line.key, { width: event.target.value })} placeholder="سم · اختياري" disabled={saving} />
+                        </div>
+                        <div className="order-line-field">
+                          <label htmlFor={`order-thickness-${line.key}`}>السماكة</label>
+                           <input id={`order-thickness-${line.key}`} type="number" min="0.001" max="99999.999" step="0.001" value={line.thickness} onChange={(event) => updateLine(line.key, { thickness: event.target.value })} placeholder="ميكرون · اختياري" disabled={saving} />
+                        </div>
+                        <div className="order-line-field order-create-field-wide">
+                          <label htmlFor={`order-raw-material-${line.key}`}>الخامة</label>
+                           <input id={`order-raw-material-${line.key}`} type="text" maxLength={20} value={line.rawMaterial} onChange={(event) => updateLine(line.key, { rawMaterial: event.target.value })} placeholder="اختياري" disabled={saving} />
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+             <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} /> إضافة بند آخر</button>
+            {lineOptionsIssue(categories, items) && <p className="order-create-inline-note">{lineOptionsIssue(categories, items)}</p>}
+          </section>
+
+          <footer className="order-create-footer">
+            <span className="order-create-footer-note"><Boxes size={14} aria-hidden="true" /> الحالة الأولية: بانتظار المعالجة</span>
+            <div className="order-create-actions">
+              <button type="button" className="order-create-cancel" onClick={onClose} disabled={saving}>إلغاء</button>
+              <button type="submit" className="order-create-save" disabled={saving || customers.loading || Boolean(customers.error)}>
+                {saving ? <><LoaderCircle className="order-create-spin" size={16} /> جارٍ تسجيل الطلب…</> : <><Check size={16} /> حفظ الطلب</>}
+              </button>
+            </div>
+          </footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function lineOptionsIssue(categories: ChoiceState, items: ChoiceState) {
+  const messages = [];
+  if (categories.error) messages.push("تعذر تحميل التصنيفات؛ يمكن حفظ منتج جديد دون تصنيف.");
+  if (items.error) messages.push("تعذر تحميل أنواع المنتجات؛ أعد تحميل الخيارات للمتابعة.");
+  return messages.join(" ");
+}

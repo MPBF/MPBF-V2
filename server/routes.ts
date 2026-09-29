@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { and, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
+import { z } from "zod";
 import {
   categories,
   company_profile,
@@ -61,6 +62,32 @@ const masterBatchRead = requireAnyPermission("manage_master_batch", "manage_defi
 const categoriesWrite = requireAnyPermission("manage_categories", "manage_definitions", "manage_customers", "manage_orders", "admin");
 const itemsWrite = requireAnyPermission("manage_items", "manage_definitions", "manage_customers", "manage_orders", "admin");
 const masterBatchWrite = requireAnyPermission("manage_master_batch", "manage_definitions", "manage_customers", "manage_orders", "admin");
+
+const positiveKg = z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/, "الكمية يجب أن تكون بالكيلو وحتى منزلتين عشريتين")
+  .refine((value) => Number(value) > 0, "الكمية يجب أن تكون أكبر من صفر");
+const optionalMeasure = (decimalPlaces: number) => z.string()
+  .regex(new RegExp(`^\\d{1,${8 - decimalPlaces}}(?:\\.\\d{1,${decimalPlaces}})?$`), "قيمة المقاس غير صالحة")
+  .refine((value) => Number(value) > 0, "قيمة المقاس يجب أن تكون أكبر من صفر")
+  .optional();
+const orderWithItemsSchema = z.object({
+  order_number: z.string().trim().min(1).max(47),
+  customer_id: z.string().trim().min(1).max(20),
+  delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  notes: z.string().trim().max(5000).optional(),
+  items: z.array(z.object({
+    customer_product_id: z.number().int().positive().optional(),
+    new_product: z.object({
+      item_id: z.string().min(1).max(20),
+      category_id: z.string().max(20).optional(),
+      size_caption: z.string().trim().min(1).max(50),
+      width: optionalMeasure(2),
+      thickness: optionalMeasure(3),
+      raw_material: z.string().trim().max(20).optional(),
+    }).strict().optional(),
+    quantity_kg: positiveKg,
+  }).strict().refine((line) => Boolean(line.customer_product_id) !== Boolean(line.new_product),
+    "اختر منتجًا مسجلًا أو أنشئ منتجًا جديدًا لكل سطر")).min(1).max(25),
+}).strict();
 
 function page(req: Request) {
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
@@ -311,6 +338,95 @@ router.put("/roles/:id", rolesWrite, async (req, res, next) => { try { const id 
 router.put("/sections/:id", sectionsWrite, async (req, res, next) => { try { const row = await db.update(sections).set(parsed(insertSectionSchema.strict().partial(), req.body)).where(eq(sections.id, req.params.id)).returning(); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json(row[0]); } catch (e) { next(e); } });
 router.delete("/roles/:id", admin, async (req, res, next) => { try { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" }); const row = await db.delete(roles).where(eq(roles.id, id)).returning({ id: roles.id }); if (!row[0]) return res.status(404).json({ message: "الدور غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
 router.delete("/sections/:id", admin, async (req, res, next) => { try { const row = await db.delete(sections).where(eq(sections.id, req.params.id)).returning({ id: sections.id }); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
+
+// Save the order and every planned line in one transaction. An invalid item
+// or conflicting number leaves no partial order behind.
+router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
+  try {
+    const input = orderWithItemsSchema.parse(req.body);
+    if (input.delivery_date) {
+      const parsedDate = new Date(`${input.delivery_date}T00:00:00Z`);
+      const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" })
+        .formatToParts(new Date());
+      const part = (type: string) => dateParts.find((entry) => entry.type === type)!.value;
+      const today = `${part("year")}-${part("month")}-${part("day")}`;
+      if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== input.delivery_date || input.delivery_date < today) {
+        return res.status(400).json({ message: "تاريخ التسليم يجب أن يكون تاريخًا صالحًا من اليوم فصاعدًا" });
+      }
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const customer = await tx.select({ id: customers.id }).from(customers)
+        .where(eq(customers.id, input.customer_id)).limit(1);
+      if (!customer.length) {
+        const error = new Error("العميل المحدد غير موجود");
+        (error as Error & { status: number }).status = 400;
+        throw error;
+      }
+      const [order] = await tx.insert(orders).values({
+        order_number: input.order_number,
+        customer_id: input.customer_id,
+        delivery_date: input.delivery_date,
+        notes: input.notes,
+        status: "waiting",
+        created_by: req.user!.id,
+      }).returning();
+      const createdLines = [];
+      for (const [index, line] of input.items.entries()) {
+        let productId = line.customer_product_id;
+        if (line.new_product) {
+          const product = line.new_product;
+          const [item] = await tx.select({ id: items.id, category_id: items.category_id })
+            .from(items).where(eq(items.id, product.item_id)).limit(1);
+          if (!item || (product.category_id && item.category_id && item.category_id !== product.category_id)) {
+            const error = new Error(`الصنف المحدد غير صالح في السطر ${index + 1}`);
+            (error as Error & { status: number }).status = 400;
+            throw error;
+          }
+          if (product.category_id && !(await tx.select({ id: categories.id }).from(categories)
+            .where(eq(categories.id, product.category_id)).limit(1)).length) {
+            const error = new Error(`التصنيف المحدد غير موجود في السطر ${index + 1}`);
+            (error as Error & { status: number }).status = 400;
+            throw error;
+          }
+          const [created] = await tx.insert(customer_products).values({
+            ...product,
+            category_id: product.category_id || item.category_id || null,
+            customer_id: input.customer_id,
+            status: "active",
+          }).returning({ id: customer_products.id });
+          productId = created.id;
+        } else {
+          const [existing] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(and(eq(customer_products.id, productId!), eq(customer_products.customer_id, input.customer_id)))
+            .limit(1);
+          if (!existing) {
+            const error = new Error(`منتج السطر ${index + 1} غير تابع للعميل المحدد`);
+            (error as Error & { status: number }).status = 400;
+            throw error;
+          }
+        }
+        const [productionOrder] = await tx.insert(production_orders).values({
+          production_order_number: `${input.order_number}-${String(index + 1).padStart(2, "0")}`,
+          order_id: order.id,
+          customer_product_id: productId,
+          quantity_kg: line.quantity_kg,
+          final_quantity_kg: line.quantity_kg,
+          overrun_percentage: "0",
+          status: "pending",
+        }).returning();
+        createdLines.push(productionOrder);
+      }
+      return { order, production_orders: createdLines };
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ message: "رقم الطلب أو رقم أمر الإنتاج مستخدم مسبقًا" });
+    }
+    next(error);
+  }
+});
 
 type Entity = "customers" | "categories" | "items" | "master-batch-colors" | "customer-products" | "machines" | "orders" | "production-orders" | "maintenance-component-catalog" | "system-settings";
 const entities: Record<Entity, any> = { customers, categories, items, "master-batch-colors": master_batch_colors, "customer-products": customer_products, machines, orders, "production-orders": production_orders, "maintenance-component-catalog": maintenance_component_catalog, "system-settings": system_settings };
