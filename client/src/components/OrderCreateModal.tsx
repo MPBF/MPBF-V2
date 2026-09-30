@@ -402,11 +402,19 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
         setError(`اختر منتج العميل للبند ${index + 1}، أو أضف منتجاً جديداً.`);
         return;
       }
-      if (line.mode === "new" && (!line.itemId || !line.sizeCaption.trim())) {
-        setError(`نوع المنتج ومقاسه مطلوبان للبند ${index + 1}.`);
-        return;
-      }
       if (line.mode === "new") {
+        if (!line.categoryId) {
+          setError(`اختر تصنيف المنتج للبند ${index + 1}.`);
+          return;
+        }
+        if (!line.itemId || !items.values.some((item) => String(item.id) === line.itemId && String(item.category_id ?? item.categoryId ?? "") === line.categoryId)) {
+          setError(`اختر نوع منتج من التصنيف المحدد للبند ${index + 1}.`);
+          return;
+        }
+        if (!line.sizeCaption.trim()) {
+          setError(`أدخل مقاس المنتج للبند ${index + 1}.`);
+          return;
+        }
         for (const [value, maximum, label] of [
           [line.width, 999999, "العرض"],
           [line.thickness, 99999, "السماكة"],
@@ -537,7 +545,9 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
 
             <div className="order-lines">
               {lines.map((line, index) => {
-                const matchingItems = line.categoryId ? items.values.filter((item) => String(item.category_id ?? item.categoryId ?? "") === line.categoryId) : items.values;
+                const matchingItems = line.categoryId
+                  ? items.values.filter((item) => String(item.category_id ?? item.categoryId ?? "") === line.categoryId)
+                  : [];
                 return (
                   <article className="order-line-card" key={line.key} aria-label={`بند رقم ${index + 1}`}>
                     <div className="order-line-top">
@@ -561,10 +571,10 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                         </div>
                       ) : (
                         <div className="order-line-field order-line-product">
-                          <label htmlFor={`order-new-item-${line.key}`}>نوع المنتج <span aria-hidden="true">*</span></label>
-                          <select id={`order-new-item-${line.key}`} value={line.itemId} onChange={(event) => updateLine(line.key, { itemId: event.target.value })} required disabled={saving || items.loading || Boolean(items.error)}>
-                            <option value="">{items.loading ? "جارٍ تحميل الأنواع…" : "اختر نوع المنتج"}</option>
-                            {matchingItems.map((item, itemIndex) => <option key={item.id ?? itemIndex} value={item.id}>{labelFor(item)}</option>)}
+                          <label htmlFor={`order-category-${line.key}`}>تصنيف المنتج <span aria-hidden="true">*</span></label>
+                          <select id={`order-category-${line.key}`} value={line.categoryId} onChange={(event) => updateLine(line.key, { categoryId: event.target.value, itemId: "" })} required disabled={saving || categories.loading || Boolean(categories.error)}>
+                            <option value="">{categories.loading ? "جارٍ تحميل التصنيفات…" : "اختر التصنيف"}</option>
+                            {categories.values.map((category, categoryIndex) => <option key={category.id ?? categoryIndex} value={category.id}>{labelFor(category)}</option>)}
                           </select>
                         </div>
                       )}
@@ -580,10 +590,10 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                     {line.mode === "new" && (
                       <div className="order-new-product">
                         <div className="order-line-field">
-                          <label htmlFor={`order-category-${line.key}`}>التصنيف <span className="order-create-hint">(اختياري)</span></label>
-                          <select id={`order-category-${line.key}`} value={line.categoryId} onChange={(event) => updateLine(line.key, { categoryId: event.target.value, itemId: "" })} disabled={saving || categories.loading || Boolean(categories.error)}>
-                            <option value="">{categories.loading ? "جارٍ تحميل التصنيفات…" : "بدون تصنيف"}</option>
-                            {categories.values.map((category, categoryIndex) => <option key={category.id ?? categoryIndex} value={category.id}>{labelFor(category)}</option>)}
+                          <label htmlFor={`order-new-item-${line.key}`}>نوع المنتج <span aria-hidden="true">*</span></label>
+                          <select id={`order-new-item-${line.key}`} value={line.itemId} onChange={(event) => updateLine(line.key, { itemId: event.target.value })} required disabled={saving || !line.categoryId || items.loading || Boolean(items.error) || matchingItems.length === 0}>
+                            <option value="">{!line.categoryId ? "اختر التصنيف أولاً" : items.loading ? "جارٍ تحميل الأنواع…" : matchingItems.length === 0 ? "لا توجد أنواع في هذا التصنيف" : "اختر نوع المنتج"}</option>
+                            {matchingItems.map((item, itemIndex) => <option key={item.id ?? itemIndex} value={item.id}>{labelFor(item)}</option>)}
                           </select>
                         </div>
                         <div className="order-line-field">
@@ -637,7 +647,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
 
 function lineOptionsIssue(categories: ChoiceState, items: ChoiceState) {
   const messages = [];
-  if (categories.error) messages.push("تعذر تحميل التصنيفات؛ يمكن حفظ منتج جديد دون تصنيف.");
+  if (categories.error) messages.push("تعذر تحميل التصنيفات؛ أعد تحميل الخيارات لإضافة منتج جديد.");
   if (items.error) messages.push("تعذر تحميل أنواع المنتجات؛ أعد تحميل الخيارات للمتابعة.");
   return messages.join(" ");
 }
