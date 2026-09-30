@@ -86,6 +86,37 @@ const riyadhDate = (value: Date | string = new Date()) => {
   const part = (type: string) => parts.find((entry) => entry.type === type)?.value || "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 };
+const normalizeDigits = (value: string) => value
+  .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+  .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+const isCalendarDate = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]);
+};
+const addCalendarDays = (dateValue: string, days: number) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
+  if (!match || !isCalendarDate(dateValue) || !Number.isInteger(days) || days < 1 || days > 3650) return "";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+};
+const legacyDeliveryDays = (createdAt: unknown, deliveryDate: unknown) => {
+  const start = riyadhDate(String(createdAt ?? ""));
+  const end = typeof deliveryDate === "string" ? deliveryDate.slice(0, 10) : "";
+  if (!isCalendarDate(start) || !isCalendarDate(end)) return null;
+  const startTime = Date.parse(`${start}T00:00:00Z`);
+  const endTime = Date.parse(`${end}T00:00:00Z`);
+  const difference = (endTime - startTime) / 86_400_000;
+  return Number.isInteger(difference) && difference >= 1 && difference <= 3650 ? difference : null;
+};
+const validDeliveryDays = (value: unknown): number | null => {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const normalized = normalizeDigits(String(value)).trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const days = Number(normalized);
+  return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : null;
+};
 const productLabel = (product: Row) => {
   const details = [
     product.category_name_ar || product.category_name,
@@ -216,7 +247,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const [reloadOptions, setReloadOptions] = useState(0);
   const [orderNumber, setOrderNumber] = useState("");
   const [orderCreatedDate, setOrderCreatedDate] = useState(() => riyadhDate());
-  const [deliveryDate, setDeliveryDate] = useState("");
+  const [deliveryDays, setDeliveryDays] = useState("20");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState("waiting");
   const [originalItems, setOriginalItems] = useState<{ id: number; customer_product_id: number | null; quantity_kg: string }[]>([]);
@@ -245,7 +276,8 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
       setOrderNumber(data.order.order_number);
       setOrderCreatedDate(riyadhDate(data.order.created_at));
       setSelectedCustomer(data.order.customer_id);
-      setDeliveryDate(data.order.delivery_date?.slice(0, 10) || "");
+      const savedDays = validDeliveryDays(data.order.delivery_days);
+      setDeliveryDays(String(savedDays ?? legacyDeliveryDays(data.order.created_at, data.order.delivery_date) ?? 20));
       setNotes(data.order.notes || "");
       setStatus(data.order.status || "waiting");
       setOriginalItems(data.items.map((line: Row) => ({
@@ -348,6 +380,11 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
       setError("يرجى اختيار العميل.");
       return;
     }
+    const normalizedDeliveryDays = validDeliveryDays(deliveryDays);
+    if (normalizedDeliveryDays === null) {
+      setError("أدخل مدة تسليم صحيحة من يوم واحد إلى 3650 يوماً.");
+      return;
+    }
     if (normalizedLines.length < 1) {
       setError("أضف منتجاً واحداً على الأقل إلى الطلب.");
       return;
@@ -373,7 +410,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     try {
       const payload = {
         ...(editId ? { status, original_items: originalItems } : { customer_id: selectedCustomer }),
-        ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
+        delivery_days: normalizedDeliveryDays,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         items: normalizedLines.map((line) => ({
           ...(editId && line.id ? { id: line.id } : {}),
@@ -403,6 +440,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   };
 
   const baseOptionErrors = [customers.error, categories.error, items.error].filter(Boolean);
+  const deliveryPreview = addCalendarDays(orderCreatedDate, validDeliveryDays(deliveryDays) ?? 0);
 
   return (
     <div className="order-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
@@ -445,18 +483,28 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                   {orderCreatedDate || "—"}
                 </div>
               </div>
+              <div className="order-create-field order-delivery-days-field">
+                <label htmlFor="order-delivery-days">مدة التسليم (يوم) <span aria-hidden="true">*</span></label>
+                <input
+                  id="order-delivery-days"
+                  type="text"
+                  inputMode="numeric"
+                  dir="ltr"
+                  value={deliveryDays}
+                  onChange={(event) => setDeliveryDays(normalizeDigits(event.target.value).replace(/[^\d]/g, ""))}
+                  minLength={1}
+                  maxLength={4}
+                  aria-describedby="order-delivery-days-hint"
+                  disabled={saving}
+                  required
+                />
+                <small className="order-create-hint" id="order-delivery-days-hint">من 1 إلى 3650 يوماً · الافتراضي 20</small>
+              </div>
               <div className="order-create-field">
                 <label htmlFor="order-customer">العميل <span aria-hidden="true">*</span></label>
                 {customers.loading ? <div className="order-create-skeleton" aria-label="جارٍ تحميل العملاء" aria-busy="true"><i /><i /></div> :
                   editId ? <div className="order-create-field-static">{customerLabel(customers.values.find((customer) => String(customer.id) === String(selectedCustomer)) || {}) || "—"}</div> :
                   <CustomerSearchSelect customers={customers.values} selectedId={String(selectedCustomer)} onSelect={changeCustomer} disabled={saving || Boolean(customers.error)} />}
-              </div>
-              <div className="order-create-field">
-                <label htmlFor="order-delivery-date">تاريخ التسليم المخطط <span className="order-create-hint">(اختياري)</span></label>
-                <div style={{ position: "relative" }}>
-                  <input id="order-delivery-date" type="date" value={deliveryDate} onChange={(event) => setDeliveryDate(event.target.value)} disabled={saving} />
-                  <CalendarDays size={16} aria-hidden="true" style={{ position: "absolute", left: 11, top: 13, color: "#879991", pointerEvents: "none" }} />
-                </div>
               </div>
               <div className="order-create-field">
                 <label htmlFor="order-status">حالة الطلب</label>
@@ -465,9 +513,13 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                     <option key={value} value={value}>{({ waiting: "بانتظار المعالجة", on_hold: "معلّق", in_production: "قيد الإنتاج", for_production: "جاهز للإنتاج", paused: "متوقف", cancelled: "ملغي", completed: "مكتمل", delivered: "مسلّم", archived: "مؤرشف" } as Record<string, string>)[value]}</option>)}
                 </select> : <><div className="order-create-field-static" id="order-status"><span className="order-status-dot" />بانتظار المعالجة</div><small className="order-create-hint">تُحدّد الحالة تلقائياً عند الحفظ.</small></>}
               </div>
-              <div className="order-create-field order-create-field-wide">
-                <label htmlFor="order-notes">ملاحظات <span className="order-create-hint">(اختياري)</span></label>
-                 <textarea id="order-notes" maxLength={5000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="أي تفاصيل تساعد فريق التخطيط أو التسليم…" disabled={saving} />
+              <div className="order-create-field order-delivery-preview-field">
+                <label htmlFor="order-delivery-preview">تاريخ التسليم المخطط</label>
+                <div className="order-create-field-static order-delivery-preview" id="order-delivery-preview" dir="ltr">
+                  <CalendarDays size={16} aria-hidden="true" />
+                  <span>{deliveryPreview || "أدخل مدة صحيحة"}</span>
+                </div>
+                <small className="order-create-hint">محسوب من تاريخ الطلب وأيام التقويم</small>
               </div>
             </div>
           </section>
@@ -561,6 +613,14 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
             </div>
              <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} /> إضافة بند آخر</button>
             {lineOptionsIssue(categories, items) && <p className="order-create-inline-note">{lineOptionsIssue(categories, items)}</p>}
+          </section>
+
+          <section className="order-create-section order-notes-section" aria-labelledby="order-notes-heading">
+            <h3 className="order-create-section-title" id="order-notes-heading"><span>03</span> ملاحظات</h3>
+            <div className="order-create-field">
+              <label htmlFor="order-notes">ملاحظات <span className="order-create-hint">(اختياري)</span></label>
+              <textarea id="order-notes" maxLength={5000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="أي تفاصيل تساعد فريق التخطيط أو التسليم…" disabled={saving} />
+            </div>
           </section>
 
           <footer className="order-create-footer">

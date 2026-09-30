@@ -59,3 +59,4 @@
 - [Attendance action ordering](attendance-action-ordering.md) — serialize per-user punches and determine current state by insertion order, not transaction-start timestamps.
 - [Overnight shift accounting day](overnight-shift-accounting-day.md) — all cross-midnight hours belong to the shift start date; keep actual timestamps unchanged, no monetary payroll for now.
 - [Unfinished Git merges](unfinished-git-merges.md) — when conflicts recur after a passing preview, check MERGE_HEAD and resolve/complete the merge, not just the working tree.
+- [Order delivery calendar days](order-delivery-calendar-days.md) — delivery is based on the original order day in Riyadh; preserve editable historical dates after they pass.

@@ -18,7 +18,7 @@ jest.mock("../server/auth", () => ({
   hashPassword: jest.fn(),
 }));
 
-const baseOrder = { id: 7, order_number: "TEST-7", customer_id: "C1", status: "waiting", notes: null, delivery_date: null };
+const baseOrder = { id: 7, order_number: "TEST-7", customer_id: "C1", status: "waiting", notes: null, created_at: "2026-01-01T23:00:00Z", delivery_date: null, delivery_days: null };
 const baseLines = [
   { id: 11, order_id: 7, production_order_number: "TEST-7-01", customer_product_id: 1, quantity_kg: "10.00", final_quantity_kg: "10.00", status: "pending", batch_number: null },
   { id: 12, order_id: 7, production_order_number: "TEST-7-02", customer_product_id: 2, quantity_kg: "20.00", final_quantity_kg: "20.00", status: "pending", batch_number: null },
@@ -76,7 +76,7 @@ function fakeTransaction(state: { order: any; lines: any[] }, failInsert = false
 }
 
 const original_items = baseLines.map(({ id, customer_product_id, quantity_kg }) => ({ id, customer_product_id, quantity_kg }));
-const body = (items: any[]) => ({ status: "waiting", original_items, items });
+const body = (items: any[]) => ({ status: "waiting", delivery_days: 20, original_items, items });
 
 describe("editing an order with production lines", () => {
   let server: ReturnType<ReturnType<typeof express>["listen"]>;
@@ -108,6 +108,8 @@ describe("editing an order with production lines", () => {
     expect(response.status).toBe(200);
     expect(state.lines.map((line) => line.id)).toEqual([12, 99]);
     expect(state.lines[1].production_order_number).toBe("TEST-7-03");
+    expect(state.order.delivery_days).toBe(20);
+    expect(state.order.delivery_date).toBe("2026-01-22");
   });
 
   it("rolls back the metadata update and keeps both old lines if inserting a replacement fails", async () => {

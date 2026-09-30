@@ -390,7 +390,6 @@ export const orders = pgTable(
   (table) => ({
     deliveryDaysPositive: check("delivery_days_positive", sql`${table.delivery_days} IS NULL OR ${table.delivery_days} > 0`),
     statusValid: check("status_valid", sql`${table.status} IN ('waiting', 'on_hold', 'in_production', 'for_production', 'paused', 'cancelled', 'completed', 'delivered', 'archived')`),
-    deliveryDateValid: check("delivery_date_valid", sql`${table.delivery_date} IS NULL OR ${table.delivery_date} >= CURRENT_DATE`),
     idx_orders_customer_id: index("idx_orders_customer_id").on(table.customer_id),
     idx_orders_created_at: index("idx_orders_created_at").on(table.created_at),
   }),

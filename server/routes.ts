@@ -34,6 +34,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { nextOrderNumber } from "./order-number";
+import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import hr from "./hr";
 import selfService from "./self-service";
@@ -86,7 +87,7 @@ const validOrderLine = <T extends { customer_product_id?: number; new_product?: 
   Boolean(line.customer_product_id) !== Boolean(line.new_product);
 const orderWithItemsSchema = z.object({
   customer_id: z.string().trim().min(1).max(20),
-  delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  delivery_days: z.number().int().min(1).max(3650),
   notes: z.string().trim().max(5000).optional(),
   items: z.array(orderLineSchema.refine(validOrderLine,
     "اختر منتجًا مسجلًا أو أنشئ منتجًا جديدًا لكل سطر")).min(1).max(25),
@@ -106,18 +107,6 @@ const orderEditSchema = orderWithItemsSchema.omit({ customer_id: true }).extend(
 
 function orderError(message: string, status = 409) {
   return Object.assign(new Error(message), { status });
-}
-
-function validateDeliveryDate(value?: string) {
-  if (!value) return;
-  const parsedDate = new Date(`${value}T00:00:00Z`);
-  const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" })
-    .formatToParts(new Date());
-  const part = (type: string) => dateParts.find((entry) => entry.type === type)!.value;
-  const today = `${part("year")}-${part("month")}-${part("day")}`;
-  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== value || value < today) {
-    throw orderError("تاريخ التسليم يجب أن يكون تاريخًا صالحًا من اليوم فصاعدًا", 400);
-  }
 }
 
 function page(req: Request) {
@@ -375,7 +364,6 @@ router.delete("/sections/:id", admin, async (req, res, next) => { try { const ro
 router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
   try {
     const input = orderWithItemsSchema.parse(req.body);
-    validateDeliveryDate(input.delivery_date);
 
     const result = await db.transaction(async (tx) => {
       // Serialize number allocation with the insert, so concurrent requests
@@ -394,10 +382,14 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
         (error as Error & { status: number }).status = 400;
         throw error;
       }
+      const createdAt = new Date();
+      const deliveryDate = deliveryDateFromDays(orderDateInRiyadh(createdAt), input.delivery_days);
       const [order] = await tx.insert(orders).values({
         order_number: orderNumber,
         customer_id: input.customer_id,
-        delivery_date: input.delivery_date,
+        created_at: createdAt,
+        delivery_days: input.delivery_days,
+        delivery_date: deliveryDate,
         notes: input.notes,
         status: "waiting",
         created_by: req.user!.id,
@@ -482,10 +474,10 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
   try {
     const id = entityId("orders", req.params.id) as number;
     const input = orderEditSchema.parse(req.body);
-    validateDeliveryDate(input.delivery_date);
     const result = await db.transaction(async (tx) => {
       const [order] = await tx.select().from(orders).where(eq(orders.id, id)).for("update");
       if (!order) throw orderError("الطلب غير موجود", 404);
+      const deliveryDate = deliveryDateFromDays(orderDateInRiyadh(new Date(order.created_at)), input.delivery_days);
       const existing = await tx.select().from(production_orders)
         .where(eq(production_orders.order_id, id)).orderBy(production_orders.id).for("update");
       const byId = new Map(existing.map((line) => [line.id, line]));
@@ -517,7 +509,8 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
       }, 0);
       const [updatedOrder] = await tx.update(orders).set({
         notes: input.notes ?? null,
-        delivery_date: input.delivery_date ?? null,
+        delivery_days: input.delivery_days,
+        delivery_date: deliveryDate,
         status: input.status,
       }).where(eq(orders.id, id)).returning();
       const resultLines = [];
