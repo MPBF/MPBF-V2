@@ -117,13 +117,21 @@ const validDeliveryDays = (value: unknown): number | null => {
   const days = Number(normalized);
   return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : null;
 };
+const wholeMeasure = (value: unknown) => {
+  if (value === null || value === undefined || String(value).trim() === "") return "";
+  const number = Number(normalizeDigits(String(value)).replace("٫", "."));
+  return Number.isFinite(number) ? String(Math.round(number)) : "";
+};
 const productLabel = (product: Row) => {
+  const width = wholeMeasure(product.width);
+  const thickness = wholeMeasure(product.thickness);
   const details = [
     product.category_name_ar || product.category_name,
     product.item_name_ar || product.item_name,
     product.size_caption,
-    product.width ? `عرض ${product.width}` : "",
-    product.thickness ? `سماكة ${product.thickness}` : "",
+    width ? `عرض ${width} سم` : "",
+    thickness ? `سماكة ${thickness} µ` : "",
+    product.raw_material ? `المادة الخام: ${product.raw_material}` : "",
   ].filter(Boolean);
   return details.join(" · ") || `منتج رقم ${product.id}`;
 };
