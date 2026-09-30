@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AlertCircle, Boxes, CalendarDays, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { AlertCircle, Boxes, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import "./OrderCreateModal.css";
 
 type Row = Record<string, any>;
@@ -94,12 +94,6 @@ const isCalendarDate = (value: string) => {
   if (!match) return false;
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]);
-};
-const addCalendarDays = (dateValue: string, days: number) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
-  if (!match || !isCalendarDate(dateValue) || !Number.isInteger(days) || days < 1 || days > 3650) return "";
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days));
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 };
 const legacyDeliveryDays = (createdAt: unknown, deliveryDate: unknown) => {
   const start = riyadhDate(String(createdAt ?? ""));
@@ -460,8 +454,6 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   };
 
   const baseOptionErrors = [customers.error, categories.error, items.error].filter(Boolean);
-  const deliveryPreview = addCalendarDays(orderCreatedDate, validDeliveryDays(deliveryDays) ?? 0);
-
   return (
     <div className="order-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
       <section className="order-create-modal" role="dialog" aria-modal="true" aria-labelledby="order-create-title">
@@ -493,23 +485,23 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
               <div className="order-create-field order-create-number">
                 <label htmlFor="order-number">رقم الطلب</label>
                 <div className="order-create-field-static order-number-readonly" id="order-number" dir={editId ? "ltr" : "rtl"}>
-                  {editId ? (orderNumber || "—") : "يُعيّن تلقائياً عند الحفظ"}
+                  {editId ? (orderNumber || "—") : "عند الحفظ"}
                 </div>
-                <small className="order-create-hint">{editId ? "رقم الطلب ثابت." : "سيُنشأ رقم الطلب تلقائياً من النظام."}</small>
               </div>
-              <div className="order-create-field">
+              <div className="order-create-field order-created-date-field">
                 <label htmlFor="order-created-date">تاريخ الطلب</label>
                 <div className="order-create-field-static order-date-readonly" id="order-created-date" dir="ltr">
                   {orderCreatedDate || "—"}
                 </div>
               </div>
               <div className="order-create-field order-delivery-days-field">
-                <label htmlFor="order-delivery-days">مدة التسليم (يوم) <span aria-hidden="true">*</span></label>
+                <label htmlFor="order-delivery-days">مدة التسليم <span aria-hidden="true">*</span></label>
                 <input
                   id="order-delivery-days"
                   type="text"
                   inputMode="numeric"
                   dir="ltr"
+                  aria-label="مدة التسليم بالأيام"
                   value={deliveryDays}
                   onChange={(event) => setDeliveryDays(normalizeDigits(event.target.value).replace(/[^\d]/g, ""))}
                   minLength={1}
@@ -518,28 +510,13 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                   disabled={saving}
                   required
                 />
-                <small className="order-create-hint" id="order-delivery-days-hint">من 1 إلى 3650 يوماً · الافتراضي 20</small>
+                <small className="order-create-hint" id="order-delivery-days-hint">1–3650 يوم</small>
               </div>
-              <div className="order-create-field">
+              <div className="order-create-field order-customer-field">
                 <label htmlFor="order-customer">العميل <span aria-hidden="true">*</span></label>
                 {customers.loading ? <div className="order-create-skeleton" aria-label="جارٍ تحميل العملاء" aria-busy="true"><i /><i /></div> :
                   editId ? <div className="order-create-field-static">{customerLabel(customers.values.find((customer) => String(customer.id) === String(selectedCustomer)) || {}) || "—"}</div> :
                   <CustomerSearchSelect customers={customers.values} selectedId={String(selectedCustomer)} onSelect={changeCustomer} disabled={saving || Boolean(customers.error)} />}
-              </div>
-              <div className="order-create-field">
-                <label htmlFor="order-status">حالة الطلب</label>
-                {editId ? <select id="order-status" value={status} onChange={(event) => setStatus(event.target.value)} disabled={saving}>
-                  {["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"].map((value) =>
-                    <option key={value} value={value}>{({ waiting: "بانتظار المعالجة", on_hold: "معلّق", in_production: "قيد الإنتاج", for_production: "جاهز للإنتاج", paused: "متوقف", cancelled: "ملغي", completed: "مكتمل", delivered: "مسلّم", archived: "مؤرشف" } as Record<string, string>)[value]}</option>)}
-                </select> : <><div className="order-create-field-static" id="order-status"><span className="order-status-dot" />بانتظار المعالجة</div><small className="order-create-hint">تُحدّد الحالة تلقائياً عند الحفظ.</small></>}
-              </div>
-              <div className="order-create-field order-delivery-preview-field">
-                <label htmlFor="order-delivery-preview">تاريخ التسليم المخطط</label>
-                <div className="order-create-field-static order-delivery-preview" id="order-delivery-preview" dir="ltr">
-                  <CalendarDays size={16} aria-hidden="true" />
-                  <span>{deliveryPreview || "أدخل مدة صحيحة"}</span>
-                </div>
-                <small className="order-create-hint">محسوب من تاريخ الطلب وأيام التقويم</small>
               </div>
             </div>
           </section>
@@ -591,7 +568,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                           </select>
                         </div>
                       )}
-                      <div className="order-line-field">
+                      <div className="order-line-field order-line-quantity">
                         <label htmlFor={`order-quantity-${line.key}`}>الكمية <span aria-hidden="true">*</span></label>
                         <div className="order-quantity-wrap">
                           <input id={`order-quantity-${line.key}`} type="text" inputMode="decimal" dir="ltr" value={line.quantityKg} onChange={(event) => updateLine(line.key, { quantityKg: event.target.value })} placeholder="0.00" required disabled={saving || line.locked} aria-describedby={`order-quantity-unit-${line.key}`} />
