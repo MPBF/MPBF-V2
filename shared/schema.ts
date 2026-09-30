@@ -295,16 +295,18 @@ export const customer_products = pgTable(
     category_id: varchar("category_id", { length: 20 }).references(() => categories.id),
     item_id: varchar("item_id", { length: 20 }).references(() => items.id),
     size_caption: varchar("size_caption", { length: 50 }),
-    width: decimal("width", { precision: 8, scale: 2 }),
-    left_facing: decimal("left_facing", { precision: 8, scale: 2 }),
-    right_facing: decimal("right_facing", { precision: 8, scale: 2 }),
-    thickness: decimal("thickness", { precision: 8, scale: 3 }),
-    universal_thickness: decimal("universal_thickness", { precision: 12, scale: 4 }).generatedAlwaysAs(
+    // Unscaled numeric plus CHECK constraints reject fractional SQL writes.
+    // PostgreSQL integer and numeric(p, 0) would silently round them instead.
+    width: decimal("width"),
+    left_facing: decimal("left_facing"),
+    right_facing: decimal("right_facing"),
+    thickness: decimal("thickness"),
+    universal_thickness: decimal("universal_thickness").generatedAlwaysAs(
       sql`CEIL(CASE WHEN (COALESCE(left_facing, 0) = 0 AND COALESCE(right_facing, 0) = 0) THEN thickness / 2 * 10 WHEN (left_facing > 0 AND right_facing > 0) THEN thickness / 4 * 10 ELSE thickness / 2 * 10 END)`,
     ),
     density: decimal("density", { precision: 6, scale: 3 }).default("0.95"),
     bag_weight_grams: decimal("bag_weight_grams", { precision: 12, scale: 4 }),
-    bags_per_kilo: decimal("bags_per_kilo", { precision: 12, scale: 2 }),
+    bags_per_kilo: decimal("bags_per_kilo"),
     printing_cylinder: varchar("printing_cylinder", { length: 10 }),
     cutting_length_cm: integer("cutting_length_cm"),
     raw_material: varchar("raw_material", { length: 20 }),
@@ -327,6 +329,12 @@ export const customer_products = pgTable(
     index("idx_customer_products_customer_id").on(table.customer_id),
     index("idx_customer_products_status").on(table.status),
     index("idx_customer_products_created_at").on(table.created_at),
+    check("customer_products_width_whole", sql`${table.width} IS NULL OR ${table.width} = trunc(${table.width})`),
+    check("customer_products_left_facing_whole", sql`${table.left_facing} IS NULL OR ${table.left_facing} = trunc(${table.left_facing})`),
+    check("customer_products_right_facing_whole", sql`${table.right_facing} IS NULL OR ${table.right_facing} = trunc(${table.right_facing})`),
+    check("customer_products_thickness_whole", sql`${table.thickness} IS NULL OR ${table.thickness} = trunc(${table.thickness})`),
+    check("customer_products_universal_thickness_whole", sql`${table.universal_thickness} IS NULL OR ${table.universal_thickness} = trunc(${table.universal_thickness})`),
+    check("customer_products_bags_per_kilo_whole", sql`${table.bags_per_kilo} IS NULL OR ${table.bags_per_kilo} = trunc(${table.bags_per_kilo})`),
   ],
 );
 
@@ -521,7 +529,14 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ created
 export const insertCategorySchema = createInsertSchema(categories);
 export const insertItemSchema = createInsertSchema(items);
 export const insertMasterBatchColorSchema = createInsertSchema(master_batch_colors).omit(omitGenerated);
-export const insertCustomerProductSchema = createInsertSchema(customer_products).omit({ id: true, created_at: true });
+const wholeProductNumber = z.string().regex(/^-?\d+$/, "يجب إدخال عدد صحيح دون كسور").nullish();
+export const insertCustomerProductSchema = createInsertSchema(customer_products, {
+  width: wholeProductNumber,
+  left_facing: wholeProductNumber,
+  right_facing: wholeProductNumber,
+  thickness: wholeProductNumber,
+  bags_per_kilo: wholeProductNumber,
+}).omit({ id: true, created_at: true });
 export const insertMachineSchema = createInsertSchema(machines);
 export const insertNewOrderSchema = createInsertSchema(orders).omit({ id: true, created_at: true });
 export const insertProductionOrderSchema = createInsertSchema(production_orders).omit({ id: true, created_at: true });

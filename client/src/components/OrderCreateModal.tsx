@@ -375,7 +375,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     if (savingRef.current) return;
     setError("");
     if (detailsLoading || detailsError) return;
-    const normalizedLines = lines.map((line) => ({ ...line, quantityKg: line.quantityKg.replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))) }));
+    const normalizedLines = lines.map((line) => ({ ...line, quantityKg: normalizeDigits(line.quantityKg), width: normalizeDigits(line.width), thickness: normalizeDigits(line.thickness) }));
     if (!selectedCustomer) {
       setError("يرجى اختيار العميل.");
       return;
@@ -403,6 +403,18 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
       if (line.mode === "new" && (!line.itemId || !line.sizeCaption.trim())) {
         setError(`نوع المنتج ومقاسه مطلوبان للبند ${index + 1}.`);
         return;
+      }
+      if (line.mode === "new") {
+        for (const [value, maximum, label] of [
+          [line.width, 999999, "العرض"],
+          [line.thickness, 99999, "السماكة"],
+        ] as const) {
+          const numberText = value.trim();
+          if (numberText && (!/^\d+$/.test(numberText) || Number(numberText) <= 0 || Number(numberText) > maximum)) {
+            setError(`${label} للبند ${index + 1} يجب أن يكون رقماً صحيحاً موجباً لا يتجاوز ${maximum}.`);
+            return;
+          }
+        }
       }
     }
     savingRef.current = true;
@@ -456,7 +468,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
           <button className="order-create-close" type="button" aria-label="إغلاق نافذة الطلب" title="إغلاق" disabled={saving} onClick={onClose}><X size={20} /></button>
         </header>
 
-        <form className="order-create-form" onSubmit={submit}>
+        <form className="order-create-form" noValidate onSubmit={submit}>
           {error && <Alert>{error}</Alert>}
           {detailsLoading && <div className="order-options-state" role="status">جارٍ تحميل بنود الطلب…</div>}
           {detailsError && <Alert>تعذر تحميل بنود الطلب: {detailsError} <button type="button" onClick={() => setDetailsRetry((value) => value + 1)}>إعادة المحاولة</button></Alert>}
@@ -595,11 +607,11 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                         </div>
                         <div className="order-line-field">
                           <label htmlFor={`order-width-${line.key}`}>العرض</label>
-                           <input id={`order-width-${line.key}`} type="number" min="0.01" max="999999.99" step="0.01" value={line.width} onChange={(event) => updateLine(line.key, { width: event.target.value })} placeholder="سم · اختياري" disabled={saving} />
+                           <input id={`order-width-${line.key}`} type="number" min="1" max="999999" step="1" value={line.width} onChange={(event) => updateLine(line.key, { width: event.target.value })} placeholder="سم · اختياري" disabled={saving} />
                         </div>
                         <div className="order-line-field">
                           <label htmlFor={`order-thickness-${line.key}`}>السماكة</label>
-                           <input id={`order-thickness-${line.key}`} type="number" min="0.001" max="99999.999" step="0.001" value={line.thickness} onChange={(event) => updateLine(line.key, { thickness: event.target.value })} placeholder="ميكرون · اختياري" disabled={saving} />
+                           <input id={`order-thickness-${line.key}`} type="number" min="1" max="99999" step="1" value={line.thickness} onChange={(event) => updateLine(line.key, { thickness: event.target.value })} placeholder="ميكرون · اختياري" disabled={saving} />
                         </div>
                         <div className="order-line-field order-create-field-wide">
                           <label htmlFor={`order-raw-material-${line.key}`}>الخامة</label>

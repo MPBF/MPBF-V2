@@ -67,8 +67,8 @@ const masterBatchWrite = requireAnyPermission("manage_master_batch", "manage_def
 
 const positiveKg = z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/, "الكمية يجب أن تكون بالكيلو وحتى منزلتين عشريتين")
   .refine((value) => Number(value) > 0, "الكمية يجب أن تكون أكبر من صفر");
-const optionalMeasure = (decimalPlaces: number) => z.string()
-  .regex(new RegExp(`^\\d{1,${8 - decimalPlaces}}(?:\\.\\d{1,${decimalPlaces}})?$`), "قيمة المقاس غير صالحة")
+const optionalMeasure = (maxDigits: number) => z.string()
+  .regex(new RegExp(`^\\d{1,${maxDigits}}$`), "المقاس يجب أن يكون عددًا صحيحًا")
   .refine((value) => Number(value) > 0, "قيمة المقاس يجب أن تكون أكبر من صفر")
   .optional();
 const orderLineSchema = z.object({
@@ -77,8 +77,8 @@ const orderLineSchema = z.object({
     item_id: z.string().min(1).max(20),
     category_id: z.string().max(20).optional(),
     size_caption: z.string().trim().min(1).max(50),
-    width: optionalMeasure(2),
-    thickness: optionalMeasure(3),
+    width: optionalMeasure(6),
+    thickness: optionalMeasure(5),
     raw_material: z.string().trim().max(20).optional(),
   }).strict().optional(),
   quantity_kg: positiveKg,
