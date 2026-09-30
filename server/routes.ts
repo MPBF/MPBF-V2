@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { and, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import {
@@ -34,6 +34,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { nextCategoryId } from "./category-id";
+import { nextItemId } from "./item-id";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
@@ -731,7 +732,11 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         }).from(categories)
           .leftJoin(categoryParent, eq(categories.parent_id, categoryParent.id))
           .where(search ? or(...conditions) : undefined)
-          .orderBy(desc(categories.id)).limit(limit).offset(offset);
+           .orderBy(
+             sql`regexp_replace(${categories.id}, '[0-9]+$', '')`,
+             sql`substring(${categories.id} from '[0-9]+$')::numeric ASC NULLS LAST`,
+             asc(categories.id),
+           ).limit(limit).offset(offset);
       } else if (path === "items") {
         const conditions = [...entitySearch[path], itemCategory.name, itemCategory.name_ar].map((column) => ilike(column, term));
         rows = await db.select({
@@ -741,7 +746,11 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         }).from(items)
           .leftJoin(itemCategory, eq(items.category_id, itemCategory.id))
           .where(search ? or(...conditions) : undefined)
-          .orderBy(desc(items.id)).limit(limit).offset(offset);
+           .orderBy(
+             sql`regexp_replace(${items.id}, '[0-9]+$', '')`,
+             sql`substring(${items.id} from '[0-9]+$')::numeric ASC NULLS LAST`,
+             asc(items.id),
+           ).limit(limit).offset(offset);
       } else {
         const conditions = entitySearch[path].map((column) => ilike(column, term));
         rows = await db.select().from(table)
@@ -767,6 +776,21 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           `);
           const id = nextCategoryId(sequence.rows[0]?.max_number ?? null, sequence.rows[0]?.suffix_width ?? null);
           return tx.insert(categories).values({ ...body, id }).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
+      if (path === "items") {
+        const body = parsed(insertItemSchema.strict().omit({ id: true }), input);
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${3})`);
+          const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
+            SELECT MAX(substring(id from 4)::numeric)::text AS max_number,
+                   MAX(length(id) - 3)::int AS suffix_width
+            FROM items
+            WHERE id ~ '^ITM[0-9]+$'
+          `);
+          const id = nextItemId(sequence.rows[0]?.max_number ?? null, sequence.rows[0]?.suffix_width ?? null);
+          return tx.insert(items).values({ ...body, id }).returning();
         });
         return res.status(201).json(row[0]);
       }
