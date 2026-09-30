@@ -33,6 +33,7 @@ import {
   users,
 } from "@shared/schema";
 import { db } from "./db";
+import { nextCategoryId } from "./category-id";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
@@ -753,6 +754,22 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   router.post(`/${path}`, mutationGuard, async (req, res, next) => {
     try {
       const input = { ...(req.body ?? {}) };
+      if (path === "categories") {
+        // The ID must come from the server, never from a submitted form.
+        const body = parsed(insertCategorySchema.strict().omit({ id: true }), input);
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${2})`);
+          const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
+            SELECT MAX(substring(id from 4)::numeric)::text AS max_number,
+                   MAX(length(id) - 3)::int AS suffix_width
+            FROM categories
+            WHERE id ~ '^CAT[0-9]+$'
+          `);
+          const id = nextCategoryId(sequence.rows[0]?.max_number ?? null, sequence.rows[0]?.suffix_width ?? null);
+          return tx.insert(categories).values({ ...body, id }).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
       if (path === "orders" && !input.status) input.status = "waiting";
       if (path === "system-settings") input.updated_by = req.user!.id;
       const body = parsed(schemas[path].strict(), input);
