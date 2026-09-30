@@ -33,6 +33,7 @@ import {
   users,
 } from "@shared/schema";
 import { db } from "./db";
+import { nextOrderNumber } from "./order-number";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import hr from "./hr";
 import selfService from "./self-service";
@@ -84,7 +85,6 @@ const orderLineSchema = z.object({
 const validOrderLine = <T extends { customer_product_id?: number; new_product?: unknown }>(line: T) =>
   Boolean(line.customer_product_id) !== Boolean(line.new_product);
 const orderWithItemsSchema = z.object({
-  order_number: z.string().trim().min(1).max(47),
   customer_id: z.string().trim().min(1).max(20),
   delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   notes: z.string().trim().max(5000).optional(),
@@ -92,7 +92,7 @@ const orderWithItemsSchema = z.object({
     "اختر منتجًا مسجلًا أو أنشئ منتجًا جديدًا لكل سطر")).min(1).max(25),
 }).strict();
 
-const orderEditSchema = orderWithItemsSchema.omit({ order_number: true, customer_id: true }).extend({
+const orderEditSchema = orderWithItemsSchema.omit({ customer_id: true }).extend({
   status: z.enum(["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"]),
   original_items: z.array(z.object({
     id: z.number().int().positive(),
@@ -378,6 +378,15 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
     validateDeliveryDate(input.delivery_date);
 
     const result = await db.transaction(async (tx) => {
+      // Serialize number allocation with the insert, so concurrent requests
+      // cannot both claim the same number and a rolled-back order leaves no gap.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${1})`);
+      const numericOrders = await tx.execute<{ max_number: string | null }>(sql`
+        SELECT MAX(order_number::numeric)::text AS max_number
+        FROM orders
+        WHERE order_number ~ '^[0-9]+$'
+      `);
+      const orderNumber = nextOrderNumber(numericOrders.rows[0]?.max_number ?? null);
       const customer = await tx.select({ id: customers.id }).from(customers)
         .where(eq(customers.id, input.customer_id)).limit(1);
       if (!customer.length) {
@@ -386,7 +395,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
         throw error;
       }
       const [order] = await tx.insert(orders).values({
-        order_number: input.order_number,
+        order_number: orderNumber,
         customer_id: input.customer_id,
         delivery_date: input.delivery_date,
         notes: input.notes,
@@ -429,7 +438,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
           }
         }
         const [productionOrder] = await tx.insert(production_orders).values({
-          production_order_number: `${input.order_number}-${String(index + 1).padStart(2, "0")}`,
+          production_order_number: `${orderNumber}-${String(index + 1).padStart(2, "0")}`,
           order_id: order.id,
           customer_product_id: productId,
           quantity_kg: line.quantity_kg,

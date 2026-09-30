@@ -69,6 +69,7 @@ const decimalInputValue = (value: any) => {
   return Number.isFinite(number) ? String(Math.round((number + Number.EPSILON) * 100) / 100) : latinDigits(String(value));
 };
 const fmtDate = (value: any) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date(`${String(value).slice(0, 10)}T00:00:00+03:00`)) : "—";
+const fmtOrderDate = (value: any) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date(value)) : "—";
 const displayValue = (row: Row, col: Column) => {
   if (col.key === "production_orders_summary") {
     const entries = row.production_orders_summary as OrderProductionSummary[] | undefined;
@@ -192,7 +193,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   const columnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : "", kind === "orders" && field.key === "order_number" ? "order-number-column" : ""].filter(Boolean).join(" ");
   const isTransparentColor = (row: Row, field: Column) => field.colorKey && /شفاف|transparent/i.test(`${row[`${field.key}_name_ar`] || ""} ${row[`${field.key}_name`] || ""}`);
   const renderCell = (row: Row, field: Column) => {
-    if (kind === "orders" && field.key === "order_number") return <span className="order-number-stack"><span className="order-number-code">{displayValue(row, field)}</span><small className="order-number-date">{fmtDate(row.created_at)}</small></span>;
+    if (kind === "orders" && field.key === "order_number") return <span className="order-number-stack"><span className="order-number-code">{displayValue(row, field)}</span><small className="order-number-date">{fmtOrderDate(row.created_at)}</small></span>;
     if (field.key === "production_orders_summary") return <OrderProductionCell entries={Array.isArray(row.production_orders_summary) ? row.production_orders_summary : []} />;
     const content = field.colorKey ? <span className="color-stack">{isTransparentColor(row, field) ? <X className="transparent-mark" size={22} aria-label="بدون لون" /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
     return field.customerLink ? <Link className="customer-link" href={`/customers/${encodeURIComponent(String(row.id))}`}>{content}</Link> : content;

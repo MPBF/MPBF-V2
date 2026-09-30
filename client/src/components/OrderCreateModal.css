@@ -179,11 +179,76 @@
   font-size: 13px;
   font-weight: 700;
 }
+.order-number-readonly,
+.order-date-readonly {
+  direction: ltr;
+  justify-content: flex-start;
+  font-family: ui-monospace, "SFMono-Regular", monospace;
+  letter-spacing: .025em;
+}
+.order-number-readonly:not([dir="ltr"]) {
+  direction: rtl;
+  font-family: inherit;
+  letter-spacing: 0;
+}
+.order-customer-picker { position: relative; min-width: 0; }
+.order-customer-input-wrap { position: relative; }
+.order-create-field .order-customer-input-wrap input { padding-left: 38px; }
+.order-customer-clear {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  display: grid;
+  width: 27px;
+  height: 27px;
+  transform: translateY(-50%);
+  place-items: center;
+  color: #73877e;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.order-customer-clear:hover { color: #9b5650; background: #f5e8e4; }
+.order-customer-options {
+  position: absolute;
+  inset: calc(100% + 4px) 0 auto;
+  z-index: 8;
+  max-height: 230px;
+  overflow: auto;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #cfddd5;
+  border-radius: 7px;
+  box-shadow: 0 10px 26px rgba(25, 57, 47, .15);
+}
+.order-customer-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 37px;
+  padding: 7px 9px;
+  color: #31574e;
+  text-align: right;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.order-customer-option small { color: #82938b; direction: ltr; font: 11px ui-monospace, monospace; }
+.order-customer-option:hover,
+.order-customer-option.is-active { color: #17564e; background: #eaf3ec; }
+.order-customer-empty { padding: 12px 9px; color: #7a8c83; font-size: 12px; }
 .order-status-dot { width: 8px; height: 8px; background: #bb8a38; border-radius: 50%; box-shadow: 0 0 0 3px #f5ead4; }
 
 .order-create-field input:focus,
 .order-create-field select:focus,
 .order-create-field textarea:focus,
+.order-customer-input-wrap input:focus,
 .order-line-field input:focus,
 .order-line-field select:focus {
   border-color: #4a9b8b;

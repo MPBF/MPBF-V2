@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AlertCircle, Boxes, CalendarDays, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import "./OrderCreateModal.css";
 
@@ -76,6 +76,16 @@ const readAllChoices = async (path: string): Promise<Row[]> => {
 };
 
 const labelFor = (row: Row) => String(row.name_ar || row.name || row.display_name_ar || row.display_name || row.id || "");
+const customerLabel = (row: Row) => String(row.name_ar || row.display_name_ar || row.name_en || row.display_name_en || row.name || row.display_name || row.id || "");
+const riyadhDate = (value: Date | string = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
 const productLabel = (product: Row) => {
   const details = [
     product.category_name_ar || product.category_name,
@@ -91,6 +101,110 @@ function Alert({ children, info = false }: { children: ReactNode; info?: boolean
   return <div className={`order-create-alert${info ? " info" : ""}`} role={info ? "status" : "alert"}><AlertCircle size={17} aria-hidden="true" /><div>{children}</div></div>;
 }
 
+function CustomerSearchSelect({ customers, selectedId, onSelect, disabled }: {
+  customers: Row[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  disabled: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const selected = customers.find((customer) => String(customer.id) === selectedId);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matches = customers.filter((customer) => [
+    customer.name_ar, customer.display_name_ar, customer.name_en, customer.display_name_en,
+    customer.name, customer.display_name, customer.id,
+  ].some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedQuery)));
+  const visibleMatches = matches.slice(0, 100);
+
+  useEffect(() => {
+    if (selected) setQuery(customerLabel(selected));
+  }, [selected?.id]);
+
+  const choose = (customer: Row) => {
+    onSelect(String(customer.id));
+    setQuery(customerLabel(customer));
+    setOpen(false);
+  };
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((index) => visibleMatches.length ? (index + 1) % visibleMatches.length : 0);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((index) => visibleMatches.length ? (index - 1 + visibleMatches.length) % visibleMatches.length : 0);
+    } else if (event.key === "Enter" && open && visibleMatches[activeIndex]) {
+      event.preventDefault();
+      choose(visibleMatches[activeIndex]);
+    } else if (event.key === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      setQuery(selected ? customerLabel(selected) : "");
+    }
+  };
+
+  return (
+    <div className="order-customer-picker">
+      <div className="order-customer-input-wrap">
+        <input
+          id="order-customer"
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls="order-customer-options"
+          aria-activedescendant={open && visibleMatches[activeIndex] ? `order-customer-option-${visibleMatches[activeIndex].id}` : undefined}
+          aria-label="ابحث عن العميل بالاسم أو الرقم"
+          value={query}
+          onFocus={() => { if (!disabled) setOpen(true); }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+            setActiveIndex(0);
+            if (selectedId) onSelect("");
+          }}
+          onKeyDown={handleKeyDown}
+          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          placeholder="ابحث باسم العميل أو رقمه"
+          autoComplete="off"
+          disabled={disabled}
+          required={!selectedId}
+        />
+        {selectedId && !disabled && (
+          <button className="order-customer-clear" type="button" aria-label="مسح العميل المحدد" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+            onSelect("");
+            setQuery("");
+            setOpen(true);
+          }}><X size={15} /></button>
+        )}
+      </div>
+      {open && !disabled && (
+        <div className="order-customer-options" id="order-customer-options" role="listbox" aria-label="نتائج العملاء">
+          {visibleMatches.length ? visibleMatches.map((customer, index) => (
+            <button
+              id={`order-customer-option-${customer.id}`}
+              className={`order-customer-option${index === activeIndex ? " is-active" : ""}`}
+              key={customer.id ?? index}
+              type="button"
+              role="option"
+              aria-selected={String(customer.id) === selectedId}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(customer)}
+            >
+              <span>{customerLabel(customer)}</span><small>#{customer.id}</small>
+            </button>
+          )) : <div className="order-customer-empty" role="status">لا توجد نتائج مطابقة.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?: number; onClose: () => void; onSaved: () => void }) {
   const [customers, setCustomers] = useState<ChoiceState>({ values: [], loading: true, error: "" });
   const [categories, setCategories] = useState<ChoiceState>({ values: [], loading: true, error: "" });
@@ -101,6 +215,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const [productsError, setProductsError] = useState("");
   const [reloadOptions, setReloadOptions] = useState(0);
   const [orderNumber, setOrderNumber] = useState("");
+  const [orderCreatedDate, setOrderCreatedDate] = useState(() => riyadhDate());
   const [deliveryDate, setDeliveryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState("waiting");
@@ -115,6 +230,12 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const savingRef = useRef(false);
 
   useEffect(() => {
+    if (editId) return;
+    const timer = window.setInterval(() => setOrderCreatedDate(riyadhDate()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [editId]);
+
+  useEffect(() => {
     if (!editId) return;
     let active = true;
     setDetailsLoading(true);
@@ -122,6 +243,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     readApi(`/api/orders/${editId}/with-items`).then((data) => {
       if (!active) return;
       setOrderNumber(data.order.order_number);
+      setOrderCreatedDate(riyadhDate(data.order.created_at));
       setSelectedCustomer(data.order.customer_id);
       setDeliveryDate(data.order.delivery_date?.slice(0, 10) || "");
       setNotes(data.order.notes || "");
@@ -250,7 +372,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     setSaving(true);
     try {
       const payload = {
-        ...(editId ? { status, original_items: originalItems } : { order_number: orderNumber.trim(), customer_id: selectedCustomer }),
+        ...(editId ? { status, original_items: originalItems } : { customer_id: selectedCustomer }),
         ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         items: normalizedLines.map((line) => ({
@@ -311,17 +433,23 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
             <h3 className="order-create-section-title" id="order-main-heading"><span>01</span> بيانات الطلب</h3>
             <div className="order-create-grid">
               <div className="order-create-field order-create-number">
-                <label htmlFor="order-number">رقم الطلب <span aria-hidden="true">*</span></label>
-                  <input id="order-number" type="text" maxLength={47} value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} placeholder="أدخل رقم الطلب" required disabled={saving || Boolean(editId)} autoComplete="off" />
-                  <small className="order-create-hint">{editId ? "رقم الطلب ثابت لحماية أرقام أوامر الإنتاج المرتبطة." : "يُسجّل الرقم كما أدخلته، وتُرقّم أوامر الإنتاج التابعة له تلقائيًا."}</small>
+                <label htmlFor="order-number">رقم الطلب</label>
+                <div className="order-create-field-static order-number-readonly" id="order-number" dir={editId ? "ltr" : "rtl"}>
+                  {editId ? (orderNumber || "—") : "يُعيّن تلقائياً عند الحفظ"}
+                </div>
+                <small className="order-create-hint">{editId ? "رقم الطلب ثابت." : "سيُنشأ رقم الطلب تلقائياً من النظام."}</small>
+              </div>
+              <div className="order-create-field">
+                <label htmlFor="order-created-date">تاريخ الطلب</label>
+                <div className="order-create-field-static order-date-readonly" id="order-created-date" dir="ltr">
+                  {orderCreatedDate || "—"}
+                </div>
               </div>
               <div className="order-create-field">
                 <label htmlFor="order-customer">العميل <span aria-hidden="true">*</span></label>
                 {customers.loading ? <div className="order-create-skeleton" aria-label="جارٍ تحميل العملاء" aria-busy="true"><i /><i /></div> :
-                  <select id="order-customer" value={selectedCustomer} onChange={(event) => changeCustomer(event.target.value)} required disabled={saving || Boolean(customers.error) || Boolean(editId)}>
-                    <option value="">اختر العميل</option>
-                    {customers.values.map((customer, index) => <option key={customer.id ?? index} value={customer.id}>{labelFor(customer)}</option>)}
-                  </select>}
+                  editId ? <div className="order-create-field-static">{customerLabel(customers.values.find((customer) => String(customer.id) === String(selectedCustomer)) || {}) || "—"}</div> :
+                  <CustomerSearchSelect customers={customers.values} selectedId={String(selectedCustomer)} onSelect={changeCustomer} disabled={saving || Boolean(customers.error)} />}
               </div>
               <div className="order-create-field">
                 <label htmlFor="order-delivery-date">تاريخ التسليم المخطط <span className="order-create-hint">(اختياري)</span></label>
