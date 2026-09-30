@@ -69,25 +69,56 @@ const optionalMeasure = (decimalPlaces: number) => z.string()
   .regex(new RegExp(`^\\d{1,${8 - decimalPlaces}}(?:\\.\\d{1,${decimalPlaces}})?$`), "قيمة المقاس غير صالحة")
   .refine((value) => Number(value) > 0, "قيمة المقاس يجب أن تكون أكبر من صفر")
   .optional();
+const orderLineSchema = z.object({
+  customer_product_id: z.number().int().positive().optional(),
+  new_product: z.object({
+    item_id: z.string().min(1).max(20),
+    category_id: z.string().max(20).optional(),
+    size_caption: z.string().trim().min(1).max(50),
+    width: optionalMeasure(2),
+    thickness: optionalMeasure(3),
+    raw_material: z.string().trim().max(20).optional(),
+  }).strict().optional(),
+  quantity_kg: positiveKg,
+}).strict();
+const validOrderLine = <T extends { customer_product_id?: number; new_product?: unknown }>(line: T) =>
+  Boolean(line.customer_product_id) !== Boolean(line.new_product);
 const orderWithItemsSchema = z.object({
   order_number: z.string().trim().min(1).max(47),
   customer_id: z.string().trim().min(1).max(20),
   delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   notes: z.string().trim().max(5000).optional(),
-  items: z.array(z.object({
-    customer_product_id: z.number().int().positive().optional(),
-    new_product: z.object({
-      item_id: z.string().min(1).max(20),
-      category_id: z.string().max(20).optional(),
-      size_caption: z.string().trim().min(1).max(50),
-      width: optionalMeasure(2),
-      thickness: optionalMeasure(3),
-      raw_material: z.string().trim().max(20).optional(),
-    }).strict().optional(),
-    quantity_kg: positiveKg,
-  }).strict().refine((line) => Boolean(line.customer_product_id) !== Boolean(line.new_product),
+  items: z.array(orderLineSchema.refine(validOrderLine,
     "اختر منتجًا مسجلًا أو أنشئ منتجًا جديدًا لكل سطر")).min(1).max(25),
 }).strict();
+
+const orderEditSchema = orderWithItemsSchema.omit({ order_number: true, customer_id: true }).extend({
+  status: z.enum(["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"]),
+  original_items: z.array(z.object({
+    id: z.number().int().positive(),
+    customer_product_id: z.number().int().positive().nullable(),
+    quantity_kg: positiveKg,
+  }).strict()).max(25),
+  // Existing lines carry their production-order ID. New lines have no ID.
+  items: orderLineSchema.extend({ id: z.number().int().positive().optional() }).refine(validOrderLine,
+    "اختر منتجًا مسجلًا أو أنشئ منتجًا جديدًا لكل سطر").array().min(1).max(25),
+}).strict();
+
+function orderError(message: string, status = 409) {
+  return Object.assign(new Error(message), { status });
+}
+
+function validateDeliveryDate(value?: string) {
+  if (!value) return;
+  const parsedDate = new Date(`${value}T00:00:00Z`);
+  const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(new Date());
+  const part = (type: string) => dateParts.find((entry) => entry.type === type)!.value;
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
+  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== value || value < today) {
+    throw orderError("تاريخ التسليم يجب أن يكون تاريخًا صالحًا من اليوم فصاعدًا", 400);
+  }
+}
 
 function page(req: Request) {
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
@@ -344,16 +375,7 @@ router.delete("/sections/:id", admin, async (req, res, next) => { try { const ro
 router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
   try {
     const input = orderWithItemsSchema.parse(req.body);
-    if (input.delivery_date) {
-      const parsedDate = new Date(`${input.delivery_date}T00:00:00Z`);
-      const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" })
-        .formatToParts(new Date());
-      const part = (type: string) => dateParts.find((entry) => entry.type === type)!.value;
-      const today = `${part("year")}-${part("month")}-${part("day")}`;
-      if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== input.delivery_date || input.delivery_date < today) {
-        return res.status(400).json({ message: "تاريخ التسليم يجب أن يكون تاريخًا صالحًا من اليوم فصاعدًا" });
-      }
-    }
+    validateDeliveryDate(input.delivery_date);
 
     const result = await db.transaction(async (tx) => {
       const customer = await tx.select({ id: customers.id }).from(customers)
@@ -424,6 +446,124 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
     if ((error as { code?: string }).code === "23505") {
       return res.status(409).json({ message: "رقم الطلب أو رقم أمر الإنتاج مستخدم مسبقًا" });
     }
+    next(error);
+  }
+});
+
+router.get("/orders/:id/with-items", ordersRead, async (req, res, next) => {
+  try {
+    const id = entityId("orders", req.params.id);
+    const [order] = await db.select().from(orders).where(eq(orders.id, id as number)).limit(1);
+    if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+    const lines = await db.select({
+      id: production_orders.id,
+      production_order_number: production_orders.production_order_number,
+      customer_product_id: production_orders.customer_product_id,
+      quantity_kg: production_orders.quantity_kg,
+      status: production_orders.status,
+      batch_number: production_orders.batch_number,
+    }).from(production_orders).where(eq(production_orders.order_id, order.id)).orderBy(production_orders.id);
+    res.json({ order, items: lines });
+  } catch (error) { next(error); }
+});
+
+// Reconcile by ID rather than deleting/recreating every production order: existing
+// references and production history must survive an edit, including a failed edit.
+router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
+  try {
+    const id = entityId("orders", req.params.id) as number;
+    const input = orderEditSchema.parse(req.body);
+    validateDeliveryDate(input.delivery_date);
+    const result = await db.transaction(async (tx) => {
+      const [order] = await tx.select().from(orders).where(eq(orders.id, id)).for("update");
+      if (!order) throw orderError("الطلب غير موجود", 404);
+      const existing = await tx.select().from(production_orders)
+        .where(eq(production_orders.order_id, id)).orderBy(production_orders.id).for("update");
+      const byId = new Map(existing.map((line) => [line.id, line]));
+      const submittedIds = input.items.flatMap((line) => line.id ? [line.id] : []);
+      if (new Set(submittedIds).size !== submittedIds.length || submittedIds.some((lineId) => !byId.has(lineId))) {
+        throw orderError("تغيرت بنود الطلب؛ أعد فتح الطلب قبل التعديل");
+      }
+      const remaining = new Set(submittedIds);
+      for (const line of existing) {
+        const unchanged = input.items.find((item) => item.id === line.id);
+        if ((line.status !== "pending" || line.batch_number) &&
+          (!unchanged || unchanged.new_product || unchanged.customer_product_id !== line.customer_product_id ||
+            Number(unchanged.quantity_kg) !== Number(line.quantity_kg))) {
+          throw orderError(`بدأ العمل على أمر الإنتاج ${line.production_order_number}؛ لا يمكن تغيير منتجه أو كميته أو حذفه`);
+        }
+      }
+      // An unchanged existing line still has to match the version the editor saw.
+      // The client sends a snapshot separately so concurrent edits cannot be lost.
+      if (existing.length !== input.original_items.length ||
+        existing.some((line) => !input.original_items.some((snapshot) =>
+          snapshot.id === line.id && snapshot.customer_product_id === line.customer_product_id &&
+          Number(snapshot.quantity_kg) === Number(line.quantity_kg)))) {
+        throw orderError("تغيرت بنود الطلب منذ فتحها؛ أعد فتح الطلب قبل الحفظ");
+      }
+      let nextSuffix = existing.reduce((max, line) => {
+        const suffix = line.production_order_number.startsWith(`${order.order_number}-`)
+          ? Number(line.production_order_number.slice(order.order_number.length + 1)) : NaN;
+        return Number.isSafeInteger(suffix) && suffix > max ? suffix : max;
+      }, 0);
+      const [updatedOrder] = await tx.update(orders).set({
+        notes: input.notes ?? null,
+        delivery_date: input.delivery_date ?? null,
+        status: input.status,
+      }).where(eq(orders.id, id)).returning();
+      const resultLines = [];
+      for (const line of input.items) {
+        let productId = line.customer_product_id;
+        if (line.new_product) {
+          const product = line.new_product;
+          const [item] = await tx.select({ id: items.id, category_id: items.category_id })
+            .from(items).where(eq(items.id, product.item_id)).limit(1);
+          if (!item || (product.category_id && item.category_id && item.category_id !== product.category_id)) {
+            throw orderError("نوع المنتج أو تصنيفه غير صالح", 400);
+          }
+          if (product.category_id && !(await tx.select({ id: categories.id }).from(categories)
+            .where(eq(categories.id, product.category_id)).limit(1)).length) {
+            throw orderError("تصنيف المنتج غير موجود", 400);
+          }
+          const [created] = await tx.insert(customer_products).values({
+            ...product, category_id: product.category_id || item.category_id || null,
+            customer_id: order.customer_id, status: "active",
+          }).returning({ id: customer_products.id });
+          productId = created.id;
+        } else {
+          const [product] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(and(eq(customer_products.id, productId!), eq(customer_products.customer_id, order.customer_id))).limit(1);
+          if (!product) throw orderError("المنتج غير تابع لعميل الطلب", 400);
+        }
+        if (line.id) {
+          const previous = byId.get(line.id)!;
+          if (previous.customer_product_id === productId && Number(previous.quantity_kg) === Number(line.quantity_kg)) {
+            resultLines.push(previous);
+          } else {
+            const [updated] = await tx.update(production_orders).set({
+              customer_product_id: productId, quantity_kg: line.quantity_kg, final_quantity_kg: line.quantity_kg,
+            }).where(eq(production_orders.id, line.id)).returning();
+            resultLines.push(updated);
+          }
+        } else {
+          nextSuffix += 1;
+          const [created] = await tx.insert(production_orders).values({
+            production_order_number: `${order.order_number}-${String(nextSuffix).padStart(2, "0")}`,
+            order_id: id, customer_product_id: productId, quantity_kg: line.quantity_kg,
+            final_quantity_kg: line.quantity_kg, overrun_percentage: "0", status: "pending",
+          }).returning();
+          resultLines.push(created);
+        }
+      }
+      for (const line of existing) {
+        if (!remaining.has(line.id)) await tx.delete(production_orders).where(eq(production_orders.id, line.id));
+      }
+      return { order: updatedOrder, production_orders: resultLines };
+    });
+    res.json(result);
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") return res.status(409).json({ message: "رقم أمر الإنتاج مستخدم مسبقًا؛ أعد فتح الطلب" });
+    if ((error as { code?: string }).code === "23503") return res.status(409).json({ message: "أمر الإنتاج مرتبط ببيانات أخرى ولا يمكن حذفه" });
     next(error);
   }
 });
@@ -647,6 +787,9 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
       }
       const readOnly = new Set(["id", "created_at", "updated_at", "universal_thickness"]);
       const input = Object.fromEntries(Object.entries(req.body ?? {}).filter(([key]) => !readOnly.has(key)));
+      if (path === "orders" && ("order_number" in input || "customer_id" in input)) {
+        return res.status(400).json({ message: "رقم الطلب والعميل ثابتان بعد الإنشاء؛ استخدم تعديل الطلب لتغيير بنوده" });
+      }
       const body = parsed(schemas[path].strict().partial(), input);
       const row: any[] = (await db.update(table).set(body).where(eq(table.id, key)).returning()) as any;
       if (!row[0]) return res.status(404).json({ message: "العنصر غير موجود" });

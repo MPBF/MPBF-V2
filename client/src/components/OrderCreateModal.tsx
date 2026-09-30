@@ -5,6 +5,9 @@ import "./OrderCreateModal.css";
 type Row = Record<string, any>;
 type OrderLine = {
   key: number;
+  id?: number;
+  productionNumber?: string;
+  locked?: boolean;
   mode: "existing" | "new";
   customerProductId: string;
   quantityKg: string;
@@ -88,7 +91,7 @@ function Alert({ children, info = false }: { children: ReactNode; info?: boolean
   return <div className={`order-create-alert${info ? " info" : ""}`} role={info ? "status" : "alert"}><AlertCircle size={17} aria-hidden="true" /><div>{children}</div></div>;
 }
 
-export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?: number; onClose: () => void; onSaved: () => void }) {
   const [customers, setCustomers] = useState<ChoiceState>({ values: [], loading: true, error: "" });
   const [categories, setCategories] = useState<ChoiceState>({ values: [], loading: true, error: "" });
   const [items, setItems] = useState<ChoiceState>({ values: [], loading: true, error: "" });
@@ -100,11 +103,47 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
   const [orderNumber, setOrderNumber] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState("waiting");
+  const [originalItems, setOriginalItems] = useState<{ id: number; customer_product_id: number | null; quantity_kg: string }[]>([]);
+  const [detailsLoading, setDetailsLoading] = useState(Boolean(editId));
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsRetry, setDetailsRetry] = useState(0);
   const [lines, setLines] = useState<OrderLine[]>([freshLine(1)]);
   const [nextLineKey, setNextLineKey] = useState(2);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+
+  useEffect(() => {
+    if (!editId) return;
+    let active = true;
+    setDetailsLoading(true);
+    setDetailsError("");
+    readApi(`/api/orders/${editId}/with-items`).then((data) => {
+      if (!active) return;
+      setOrderNumber(data.order.order_number);
+      setSelectedCustomer(data.order.customer_id);
+      setDeliveryDate(data.order.delivery_date?.slice(0, 10) || "");
+      setNotes(data.order.notes || "");
+      setStatus(data.order.status || "waiting");
+      setOriginalItems(data.items.map((line: Row) => ({
+        id: line.id, customer_product_id: line.customer_product_id, quantity_kg: line.quantity_kg,
+      })));
+      setLines(data.items.map((line: Row, index: number) => ({
+        ...freshLine(index + 1),
+        id: line.id,
+        productionNumber: line.production_order_number,
+        locked: line.status !== "pending" || Boolean(line.batch_number),
+        customerProductId: String(line.customer_product_id ?? ""),
+        quantityKg: String(line.quantity_kg),
+      })));
+      setNextLineKey(data.items.length + 1);
+      setDetailsLoading(false);
+    }).catch((e) => {
+      if (active) { setDetailsError((e as Error).message); setDetailsLoading(false); }
+    });
+    return () => { active = false; };
+  }, [editId, detailsRetry]);
 
   useEffect(() => {
     let active = true;
@@ -168,6 +207,7 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
   };
 
   const changeCustomer = (value: string) => {
+    if (editId) return;
     setSelectedCustomer(value);
     setLines((current) => current.map((line) => ({ ...line, customerProductId: "" })));
   };
@@ -180,6 +220,7 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
     event.preventDefault();
     if (savingRef.current) return;
     setError("");
+    if (detailsLoading || detailsError) return;
     const normalizedLines = lines.map((line) => ({ ...line, quantityKg: line.quantityKg.replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))) }));
     if (!selectedCustomer) {
       setError("يرجى اختيار العميل.");
@@ -209,11 +250,11 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
     setSaving(true);
     try {
       const payload = {
-        order_number: orderNumber.trim(),
-        customer_id: selectedCustomer,
+        ...(editId ? { status, original_items: originalItems } : { order_number: orderNumber.trim(), customer_id: selectedCustomer }),
         ...(deliveryDate ? { delivery_date: deliveryDate } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         items: normalizedLines.map((line) => ({
+          ...(editId && line.id ? { id: line.id } : {}),
           ...(line.mode === "existing"
             ? { customer_product_id: Number(line.customerProductId) }
             : {
@@ -229,7 +270,7 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
           quantity_kg: line.quantityKg.trim().replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(",", "."),
         })),
       };
-      await readApi("/api/orders/with-items", { method: "POST", body: JSON.stringify(payload) });
+      await readApi(editId ? `/api/orders/${editId}/with-items` : "/api/orders/with-items", { method: editId ? "PUT" : "POST", body: JSON.stringify(payload) });
       onSaved();
     } catch (e) {
       setError((e as Error).message || "تعذر حفظ الطلب.");
@@ -248,8 +289,8 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
           <div className="order-create-heading">
             <span className="order-create-mark" aria-hidden="true"><ClipboardList size={21} /></span>
             <div>
-              <h2 id="order-create-title">تسجيل طلب عميل</h2>
-              <p>أدخل بيانات الطلب ثم أضف الأصناف والكميات بالكيلوغرام.</p>
+              <h2 id="order-create-title">{editId ? "تعديل طلب العميل" : "تسجيل طلب عميل"}</h2>
+              <p>{editId ? "عدّل البنود التي لم يبدأ إنتاجها. البنود قيد العمل محفوظة دون تغيير." : "أدخل بيانات الطلب ثم أضف الأصناف والكميات بالكيلوغرام."}</p>
             </div>
           </div>
           <button className="order-create-close" type="button" aria-label="إغلاق نافذة الطلب" title="إغلاق" disabled={saving} onClick={onClose}><X size={20} /></button>
@@ -257,6 +298,8 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
 
         <form className="order-create-form" onSubmit={submit}>
           {error && <Alert>{error}</Alert>}
+          {detailsLoading && <div className="order-options-state" role="status">جارٍ تحميل بنود الطلب…</div>}
+          {detailsError && <Alert>تعذر تحميل بنود الطلب: {detailsError} <button type="button" onClick={() => setDetailsRetry((value) => value + 1)}>إعادة المحاولة</button></Alert>}
           {baseOptionErrors.length > 0 && (
             <Alert>
               تعذر تحميل بعض الخيارات. يمكنك إعادة المحاولة قبل المتابعة.
@@ -269,13 +312,13 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
             <div className="order-create-grid">
               <div className="order-create-field order-create-number">
                 <label htmlFor="order-number">رقم الطلب <span aria-hidden="true">*</span></label>
-                 <input id="order-number" type="text" maxLength={47} value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} placeholder="أدخل رقم الطلب" required disabled={saving} autoComplete="off" />
-                 <small className="order-create-hint">يُسجّل الرقم كما أدخلته، وتُرقّم أوامر الإنتاج التابعة له تلقائيًا.</small>
+                  <input id="order-number" type="text" maxLength={47} value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} placeholder="أدخل رقم الطلب" required disabled={saving || Boolean(editId)} autoComplete="off" />
+                  <small className="order-create-hint">{editId ? "رقم الطلب ثابت لحماية أرقام أوامر الإنتاج المرتبطة." : "يُسجّل الرقم كما أدخلته، وتُرقّم أوامر الإنتاج التابعة له تلقائيًا."}</small>
               </div>
               <div className="order-create-field">
                 <label htmlFor="order-customer">العميل <span aria-hidden="true">*</span></label>
                 {customers.loading ? <div className="order-create-skeleton" aria-label="جارٍ تحميل العملاء" aria-busy="true"><i /><i /></div> :
-                  <select id="order-customer" value={selectedCustomer} onChange={(event) => changeCustomer(event.target.value)} required disabled={saving || Boolean(customers.error)}>
+                  <select id="order-customer" value={selectedCustomer} onChange={(event) => changeCustomer(event.target.value)} required disabled={saving || Boolean(customers.error) || Boolean(editId)}>
                     <option value="">اختر العميل</option>
                     {customers.values.map((customer, index) => <option key={customer.id ?? index} value={customer.id}>{labelFor(customer)}</option>)}
                   </select>}
@@ -289,8 +332,10 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
               </div>
               <div className="order-create-field">
                 <label htmlFor="order-status">حالة الطلب</label>
-                <div className="order-create-field-static" id="order-status"><span className="order-status-dot" />بانتظار المعالجة</div>
-                <small className="order-create-hint">تُحدّد الحالة تلقائياً عند الحفظ.</small>
+                {editId ? <select id="order-status" value={status} onChange={(event) => setStatus(event.target.value)} disabled={saving}>
+                  {["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"].map((value) =>
+                    <option key={value} value={value}>{({ waiting: "بانتظار المعالجة", on_hold: "معلّق", in_production: "قيد الإنتاج", for_production: "جاهز للإنتاج", paused: "متوقف", cancelled: "ملغي", completed: "مكتمل", delivered: "مسلّم", archived: "مؤرشف" } as Record<string, string>)[value]}</option>)}
+                </select> : <><div className="order-create-field-static" id="order-status"><span className="order-status-dot" />بانتظار المعالجة</div><small className="order-create-hint">تُحدّد الحالة تلقائياً عند الحفظ.</small></>}
               </div>
               <div className="order-create-field order-create-field-wide">
                 <label htmlFor="order-notes">ملاحظات <span className="order-create-hint">(اختياري)</span></label>
@@ -319,20 +364,20 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
                 return (
                   <article className="order-line-card" key={line.key} aria-label={`بند رقم ${index + 1}`}>
                     <div className="order-line-top">
-                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> بند المنتج</div>
-                      {lines.length > 1 && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`حذف البند ${index + 1}`}><Trash2 size={15} /> حذف البند</button>}
+                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> {line.productionNumber || "بند المنتج"} {line.locked && <small>· بدأ الإنتاج — للعرض فقط</small>}</div>
+                      {lines.length > 1 && !line.locked && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`حذف البند ${index + 1}`}><Trash2 size={15} /> حذف البند</button>}
                     </div>
 
                     <div className="order-product-mode" role="group" aria-label={`مصدر المنتج للبند ${index + 1}`}>
-                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", categoryId: "", itemId: "", sizeCaption: "", width: "", thickness: "", rawMaterial: "" })} disabled={saving}>منتج مسجل</button>
-                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => updateLine(line.key, { mode: "new", customerProductId: "" })} disabled={saving}>منتج جديد</button>
+                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", categoryId: "", itemId: "", sizeCaption: "", width: "", thickness: "", rawMaterial: "" })} disabled={saving || line.locked}>منتج مسجل</button>
+                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => updateLine(line.key, { mode: "new", customerProductId: "" })} disabled={saving || line.locked}>منتج جديد</button>
                     </div>
 
                     <div className="order-line-grid" style={{ marginTop: 11 }}>
                       {line.mode === "existing" ? (
                         <div className="order-line-field order-line-product">
                           <label htmlFor={`order-product-${line.key}`}>منتج العميل <span aria-hidden="true">*</span></label>
-                          <select id={`order-product-${line.key}`} value={line.customerProductId} onChange={(event) => updateLine(line.key, { customerProductId: event.target.value })} required disabled={saving || !selectedCustomer || productsLoading || Boolean(productsError)}>
+                          <select id={`order-product-${line.key}`} value={line.customerProductId} onChange={(event) => updateLine(line.key, { customerProductId: event.target.value })} required disabled={saving || line.locked || !selectedCustomer || productsLoading || Boolean(productsError)}>
                             <option value="">اختر منتجاً</option>
                             {customerProducts.map((product, productIndex) => <option key={product.id ?? productIndex} value={product.id}>{productLabel(product)}</option>)}
                           </select>
@@ -349,7 +394,7 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
                       <div className="order-line-field">
                         <label htmlFor={`order-quantity-${line.key}`}>الكمية <span aria-hidden="true">*</span></label>
                         <div className="order-quantity-wrap">
-                          <input id={`order-quantity-${line.key}`} type="text" inputMode="decimal" dir="ltr" value={line.quantityKg} onChange={(event) => updateLine(line.key, { quantityKg: event.target.value })} placeholder="0.00" required disabled={saving} aria-describedby={`order-quantity-unit-${line.key}`} />
+                          <input id={`order-quantity-${line.key}`} type="text" inputMode="decimal" dir="ltr" value={line.quantityKg} onChange={(event) => updateLine(line.key, { quantityKg: event.target.value })} placeholder="0.00" required disabled={saving || line.locked} aria-describedby={`order-quantity-unit-${line.key}`} />
                           <span className="order-quantity-unit" id={`order-quantity-unit-${line.key}`}>كغ</span>
                         </div>
                       </div>
@@ -391,11 +436,11 @@ export default function OrderCreateModal({ onClose, onSaved }: { onClose: () => 
           </section>
 
           <footer className="order-create-footer">
-            <span className="order-create-footer-note"><Boxes size={14} aria-hidden="true" /> الحالة الأولية: بانتظار المعالجة</span>
+             <span className="order-create-footer-note"><Boxes size={14} aria-hidden="true" /> {editId ? "البنود التي بدأ إنتاجها لا يمكن تعديلها أو حذفها" : "الحالة الأولية: بانتظار المعالجة"}</span>
             <div className="order-create-actions">
               <button type="button" className="order-create-cancel" onClick={onClose} disabled={saving}>إلغاء</button>
-              <button type="submit" className="order-create-save" disabled={saving || customers.loading || Boolean(customers.error)}>
-                {saving ? <><LoaderCircle className="order-create-spin" size={16} /> جارٍ تسجيل الطلب…</> : <><Check size={16} /> حفظ الطلب</>}
+               <button type="submit" className="order-create-save" disabled={saving || detailsLoading || Boolean(detailsError) || customers.loading || Boolean(customers.error) || productsLoading || Boolean(productsError)}>
+                 {saving ? <><LoaderCircle className="order-create-spin" size={16} /> جارٍ حفظ الطلب…</> : <><Check size={16} /> حفظ الطلب</>}
               </button>
             </div>
           </footer>
