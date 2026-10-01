@@ -126,7 +126,7 @@ const productLabel = (product: Row) => {
     product.size_caption,
     width ? `عرض ${width} سم` : "",
     thickness ? `سماكة ${thickness} µ` : "",
-    product.raw_material ? `المادة الخام: ${product.raw_material}` : "",
+    product.raw_material || "",
   ].filter(Boolean);
   return details.join(" · ") || `منتج رقم ${product.id}`;
 };
