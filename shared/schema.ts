@@ -8,6 +8,7 @@ import {
   integer,
   json,
   jsonb,
+  pgSequence,
   pgTable,
   serial,
   text,
@@ -17,6 +18,12 @@ import {
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const adminSectionIdSequence = pgSequence("admin_section_id_seq");
+export const adminCategoryIdSequence = pgSequence("admin_category_id_seq");
+export const adminItemIdSequence = pgSequence("admin_item_id_seq");
+export const adminMasterBatchColorIdSequence = pgSequence("admin_master_batch_color_id_seq");
+export const adminMachineIdSequence = pgSequence("admin_machine_id_seq");
 
 export const roles = pgTable("roles", {
   id: serial("id").primaryKey(),
@@ -54,7 +61,7 @@ export const users = pgTable(
     phone: varchar("phone", { length: 20 }),
     email: varchar("email", { length: 100 }),
     role_id: integer("role_id").references(() => roles.id),
-    // Kept as integer: this is the live database type, despite sections.id being varchar.
+    // Section IDs are varchar codes (for example, SEC01).
     section_id: varchar("section_id", { length: 20 }),
     status: varchar("status", { length: 20 }).default("active"),
     must_change_password: boolean("must_change_password").default(false),
@@ -372,8 +379,10 @@ export const machines = pgTable(
     serial_number: varchar("serial_number", { length: 100 }),
   },
   (table) => ({
-    machineIdFormat: check("machine_id_format", sql`${table.id} ~ '^M[0-9]{3}$'`),
-    typeValid: check("type_valid", sql`${table.type} IN ('extruder', 'printer', 'cutter', 'quality_check')`),
+    machineIdFormat: check("machine_id_format", sql`${table.id} ~ '^(M[0-9]{3}|MAC[0-9]{2,3})$'`),
+    // Keep existing imported labels valid in the schema model. API writes
+    // normalize these aliases only when a machine type is actually changed.
+    typeValid: check("type_valid", sql`${table.type} IN ('extruder', 'printer', 'cutter', 'quality_check', 'printing', 'cutting', 'Printer', 'Cutter')`),
     statusValid: check("status_valid", sql`${table.status} IN ('active', 'maintenance', 'down')`),
     nameNotEmpty: check("name_not_empty", sql`LENGTH(TRIM(${table.name})) > 0`),
     screwTypeValid: check("screw_type_valid", sql`${table.screw_type} IS NULL OR ${table.screw_type} IN ('A', 'ABA')`),
@@ -522,12 +531,12 @@ export const productionOrdersRelations = relations(production_orders, ({ one }) 
 
 const omitGenerated = { id: true, created_at: true, updated_at: true } as const;
 export const insertRoleSchema = createInsertSchema(roles).omit({ id: true });
-export const insertSectionSchema = createInsertSchema(sections);
+export const insertSectionSchema = createInsertSchema(sections).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, created_at: true, updated_at: true });
 export const insertShiftDefinitionSchema = createInsertSchema(shift_definitions).omit({ created_at: true, updated_at: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ created_at: true });
-export const insertCategorySchema = createInsertSchema(categories);
-export const insertItemSchema = createInsertSchema(items);
+export const insertCategorySchema = createInsertSchema(categories).omit({ id: true });
+export const insertItemSchema = createInsertSchema(items).omit({ id: true });
 export const insertMasterBatchColorSchema = createInsertSchema(master_batch_colors).omit(omitGenerated);
 const wholeProductNumber = z.string().regex(/^-?\d+$/, "يجب إدخال عدد صحيح دون كسور").nullish();
 export const insertCustomerProductSchema = createInsertSchema(customer_products, {
@@ -545,7 +554,7 @@ export const insertCustomerProductSchema = createInsertSchema(customer_products,
   package_weight_kg: true,
   is_printed: true,
 });
-export const insertMachineSchema = createInsertSchema(machines);
+export const insertMachineSchema = createInsertSchema(machines).omit({ id: true });
 export const insertNewOrderSchema = createInsertSchema(orders).omit({ id: true, created_at: true });
 export const insertProductionOrderSchema = createInsertSchema(production_orders).omit({ id: true, created_at: true });
 export const insertMaintenanceComponentCatalogSchema = createInsertSchema(maintenance_component_catalog).omit({ id: true, created_at: true });

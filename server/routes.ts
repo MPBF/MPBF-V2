@@ -35,6 +35,10 @@ import {
 import { db } from "./db";
 import { nextCategoryId } from "./category-id";
 import { nextItemId } from "./item-id";
+import { nextSectionId } from "./section-id";
+import { nextMachineId } from "./machine-id";
+import { nextMasterBatchColorId } from "./master-batch-id";
+import { nextAdminIdNumber } from "./admin-id-sequence";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
@@ -83,6 +87,131 @@ const productColor = z.string().trim().min(1).max(40)
   .refine((color) => /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(color) ||
     /^[\p{L}\p{N} _-]+$/u.test(color), "لون الطباعة غير صالح");
 const productColors = z.array(productColor).max(12).nullish();
+
+const requiredAdminText = (max: number) => z.string().trim().min(1).max(max);
+const optionalAdminText = (max: number) => z.string().trim().max(max).nullish();
+const optionalAdminRelation = (max: number) => z.preprocess(
+  (value) => typeof value === "string" && !value.trim() ? null : value,
+  z.string().trim().min(1).max(max).nullable().optional(),
+);
+const adminDate = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, "التاريخ غير صالح").nullish();
+const decimalAdminValue = (maxIntegerDigits: number, maxDecimalDigits: number, positive = false) =>
+  z.union([z.string(), z.number().finite().transform(String)]).nullish()
+    .refine((value) => value == null || new RegExp(`^\\d{1,${maxIntegerDigits}}(?:\\.\\d{1,${maxDecimalDigits}})?$`).test(String(value)),
+      "القيمة الرقمية غير صالحة")
+    .refine((value) => value == null || (positive ? Number(value) > 0 : Number(value) >= 0),
+      positive ? "يجب أن تكون القيمة أكبر من صفر" : "لا يمكن أن تكون القيمة سالبة")
+    .transform((value) => value == null ? value : String(value));
+const positiveAdminInteger = z.union([
+  z.number().int().positive().transform(String),
+  z.string().trim().regex(/^\d+$/)
+    .refine((value) => Number.isSafeInteger(Number(value)) && Number(value) > 0),
+]).nullish();
+const adminRoleId = z.preprocess(
+  (value) => value === "" ? null : value,
+  z.union([
+    z.number().int().positive(),
+    z.string().trim().regex(/^\d+$/).transform(Number).refine(Number.isSafeInteger),
+  ]).nullable().optional(),
+);
+const adminPermissions = z.array(z.string().trim().min(1).max(80)).nullable().optional();
+const sectionAdminSchema = insertSectionSchema.strict().extend({
+  name: requiredAdminText(100),
+  name_ar: optionalAdminText(100),
+  description: optionalAdminText(5000),
+});
+const roleAdminSchema = insertRoleSchema.strict().extend({
+  name: requiredAdminText(50),
+  name_ar: optionalAdminText(100),
+  permissions: adminPermissions,
+});
+const userAdminSchema = insertUserSchema.strict().extend({
+  username: z.string().trim().min(1).max(50).optional(),
+  password: z.string().refine((value) => value.trim().length >= 8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل").optional(),
+  display_name: optionalAdminText(100),
+  display_name_ar: optionalAdminText(100),
+  full_name: optionalAdminText(200),
+  phone: optionalAdminText(20),
+  email: optionalAdminText(100),
+  role_id: adminRoleId,
+  section_id: optionalAdminRelation(20),
+  status: z.string().trim().pipe(z.enum(["active", "inactive"])).nullish(),
+  national_id: optionalAdminText(20),
+  nationality: optionalAdminText(30),
+  birth_date: adminDate,
+  service_start_date: adminDate,
+  profession: optionalAdminText(100),
+  first_name: optionalAdminText(100),
+  last_name: optionalAdminText(100),
+  profile_image_url: optionalAdminText(500),
+});
+const categoryAdminSchema = insertCategorySchema.strict().extend({
+  name: requiredAdminText(100),
+  name_ar: optionalAdminText(100),
+  code: optionalAdminText(20),
+  parent_id: optionalAdminRelation(20),
+});
+const itemAdminSchema = insertItemSchema.strict().extend({
+  category_id: optionalAdminRelation(20),
+  name: optionalAdminText(100),
+  name_ar: optionalAdminText(100),
+  code: optionalAdminText(50),
+  status: z.string().trim().pipe(z.enum(["active", "inactive"])).nullish(),
+});
+const masterBatchTypeId = z.string().trim().refine(
+  (value) => /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(value) || value.toLowerCase() === "transparent",
+  "يجب إدخال لون HEX صالح أو transparent",
+);
+const masterBatchAdminSchema = insertMasterBatchColorSchema.omit({ sort_order: true }).strict().extend({
+  name: requiredAdminText(100),
+  name_ar: requiredAdminText(100),
+  color_hex: masterBatchTypeId,
+  text_color: masterBatchTypeId,
+  brand: optionalAdminText(100),
+  aliases: optionalAdminText(5000),
+  is_active: z.boolean().optional(),
+});
+const componentAdminSchema = insertMaintenanceComponentCatalogSchema.omit({ sort_order: true }).strict().extend({
+  machine_type: z.string().trim().pipe(z.enum(["extruder", "printer", "cutter", "quality_check"])),
+  name_ar: requiredAdminText(200),
+  name_en: requiredAdminText(200),
+  enabled: z.boolean().optional(),
+});
+const machineTypeInput = z.string().trim().pipe(z.enum(["extruder", "printer", "cutter", "quality_check", "printing", "cutting", "Printer", "Cutter"]));
+const machineAdminSchema = insertMachineSchema.strict().extend({
+  name: requiredAdminText(100),
+  name_ar: optionalAdminText(100),
+  type: machineTypeInput,
+  section_id: optionalAdminRelation(20),
+  status: z.string().trim().pipe(z.enum(["active", "maintenance", "down"])).optional(),
+  capacity_small_kg_per_hour: decimalAdminValue(6, 2, true),
+  capacity_medium_kg_per_hour: decimalAdminValue(6, 2, true),
+  capacity_large_kg_per_hour: decimalAdminValue(6, 2, true),
+  min_thickness: decimalAdminValue(5, 3),
+  max_thickness: decimalAdminValue(5, 3),
+  min_width_cm: decimalAdminValue(6, 2),
+  max_width_cm: decimalAdminValue(6, 2),
+  max_print_colors: positiveAdminInteger,
+  min_cylinder_inch: decimalAdminValue(6, 2),
+  max_cylinder_inch: decimalAdminValue(6, 2),
+  min_length_cm: decimalAdminValue(6, 2),
+  max_length_cm: decimalAdminValue(6, 2),
+  width_cm: decimalAdminValue(8, 2, true),
+  length_cm: decimalAdminValue(8, 2, true),
+  height_cm: decimalAdminValue(8, 2, true),
+  weight_kg: decimalAdminValue(8, 2, true),
+  manufacture_date: adminDate,
+  screw_type: z.string().trim().pipe(z.enum(["A", "ABA"])).nullish(),
+  raw_material_type: optionalAdminText(20),
+  inline_printer_id: optionalAdminRelation(20),
+  manufacturer: optionalAdminText(100),
+  serial_number: optionalAdminText(100),
+  metal_plate: optionalAdminText(5000),
+});
 const customerProductInputSchema = insertCustomerProductSchema.strict().extend({
   width: positiveWhole,
   left_facing: nonnegativeWhole,
@@ -156,27 +285,37 @@ function normalizeCustomerProductInput(input: Record<string, any>) {
   return normalized;
 }
 
-async function validateCustomerProductReferences(tx: any, input: Record<string, any>, oldBatchId?: string | null) {
+async function validateCustomerProductReferences(
+  tx: any,
+  input: Record<string, any>,
+  oldBatchId?: string | null,
+  oldItemId?: string | null,
+  oldCategoryId?: string | null,
+) {
   if (!input.customer_id) throw invalidProduct("يجب اختيار عميل صالح");
   const [customer] = await tx.select({ id: customers.id }).from(customers)
-    .where(eq(customers.id, input.customer_id)).limit(1);
+    .where(eq(customers.id, input.customer_id)).for("key share").limit(1);
   const [item] = input.item_id
-    ? await tx.select({ id: items.id, category_id: items.category_id })
-      .from(items).where(eq(items.id, input.item_id)).limit(1)
+    ? await tx.select({ id: items.id, category_id: items.category_id, status: items.status })
+      .from(items).where(eq(items.id, input.item_id)).for("key share").limit(1)
     : [null];
   const [category] = input.category_id
     ? await tx.select({ id: categories.id, name: categories.name, name_ar: categories.name_ar })
-      .from(categories).where(eq(categories.id, input.category_id)).limit(1)
+      .from(categories).where(eq(categories.id, input.category_id)).for("key share").limit(1)
     : [null];
   if (!customer) throw invalidProduct("العميل المحدد غير موجود");
   if (input.category_id && !category) throw invalidProduct("التصنيف المحدد غير موجود");
   if (input.item_id && !item) throw invalidProduct("الصنف المحدد غير موجود");
-  if (item && input.category_id && item.category_id !== input.category_id) {
+  if (item && input.category_id && item.category_id !== input.category_id &&
+    !(input.item_id === oldItemId && input.category_id === oldCategoryId)) {
     throw invalidProduct("الصنف لا ينتمي إلى التصنيف المحدد");
+  }
+  if (item && item.status === "inactive" && input.item_id !== oldItemId) {
+    throw invalidProduct("لا يمكن اختيار صنف غير نشط");
   }
   if (input.master_batch_id) {
     const [batch] = await tx.select({ id: master_batch_colors.id, is_active: master_batch_colors.is_active })
-      .from(master_batch_colors).where(eq(master_batch_colors.id, input.master_batch_id)).limit(1);
+      .from(master_batch_colors).where(eq(master_batch_colors.id, input.master_batch_id)).for("key share").limit(1);
     if (!batch) throw invalidProduct("لون الخامة المحدد غير موجود");
     if (!batch.is_active && input.master_batch_id !== oldBatchId) {
       throw invalidProduct("لا يمكن اختيار لون خامة غير نشط");
@@ -313,12 +452,153 @@ async function assertProductCanTransfer(tx: any, productId: number, customerId: 
   if (conflict) throw orderError("لا يمكن نقل المنتج؛ فهو مرتبط بطلب إنتاج لعميل آخر", 409);
 }
 
-async function validateUserRoleGrant(tx: any, roleId: number | null | undefined, actorPermissions: unknown) {
+async function validateUserRoleGrant(
+  tx: any,
+  roleId: number | null | undefined,
+  actorPermissions: unknown,
+  allowMissingUnchangedLegacyRole = false,
+) {
   if (roleId == null) return;
   const [role] = await tx.select({ permissions: roles.permissions }).from(roles)
     .where(eq(roles.id, roleId)).for("update").limit(1);
-  if (!role) throw Object.assign(new Error("الدور المحدد غير موجود"), { status: 400 });
+  if (!role) {
+    if (allowMissingUnchangedLegacyRole) return;
+    throw Object.assign(new Error("الدور المحدد غير موجود"), { status: 400 });
+  }
   assertGrantWithinActor(actorPermissions, role.permissions);
+}
+
+function adminValidationError(message: string, status = 400) {
+  return Object.assign(new Error(message), { status });
+}
+
+function stripCreateId(input: Record<string, any>) {
+  const { id: _ignoredId, ...body } = input;
+  return body;
+}
+
+function assertPutIdIsImmutable(input: Record<string, any>, key: string | number) {
+  if (!Object.prototype.hasOwnProperty.call(input, "id")) return;
+  if (String(input.id) !== String(key)) throw adminValidationError("لا يمكن تغيير المعرّف بعد الإنشاء");
+  delete input.id;
+}
+
+async function validateOptionalReference(
+  tx: any,
+  table: any,
+  column: any,
+  value: string | number | null | undefined,
+  oldValue: string | number | null | undefined,
+  message: string,
+) {
+  if (value == null || value === "") return;
+  const [row] = await tx.select({ id: table.id }).from(table).where(eq(column, value)).for("key share").limit(1);
+  if (!row && value !== oldValue) throw adminValidationError(message);
+}
+
+async function validateCategoryParent(
+  tx: any,
+  parentId: string | null | undefined,
+  currentId?: string,
+  oldParentId?: string | null,
+) {
+  if (!parentId) return;
+  if (currentId && parentId === oldParentId) {
+    if (parentId === currentId) return;
+    const [parent] = await tx.select({ id: categories.id }).from(categories)
+      .where(eq(categories.id, parentId)).for("key share").limit(1);
+    // Permit an unchanged dangling legacy relation, but never a new one.
+    if (!parent) return;
+    return;
+  }
+  if (currentId && parentId === currentId) throw adminValidationError("لا يمكن جعل التصنيف أبًا لنفسه");
+  const rows = await tx.select({ id: categories.id, parent_id: categories.parent_id }).from(categories);
+  const byId = new Map<string, string | null>(rows.map((row: any) => [row.id, row.parent_id]));
+  if (!byId.has(parentId)) throw adminValidationError("التصنيف الأب المحدد غير موجود");
+  const visited = new Set<string>();
+  let cursor: string | null | undefined = parentId;
+  while (cursor) {
+    if (cursor === currentId) throw adminValidationError("لا يمكن إنشاء دورة في شجرة التصنيفات");
+    if (visited.has(cursor)) throw adminValidationError("سلسلة التصنيفات الأب تحتوي على دورة غير صالحة");
+    visited.add(cursor);
+    cursor = byId.get(cursor);
+  }
+}
+
+function canonicalMachineType(value: string) {
+  if (value === "printing" || value === "Printer") return "printer";
+  if (value === "cutting" || value === "Cutter") return "cutter";
+  return value;
+}
+
+function normalizeChangedMachineType(input: Record<string, any>, oldType?: string | null) {
+  if (typeof input.type !== "string") return;
+  if (oldType !== undefined && input.type === oldType) return;
+  input.type = canonicalMachineType(input.type);
+}
+
+async function validateMachineReferences(
+  tx: any,
+  input: Record<string, any>,
+  current?: { id: string; section_id: string | null; inline_printer_id: string | null; type: string | null },
+  revalidateUnchangedInlinePrinter = false,
+) {
+  await validateOptionalReference(tx, sections, sections.id, input.section_id, current?.section_id, "القسم المحدد غير موجود");
+  if (input.inline_printer_id == null || input.inline_printer_id === "") return;
+  if (current?.inline_printer_id === input.inline_printer_id && !revalidateUnchangedInlinePrinter) return;
+  const machineType = input.type ?? current?.type;
+  if (machineType !== "extruder") throw adminValidationError("يمكن ربط الطابعة الداخلية بماكينة بثق فقط");
+  if (input.inline_printer_id === current?.id) throw adminValidationError("لا يمكن ربط الماكينة بنفسها كطابعة داخلية");
+  const [printer] = await tx.select({ id: machines.id, type: machines.type }).from(machines)
+    .where(eq(machines.id, input.inline_printer_id)).for("key share").limit(1);
+  if (!printer) throw adminValidationError("الطابعة الداخلية المحددة غير موجودة");
+  if (canonicalMachineType(printer.type ?? "") !== "printer") {
+    throw adminValidationError("يجب اختيار ماكينة من نوع طابعة للطابعة الداخلية");
+  }
+}
+
+async function hasInlinePrinterDependents(tx: any, printerId: string) {
+  const [reference] = await tx.select({ id: machines.id }).from(machines)
+    .where(eq(machines.inline_printer_id, printerId)).limit(1);
+  return Boolean(reference);
+}
+
+async function validateMachineTypeTransition(
+  tx: any,
+  current: { id: string; type: string | null; inline_printer_id: string | null },
+  merged: Record<string, any>,
+  body: Record<string, any>,
+) {
+  if (!Object.prototype.hasOwnProperty.call(body, "type")) return false;
+  const previousType = canonicalMachineType(current.type ?? "");
+  const nextType = canonicalMachineType(merged.type ?? "");
+  if (previousType === nextType) return false;
+
+  const currentInlinePrinter = typeof current.inline_printer_id === "string" && current.inline_printer_id.trim().length > 0;
+  const mergedInlinePrinter = typeof merged.inline_printer_id === "string" && merged.inline_printer_id.trim().length > 0;
+  if (previousType === "extruder" && currentInlinePrinter && nextType !== "extruder" && mergedInlinePrinter) {
+    throw adminValidationError("أزل الطابعة الداخلية أولاً بإرسال inline_printer_id فارغًا قبل تغيير نوع ماكينة البثق");
+  }
+  if (previousType === "printer" && nextType !== "printer" &&
+    await hasInlinePrinterDependents(tx, current.id)) {
+    throw adminValidationError("لا يمكن تغيير نوع الطابعة لأنها مرتبطة بماكينات بثق؛ أزل الارتباطات أولاً");
+  }
+  return true;
+}
+
+function actorHasAdminPermission(permissions: unknown) {
+  return Array.isArray(permissions) && permissions.includes("admin");
+}
+
+function validateMachineRanges(input: Record<string, any>) {
+  for (const [minimum, maximum] of [
+    ["min_thickness", "max_thickness"], ["min_width_cm", "max_width_cm"],
+    ["min_cylinder_inch", "max_cylinder_inch"], ["min_length_cm", "max_length_cm"],
+  ]) {
+    if (input[minimum] != null && input[maximum] != null && Number(input[minimum]) > Number(input[maximum])) {
+      throw adminValidationError(`${minimum} لا يمكن أن تتجاوز ${maximum}`);
+    }
+  }
 }
 
 function userId(raw: string) {
@@ -449,6 +729,7 @@ router.get("/users", usersRead, async (req, res, next) => {
         ilike(users.email, `%${search}%`),
         ilike(users.phone, `%${search}%`),
         ilike(users.national_id, `%${search}%`),
+        sql`${users.id}::text ILIKE ${`%${search}%`}`,
       )
       : undefined;
     const rows = await db
@@ -492,14 +773,21 @@ router.get("/users", usersRead, async (req, res, next) => {
 });
 router.post("/users", usersRead, async (req, res, next) => {
   try {
-    const raw = req.body ?? {};
+    const raw = stripCreateId({ ...(req.body ?? {}) });
+    if (raw.is_system_user === true && !actorHasAdminPermission(req.user?.permissions)) {
+      throw adminValidationError("يتطلب إنشاء مستخدم نظام صلاحية المسؤول", 403);
+    }
     const username = typeof raw.username === "string" ? raw.username.trim() : "";
     const password = typeof raw.password === "string" ? raw.password : "";
     if (!username) return res.status(400).json({ message: "اسم المستخدم مطلوب" });
-    if (password.length < 8) return res.status(400).json({ message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
-    const body = parsed(insertUserSchema.strict(), { ...raw, username, password });
+    if (password.trim().length < 8) return res.status(400).json({ message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
+    const body = parsed(userAdminSchema.extend({
+      username: requiredAdminText(50),
+      password: z.string().refine((value) => value.trim().length >= 8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
+    }), { ...raw, username, password });
     const inserted = await db.transaction(async (tx) => {
       await validateUserRoleGrant(tx, body.role_id, req.user?.permissions ?? []);
+      await validateOptionalReference(tx, sections, sections.id, body.section_id, undefined, "القسم المحدد غير موجود");
       return tx.insert(users).values({ ...body, password: await bcrypt.hash(password, 12) }).returning({ id: users.id });
     });
     res.status(201).json({ id: inserted[0].id });
@@ -509,22 +797,37 @@ router.put("/users/:id", usersRead, async (req, res, next) => {
   try {
     const id = userId(req.params.id);
     const raw = { ...(req.body ?? {}) };
+    assertPutIdIsImmutable(raw, id);
     if ("password" in raw) {
-      if (typeof raw.password !== "string" || raw.password.length < 8) {
+      if (typeof raw.password !== "string") {
+        return res.status(400).json({ message: "كلمة المرور غير صالحة" });
+      }
+      if (!raw.password.trim()) {
+        delete raw.password;
+      } else if (raw.password.trim().length < 8) {
         return res.status(400).json({ message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
       }
     }
-    const body = parsed(insertUserSchema.strict().partial(), raw);
+    const body = parsed(userAdminSchema.partial(), raw);
+    if (!Object.keys(body).length) return res.status(400).json({ message: "لا توجد بيانات للتعديل" });
     const row: any[] = await db.transaction(async (tx) => {
-      const [target] = await tx.select({ id: users.id, role_id: users.role_id }).from(users)
+      const [target] = await tx.select({
+        id: users.id, role_id: users.role_id, section_id: users.section_id, is_system_user: users.is_system_user,
+      }).from(users)
         .where(eq(users.id, id)).for("update").limit(1);
       if (!target) return [];
+      if (Object.prototype.hasOwnProperty.call(body, "is_system_user") &&
+        body.is_system_user !== target.is_system_user &&
+        !actorHasAdminPermission(req.user?.permissions)) {
+        throw adminValidationError("يتطلب تغيير حالة مستخدم النظام صلاحية المسؤول", 403);
+      }
       if (target.role_id != null) {
-        await validateUserRoleGrant(tx, target.role_id, req.user?.permissions ?? []);
+        await validateUserRoleGrant(tx, target.role_id, req.user?.permissions ?? [], true);
       }
       if (Object.prototype.hasOwnProperty.call(body, "role_id") && body.role_id !== target.role_id) {
         await validateUserRoleGrant(tx, body.role_id, req.user?.permissions ?? []);
       }
+      await validateOptionalReference(tx, sections, sections.id, body.section_id, target.section_id, "القسم المحدد غير موجود");
       const values = { ...body };
       if (typeof values.password === "string") values.password = await bcrypt.hash(values.password, 12);
       return tx.update(users).set(values).where(eq(users.id, id))
@@ -567,22 +870,62 @@ router.delete("/users/:id", admin, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.get("/roles", rolesRead, async (_req, res, next) => { try { res.json(await db.select().from(roles).orderBy(roles.id)); } catch (e) { next(e); } });
-router.get("/sections", sectionsRead, async (_req, res, next) => { try { res.json(await db.select().from(sections).orderBy(sections.id)); } catch (e) { next(e); } });
+router.get("/roles", rolesRead, async (req, res, next) => {
+  try {
+    const { search } = page(req);
+    res.json(await db.select().from(roles)
+      .where(search ? or(
+        ilike(roles.name, `%${search}%`),
+        ilike(roles.name_ar, `%${search}%`),
+        sql`${roles.id}::text ILIKE ${`%${search}%`}`,
+      ) : undefined)
+      .orderBy(roles.id));
+  } catch (e) { next(e); }
+});
+router.get("/sections", sectionsRead, async (req, res, next) => {
+  try {
+    const { search } = page(req);
+    res.json(await db.select().from(sections)
+      .where(search ? or(
+        ilike(sections.id, `%${search}%`),
+        ilike(sections.name, `%${search}%`),
+        ilike(sections.name_ar, `%${search}%`),
+      ) : undefined)
+      .orderBy(sections.id));
+  } catch (e) { next(e); }
+});
 router.post("/roles", rolesWrite, async (req, res, next) => {
   try {
-    const body = parsed(insertRoleSchema.strict(), req.body);
+    const body = parsed(roleAdminSchema, stripCreateId({ ...(req.body ?? {}) }));
     assertGrantWithinActor(req.user?.permissions ?? [], body.permissions);
     const row = await db.insert(roles).values(body).returning();
     res.status(201).json(row[0]);
   } catch (e) { next(e); }
 });
-router.post("/sections", sectionsWrite, async (req, res, next) => { try { const row = await db.insert(sections).values(parsed(insertSectionSchema.strict(), req.body)).returning(); res.status(201).json(row[0]); } catch (e) { next(e); } });
+router.post("/sections", sectionsWrite, async (req, res, next) => {
+  try {
+    const body = parsed(sectionAdminSchema, stripCreateId({ ...(req.body ?? {}) }));
+    const row = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${4})`);
+      const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
+        SELECT MAX(substring(id from 4)::numeric)::text AS max_number,
+               MAX(length(id) - 3)::int AS suffix_width
+        FROM sections WHERE id ~ '^SEC[0-9]+$'
+      `);
+      const number = await nextAdminIdNumber(tx, "sections", sequence.rows[0]?.max_number ?? null);
+      const id = nextSectionId((BigInt(number) - 1n).toString(), sequence.rows[0]?.suffix_width ?? null);
+      return tx.insert(sections).values({ ...body, id }).returning();
+    });
+    res.status(201).json(row[0]);
+  } catch (e) { next(e); }
+});
 router.put("/roles/:id", rolesWrite, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" });
-    const body = parsed(insertRoleSchema.strict().partial(), req.body);
+    const input = { ...(req.body ?? {}) };
+    assertPutIdIsImmutable(input, id);
+    const body = parsed(roleAdminSchema.partial(), input);
     const row = await db.transaction(async (tx) => {
       const [current] = await tx.select({ permissions: roles.permissions }).from(roles)
         .where(eq(roles.id, id)).for("update").limit(1);
@@ -597,9 +940,38 @@ router.put("/roles/:id", rolesWrite, async (req, res, next) => {
     res.json(row[0]);
   } catch (e) { next(e); }
 });
-router.put("/sections/:id", sectionsWrite, async (req, res, next) => { try { const row = await db.update(sections).set(parsed(insertSectionSchema.strict().partial(), req.body)).where(eq(sections.id, req.params.id)).returning(); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json(row[0]); } catch (e) { next(e); } });
+router.put("/sections/:id", sectionsWrite, async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const input = { ...(req.body ?? {}) };
+    assertPutIdIsImmutable(input, id);
+    const body = parsed(sectionAdminSchema.partial(), input);
+    const row = await db.update(sections).set(body).where(eq(sections.id, id)).returning();
+    if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" });
+    res.json(row[0]);
+  } catch (e) { next(e); }
+});
 router.delete("/roles/:id", admin, async (req, res, next) => { try { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" }); const row = await db.delete(roles).where(eq(roles.id, id)).returning({ id: roles.id }); if (!row[0]) return res.status(404).json({ message: "الدور غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
-router.delete("/sections/:id", admin, async (req, res, next) => { try { const row = await db.delete(sections).where(eq(sections.id, req.params.id)).returning({ id: sections.id }); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
+router.delete("/sections/:id", admin, async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const row = await db.transaction(async (tx) => {
+      const [current] = await tx.select({ id: sections.id }).from(sections)
+        .where(eq(sections.id, id)).for("update").limit(1);
+      if (!current) return null;
+      const [userReference] = await tx.select({ id: users.id }).from(users)
+        .where(eq(users.section_id, id)).limit(1);
+      const [machineReference] = await tx.select({ id: machines.id }).from(machines)
+        .where(eq(machines.section_id, id)).limit(1);
+      if (userReference || machineReference) {
+        throw orderError("لا يمكن حذف القسم لارتباطه بمستخدمين أو ماكينات", 409);
+      }
+      return (await tx.delete(sections).where(eq(sections.id, id)).returning({ id: sections.id }))[0] ?? null;
+    });
+    if (!row) return res.status(404).json({ message: "القسم غير موجود" });
+    res.json({ success: true, id: row.id });
+  } catch (e) { next(e); }
+});
 
 // Save the order and every planned line in one transaction. An invalid item
 // or conflicting number leaves no partial order behind.
@@ -820,14 +1192,14 @@ const entityWrite: Record<Entity, any> = {
 };
 const entitySearch: Record<Entity, any[]> = {
   customers: [customers.name, customers.name_ar, customers.code, customers.plate_drawer_code, customers.city, customers.phone],
-  categories: [categories.name, categories.name_ar, categories.code],
-  items: [items.name, items.name_ar, items.code],
-  "master-batch-colors": [master_batch_colors.name, master_batch_colors.name_ar, master_batch_colors.brand, master_batch_colors.aliases],
+  categories: [categories.id, categories.name, categories.name_ar, categories.code],
+  items: [items.id, items.name, items.name_ar, items.code],
+  "master-batch-colors": [master_batch_colors.id, master_batch_colors.name, master_batch_colors.name_ar, master_batch_colors.brand, master_batch_colors.aliases],
   "customer-products": [customer_products.size_caption, customer_products.raw_material, customer_products.printing_cylinder, customer_products.master_batch_id, customer_products.cutting_unit, customer_products.punching, customer_products.notes, customer_products.status],
-  machines: [machines.name, machines.name_ar, machines.type, machines.status, machines.manufacturer, machines.serial_number],
+  machines: [machines.id, machines.name, machines.name_ar, machines.type, machines.status, machines.manufacturer, machines.serial_number],
   orders: [orders.order_number, orders.status, orders.previous_status, orders.notes, orders.share_token],
   "production-orders": [production_orders.production_order_number, production_orders.status, production_orders.previous_status, production_orders.batch_number],
-  "maintenance-component-catalog": [maintenance_component_catalog.machine_type, maintenance_component_catalog.name_ar, maintenance_component_catalog.name_en],
+  "maintenance-component-catalog": [maintenance_component_catalog.id, maintenance_component_catalog.machine_type, maintenance_component_catalog.name_ar, maintenance_component_catalog.name_en],
   "system-settings": [system_settings.setting_key, system_settings.setting_value, system_settings.setting_type, system_settings.description],
 };
 
@@ -1042,9 +1414,12 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         return res.status(201).json(row[0]);
       }
       if (path === "categories") {
-        // The ID must come from the server, never from a submitted form.
-        const body = parsed(insertCategorySchema.strict().omit({ id: true }), input);
+        const { code: _ignoredCode, ...categoryInput } = stripCreateId(input);
+        if (categoryInput.parent_id === "") categoryInput.parent_id = null;
+        const body = parsed(categoryAdminSchema.omit({ code: true }), categoryInput);
         const row = await db.transaction(async (tx) => {
+          // This lock is shared by category inserts and reparenting writes so
+          // cycle checks see one serialized category tree.
           await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${2})`);
           const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
             SELECT MAX(substring(id from 4)::numeric)::text AS max_number,
@@ -1052,13 +1427,17 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
             FROM categories
             WHERE id ~ '^CAT[0-9]+$'
           `);
-          const id = nextCategoryId(sequence.rows[0]?.max_number ?? null, sequence.rows[0]?.suffix_width ?? null);
-          return tx.insert(categories).values({ ...body, id }).returning();
+          await validateCategoryParent(tx, body.parent_id);
+          const number = await nextAdminIdNumber(tx, "categories", sequence.rows[0]?.max_number ?? null);
+          const id = nextCategoryId((BigInt(number) - 1n).toString(), sequence.rows[0]?.suffix_width ?? null);
+          return tx.insert(categories).values({ ...body, id, code: id }).returning();
         });
         return res.status(201).json(row[0]);
       }
       if (path === "items") {
-        const body = parsed(insertItemSchema.strict().omit({ id: true }), input);
+        const { code: _ignoredCode, ...itemInput } = stripCreateId(input);
+        if (itemInput.category_id === "") itemInput.category_id = null;
+        const body = parsed(itemAdminSchema.omit({ code: true }), itemInput);
         const row = await db.transaction(async (tx) => {
           await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${3})`);
           const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
@@ -1067,9 +1446,55 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
             FROM items
             WHERE id ~ '^ITM[0-9]+$'
           `);
-          const id = nextItemId(sequence.rows[0]?.max_number ?? null, sequence.rows[0]?.suffix_width ?? null);
-          return tx.insert(items).values({ ...body, id }).returning();
+          await validateOptionalReference(tx, categories, categories.id, body.category_id, undefined, "التصنيف المحدد غير موجود");
+          const number = await nextAdminIdNumber(tx, "items", sequence.rows[0]?.max_number ?? null);
+          const id = nextItemId((BigInt(number) - 1n).toString(), sequence.rows[0]?.suffix_width ?? null);
+          return tx.insert(items).values({ ...body, id, code: id }).returning();
         });
+        return res.status(201).json(row[0]);
+      }
+      if (path === "master-batch-colors") {
+        const colorInput = stripCreateId(input);
+        delete colorInput.sort_order;
+        const body = parsed(masterBatchAdminSchema, colorInput);
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${6})`);
+          const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
+            SELECT MAX(substring(id from 3)::numeric)::text AS max_number,
+                   MAX(length(id) - 2)::int AS suffix_width
+            FROM master_batch_colors WHERE id ~ '^MB[0-9]+$'
+          `);
+          const number = await nextAdminIdNumber(tx, "masterBatchColors", sequence.rows[0]?.max_number ?? null);
+          const id = nextMasterBatchColorId((BigInt(number) - 1n).toString(), sequence.rows[0]?.suffix_width ?? null);
+          return tx.insert(master_batch_colors).values({ ...body, id }).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
+      if (path === "machines") {
+        const body = parsed(machineAdminSchema, stripCreateId(input));
+        normalizeChangedMachineType(body);
+        if (body.section_id === "") body.section_id = null;
+        if (body.inline_printer_id === "") body.inline_printer_id = null;
+        validateMachineRanges(body);
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${5})`);
+          const sequence = await tx.execute<{ max_number: string | null }>(sql`
+            SELECT MAX(CASE WHEN id LIKE 'MAC%' THEN substring(id from 4)::numeric
+                            ELSE substring(id from 2)::numeric END)::text AS max_number
+            FROM machines WHERE id ~ '^(MAC|M)[0-9]+$'
+          `);
+          const number = await nextAdminIdNumber(tx, "machines", sequence.rows[0]?.max_number ?? null);
+          const id = nextMachineId((BigInt(number) - 1n).toString());
+          await validateMachineReferences(tx, body, { id, section_id: null, inline_printer_id: null, type: body.type });
+          return tx.insert(machines).values({ ...body, id }).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
+      if (path === "maintenance-component-catalog") {
+        const componentInput = stripCreateId(input);
+        delete componentInput.sort_order;
+        const body = parsed(componentAdminSchema, componentInput);
+        const row = await db.insert(maintenance_component_catalog).values(body).returning();
         return res.status(201).json(row[0]);
       }
       if (path === "orders" && !input.status) input.status = "waiting";
@@ -1115,7 +1540,9 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           const merged = { ...current, ...input };
           const facingNotice = customerProductFacingNotice(merged);
           if (facingNotice?.kind === "blocking") throw invalidProduct(facingNotice.message);
-          const category = await validateCustomerProductReferences(tx, merged, current.master_batch_id);
+          const category = await validateCustomerProductReferences(
+            tx, merged, current.master_batch_id, current.item_id, current.category_id,
+          );
           if (merged.customer_id !== current.customer_id) {
             await assertProductCanTransfer(tx, current.id, merged.customer_id);
           }
@@ -1229,6 +1656,97 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         if (!row) return res.status(404).json({ message: "العنصر غير موجود" });
         return res.json(row[0]);
       }
+      if (path === "categories") {
+        const input = { ...(req.body ?? {}) };
+        assertPutIdIsImmutable(input, key as string);
+        if (input.parent_id === "") input.parent_id = null;
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${2})`);
+          const [current] = await tx.select({
+            id: categories.id, parent_id: categories.parent_id, code: categories.code,
+          }).from(categories).where(eq(categories.id, key as string)).for("update").limit(1);
+          if (!current) return null;
+          if (Object.prototype.hasOwnProperty.call(input, "code")) {
+            if (input.code !== current.code) throw adminValidationError("لا يمكن تغيير كود التصنيف");
+            delete input.code;
+          }
+          const body = parsed(categoryAdminSchema.omit({ code: true }).partial(), input);
+          if (Object.prototype.hasOwnProperty.call(body, "parent_id")) {
+            await validateCategoryParent(tx, body.parent_id, current.id, current.parent_id);
+          }
+          if (!Object.keys(body).length) throw adminValidationError("لا توجد بيانات للتعديل");
+          return tx.update(categories).set(body).where(eq(categories.id, key as string)).returning();
+        });
+        if (!row) return res.status(404).json({ message: "التصنيف غير موجود" });
+        return res.json(row[0]);
+      }
+      if (path === "items") {
+        const input = { ...(req.body ?? {}) };
+        assertPutIdIsImmutable(input, key as string);
+        if (input.category_id === "") input.category_id = null;
+        const row = await db.transaction(async (tx) => {
+          const [current] = await tx.select({
+            id: items.id, category_id: items.category_id, code: items.code,
+          }).from(items).where(eq(items.id, key as string)).for("update").limit(1);
+          if (!current) return null;
+          if (Object.prototype.hasOwnProperty.call(input, "code")) {
+            if (input.code !== current.code) throw adminValidationError("لا يمكن تغيير كود الصنف");
+            delete input.code;
+          }
+          const body = parsed(itemAdminSchema.omit({ code: true }).partial(), input);
+          await validateOptionalReference(
+            tx, categories, categories.id, body.category_id, current.category_id, "التصنيف المحدد غير موجود",
+          );
+          if (!Object.keys(body).length) throw adminValidationError("لا توجد بيانات للتعديل");
+          return tx.update(items).set(body).where(eq(items.id, key as string)).returning();
+        });
+        if (!row) return res.status(404).json({ message: "الصنف غير موجود" });
+        return res.json(row[0]);
+      }
+      if (path === "master-batch-colors") {
+        const input = { ...(req.body ?? {}) };
+        assertPutIdIsImmutable(input, key as string);
+        delete input.sort_order;
+        const body = parsed(masterBatchAdminSchema.partial(), input);
+        if (!Object.keys(body).length) throw adminValidationError("لا توجد بيانات للتعديل");
+        const row: any[] = await db.update(master_batch_colors).set(body)
+          .where(eq(master_batch_colors.id, key as string)).returning();
+        if (!row[0]) return res.status(404).json({ message: "لون الخامة غير موجود" });
+        return res.json(row[0]);
+      }
+      if (path === "machines") {
+        const input = { ...(req.body ?? {}) };
+        assertPutIdIsImmutable(input, key as string);
+        if (input.section_id === "") input.section_id = null;
+        if (input.inline_printer_id === "") input.inline_printer_id = null;
+        const row = await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${5})`);
+          const [current] = await tx.select().from(machines)
+            .where(eq(machines.id, key as string)).for("update").limit(1);
+          if (!current) return null;
+          normalizeChangedMachineType(input, current.type);
+          const body = parsed(machineAdminSchema.partial(), input);
+          if (!Object.keys(body).length) throw adminValidationError("لا توجد بيانات للتعديل");
+          const merged = { ...current, ...body };
+          validateMachineRanges(merged);
+          const typeChanged = await validateMachineTypeTransition(tx, current, merged, body);
+          await validateMachineReferences(tx, merged, current, typeChanged);
+          return tx.update(machines).set(body).where(eq(machines.id, key as string)).returning();
+        });
+        if (!row) return res.status(404).json({ message: "الماكينة غير موجودة" });
+        return res.json(row[0]);
+      }
+      if (path === "maintenance-component-catalog") {
+        const input = { ...(req.body ?? {}) };
+        assertPutIdIsImmutable(input, key as number);
+        delete input.sort_order;
+        const body = parsed(componentAdminSchema.partial(), input);
+        if (!Object.keys(body).length) throw adminValidationError("لا توجد بيانات للتعديل");
+        const row: any[] = await db.update(maintenance_component_catalog).set(body)
+          .where(eq(maintenance_component_catalog.id, key as number)).returning();
+        if (!row[0]) return res.status(404).json({ message: "مكوّن الصيانة غير موجود" });
+        return res.json(row[0]);
+      }
       const readOnly = new Set(["id", "created_at", "updated_at", "universal_thickness"]);
       const input = Object.fromEntries(Object.entries(req.body ?? {}).filter(([key]) => !readOnly.has(key)));
       if (path === "orders" && ("order_number" in input || "customer_id" in input)) {
@@ -1244,6 +1762,9 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
     try {
       const key = entityId(path, req.params.id);
       const row: any[] = await db.transaction(async (tx) => {
+        // These locks must precede row locks in their corresponding write paths.
+        if (path === "categories") await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${2})`);
+        if (path === "machines") await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${5})`);
         if (path === "customer-products") {
           const [current] = await tx.select({ id: customer_products.id }).from(customer_products)
             .where(eq(customer_products.id, key as number)).for("update").limit(1);
@@ -1289,6 +1810,13 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           const [reference] = await tx.select({ id: customer_products.id }).from(customer_products)
             .where(eq(customer_products.master_batch_id, key as string)).limit(1);
           if (reference) throw orderError("لا يمكن حذف لون الخامة لارتباطه بمنتجات العملاء", 409);
+        } else if (path === "machines") {
+          const [current] = await tx.select({ id: machines.id }).from(machines)
+            .where(eq(machines.id, key as string)).for("update").limit(1);
+          if (!current) return [];
+          if (await hasInlinePrinterDependents(tx, current.id)) {
+            throw orderError("لا يمكن حذف الماكينة لأنها مرتبطة كطابعة داخلية بماكينات بثق", 409);
+          }
         } else if (path === "production-orders") {
           const [current] = await tx.select({
             id: production_orders.id,
