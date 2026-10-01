@@ -65,3 +65,4 @@
 - [Product calculation provenance](product-calculation-provenance.md) — legacy size/cylinder rules were reconstructed from records, not supplied formulas; retain untouched historical cutting lengths.
 - [Order product drafts](order-product-draft-lifecycle.md) — sharing the customer-product editor must preserve deferred, atomic creation; cancelling an order must not leave new products behind.
 - [File read consistency](file-read-consistency.md) — when file-reader and shell output disagree, verify current source in the shell before citing lines or editing.
+- [Skill/runtime capability drift](runtime-skill-drift.md) — installed skill documentation may describe an unsupported worker kind; use verified runtime capabilities.

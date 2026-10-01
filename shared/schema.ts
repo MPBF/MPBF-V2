@@ -291,7 +291,7 @@ export const customer_products = pgTable(
   "customer_products",
   {
     id: serial("id").primaryKey(),
-    customer_id: varchar("customer_id", { length: 20 }).references(() => customers.id),
+    customer_id: varchar("customer_id", { length: 20 }).references(() => customers.id, { onDelete: "restrict" }),
     category_id: varchar("category_id", { length: 20 }).references(() => categories.id),
     item_id: varchar("item_id", { length: 20 }).references(() => items.id),
     size_caption: varchar("size_caption", { length: 50 }),
@@ -412,7 +412,7 @@ export const production_orders = pgTable(
     customer_product_id: integer("customer_product_id").references(() => customer_products.id, { onDelete: "restrict" }),
     quantity_kg: decimal("quantity_kg", { precision: 10, scale: 2 }).notNull(),
     overrun_percentage: decimal("overrun_percentage", { precision: 5, scale: 2 }).notNull().default("5.00"),
-    final_quantity_kg: decimal("final_quantity_kg", { precision: 10, scale: 2 }).notNull().default("0"),
+    final_quantity_kg: decimal("final_quantity_kg", { precision: 10, scale: 2 }).notNull(),
     status: varchar("status", { length: 30 }).notNull().default("pending"),
     previous_status: varchar("previous_status", { length: 30 }),
     batch_number: varchar("batch_number", { length: 50 }).unique(),

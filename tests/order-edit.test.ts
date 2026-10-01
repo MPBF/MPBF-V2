@@ -46,8 +46,10 @@ function fakeTransaction(
           const query: any = {
             where: () => query,
             orderBy: () => query,
-            for: async () => rows,
+            for: () => query,
             limit: async () => rows,
+            then: (resolve: (value: any[]) => unknown, reject: (reason: unknown) => unknown) =>
+              Promise.resolve(rows).then(resolve, reject),
           };
           return query;
         },
@@ -176,6 +178,41 @@ describe("editing an order with production lines", () => {
     const response = await request([{ id: 12, customer_product_id: 2, quantity_kg: "20.00" }]);
     expect(response.status).toBe(409);
     expect(state.lines).toHaveLength(2);
+  });
+
+  it("rejects deleting a pending line with historical non-pending status", async () => {
+    const state: { order: any; lines: any[] } = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    state.lines[0].previous_status = "active";
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    const response = await request([{ id: 12, customer_product_id: 2, quantity_kg: "20.00" }]);
+    expect(response.status).toBe(409);
+    expect(state.lines).toHaveLength(2);
+  });
+
+  it("recalculates planned final quantity from the retained overrun after a quantity edit", async () => {
+    const state: { order: any; lines: any[] } = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    state.lines[0].overrun_percentage = "25.00";
+    state.lines[0].final_quantity_kg = "12.50";
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    const response = await request([
+      { id: 11, customer_product_id: 1, quantity_kg: "12.00" },
+      { id: 12, customer_product_id: 2, quantity_kg: "20.00" },
+    ]);
+    expect(response.status).toBe(200);
+    expect(state.lines[0]).toMatchObject({ quantity_kg: "12.00", final_quantity_kg: "15.00" });
+  });
+
+  it("preserves the existing planned final quantity when only the product changes", async () => {
+    const state: { order: any; lines: any[] } = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    state.lines[0].overrun_percentage = "25.00";
+    state.lines[0].final_quantity_kg = "12.50";
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    const response = await request([
+      { id: 11, customer_product_id: 3, quantity_kg: "10.00" },
+      { id: 12, customer_product_id: 2, quantity_kg: "20.00" },
+    ]);
+    expect(response.status).toBe(200);
+    expect(state.lines[0]).toMatchObject({ customer_product_id: 3, final_quantity_kg: "12.50" });
   });
 
   it("rejects a stale edit instead of replacing a concurrently changed line", async () => {

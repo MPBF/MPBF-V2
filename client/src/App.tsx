@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowRight, Boxes, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import UserDashboard from "./pages/UserDashboard";
@@ -7,6 +7,7 @@ import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from ".
 import PageHero from "./components/PageHero";
 import OrderCreateModal from "./components/OrderCreateModal";
 import CustomerProductModal from "./components/CustomerProductModal";
+import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 
 type Row = Record<string, any>;
 type OrderProductionSummary = {
@@ -39,7 +40,25 @@ const api = async (path: string, options: RequestInit = {}) => {
   }
   return normalizePayload(body);
 };
-const list = (path: string, search = "") => api(`${path}?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`);
+const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE) => {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (search) query.set("search", search);
+  return api(`${path}?${query.toString()}`).then((value) => {
+    if (!Array.isArray(value)) throw new Error("تعذر تحميل قائمة البيانات");
+    return value as Row[];
+  });
+};
+const list = (path: string, search = "") => {
+  // These lookup endpoints intentionally return the complete, small reference list.
+  if (path === "/roles" || path === "/sections") {
+    const query = search ? `?search=${encodeURIComponent(search)}` : "";
+    return api(`${path}${query}`).then((value) => {
+      if (!Array.isArray(value)) throw new Error("تعذر تحميل قائمة البيانات");
+      return value as Row[];
+    });
+  }
+  return fetchAllPages<Row>((offset, limit) => listPage(path, search, offset, limit));
+};
 const can = (user: Row, permissions: readonly string[]) => permissions.some((permission) => user.permissions?.includes("*") || user.permissions?.includes(permission));
 
 const orderStatuses = ["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"];
@@ -120,7 +139,7 @@ const configs: Record<string, Config> = {
   machines: { path: "/machines", title: "الماكينات", singular: "ماكينة", read: ["view_production", "manage_machines", "view_maintenance", "manage_maintenance", "admin"], write: ["manage_machines", "manage_maintenance", "admin"], fields: [{ key: "id", label: "رمز الماكينة", required: true }, { key: "name", label: "الاسم", required: true }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "type", label: "النوع", type: "select", options: machineTypes }, { key: "section_id", label: "القسم", relation: "/sections" }, { key: "status", label: "الحالة", type: "select", options: ["active", "maintenance", "down"] }, { key: "manufacturer", label: "الشركة المصنعة" }, { key: "serial_number", label: "الرقم التسلسلي" }], columns: [{ key: "id", label: "الرمز", priority: true }, { key: "name_ar", label: "الاسم العربي", priority: true }, { key: "name", label: "الاسم" }, { key: "type", label: "النوع", kind: "status", priority: true }, { key: "section", label: "القسم", kind: "relation", priority: true }, { key: "status", label: "الحالة", kind: "status", priority: true }, { key: "manufacturer", label: "الشركة المصنعة" }, { key: "serial_number", label: "الرقم التسلسلي" }] },
   components: { path: "/maintenance-component-catalog", title: "كتالوج مكونات الصيانة", singular: "مكوّن", read: ["view_maintenance", "manage_maintenance", "admin"], write: ["manage_maintenance", "admin"], fields: [{ key: "machine_type", label: "نوع الماكينة" }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "name_en", label: "الاسم بالإنجليزية" }, { key: "sort_order", label: "الترتيب", type: "integer" }, { key: "enabled", label: "مفعّل", type: "select", options: ["true", "false"] }], columns: [{ key: "machine_type", label: "نوع الماكينة", priority: true }, { key: "name_ar", label: "الاسم بالعربية", priority: true }, { key: "name_en", label: "الاسم بالإنجليزية" }, { key: "sort_order", label: "الترتيب", kind: "number" }, { key: "enabled", label: "الحالة", kind: "boolean", priority: true }] },
   users: { path: "/users", title: "مستخدمو النظام", singular: "مستخدم", read: ["manage_users", "admin"], write: ["manage_users", "admin"], fields: [{ key: "username", label: "اسم المستخدم" }, { key: "display_name", label: "الاسم" }, { key: "display_name_ar", label: "الاسم بالعربية" }, { key: "role_id", label: "الدور", type: "integer" }, { key: "section_id", label: "القسم" }, { key: "status", label: "الحالة", type: "select", options: ["active", "inactive"] }, { key: "password", label: "كلمة المرور" }] },
-  roles: { path: "/roles", title: "الأدوار", singular: "دور", read: ["manage_users", "admin"], write: ["manage_users", "admin"], fields: [{ key: "name", label: "الاسم" }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "permissions", label: "الصلاحيات JSON", type: "textarea", wide: true }] },
+  roles: { path: "/roles", title: "الأدوار", singular: "دور", read: ["manage_users", "manage_roles", "admin"], write: ["manage_roles", "admin"], del: ["admin"], fields: [{ key: "name", label: "الاسم" }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "permissions", label: "الصلاحيات JSON", type: "textarea", wide: true }] },
   sections: { path: "/sections", title: "الأقسام", singular: "قسم", read: ["manage_sections", "admin"], write: ["manage_sections", "admin"], fields: [{ key: "id", label: "الرمز" }, { key: "name", label: "الاسم" }, { key: "name_ar", label: "الاسم بالعربية" }, { key: "description", label: "الوصف", type: "textarea" }], columns: [{ key: "id", label: "الرمز", priority: true }, { key: "name_ar", label: "الاسم بالعربية", priority: true }, { key: "name", label: "الاسم" }, { key: "description", label: "الوصف" }] },
   settings: { path: "/system-settings", title: "إعدادات النظام", singular: "إعداد", read: ["manage_settings", "admin"], write: ["manage_settings", "admin"], fields: [{ key: "setting_key", label: "المفتاح" }, { key: "setting_value", label: "القيمة" }, { key: "setting_type", label: "النوع" }, { key: "description", label: "الوصف", type: "textarea" }] },
 };
@@ -183,12 +202,40 @@ function Dashboard({ user }: { user: Row }) {
 }
 
 function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: string; user: Row; refreshToken?: number; showHero?: boolean }) {
-  const cfg = configs[kind]; const [rows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [busy, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
+  const cfg = configs[kind]; const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
   const readable = can(user, cfg.read); const writable = can(user, cfg.write); const deletable = can(user, cfg.del || ["admin"]); const clonable = Boolean(cfg.clone && writable);
-  const load = () => { setBusy(true); setError(""); list(cfg.path, search).then((value) => setRows(Array.isArray(value) ? value.map((row, index) => ({ ...row, __sequence: index + 1 })) : [])).catch((e) => setError(e.message)).finally(() => setBusy(false)); };
-  useEffect(load, [search, cfg.path, refreshToken]);
+  const requestGate = useRef(createLatestRequestGate());
+  const activeKey = `${cfg.path}|${search}|${page}|${refreshToken}`;
+  const rows = resultKey === activeKey ? loadedRows : [];
+  const busy = busyState || resultKey !== activeKey;
+  const load = useCallback(() => {
+    const request = requestGate.current.begin();
+    const requestKey = activeKey;
+    setBusy(true);
+    setResultKey("");
+    setError("");
+    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE), {
+      onSuccess: (value) => {
+        setRows(value.map((row, index) => ({ ...row, __sequence: page * LIST_PAGE_SIZE + index + 1 })));
+        setResultKey(requestKey);
+      },
+      onError: (requestError) => {
+        setRows([]);
+        setResultKey(requestKey);
+        setError(requestError.message);
+      },
+      onSettled: () => setBusy(false),
+    });
+  }, [activeKey, cfg.path, page, search]);
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
+  useEffect(() => {
+    const gate = requestGate.current;
+    load();
+    return () => gate.invalidate();
+  }, [load]);
   if (!readable) return <div className="empty"><strong>لا تملك صلاحية العرض</strong>تواصل مع مدير النظام.</div>;
-  const remove = async (id: any) => { if (!deletable || !confirm("تأكيد حذف السجل؟")) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
+  const remove = async (id: any) => { if (!deletable || !confirm("تأكيد حذف السجل؟")) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
   const cols = cfg.columns || cfg.fields.slice(0, 5).map((field) => ({ key: field.key, label: field.label, kind: field.type === "date" ? "date" : field.type === "decimal" || field.type === "integer" ? "number" : field.key === "status" ? "status" : "text" } as Column));
   const columnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : "", kind === "orders" && field.key === "order_number" ? "order-number-column" : ""].filter(Boolean).join(" ");
@@ -199,7 +246,33 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     const content = field.colorKey ? <span className="color-stack">{isTransparentColor(row, field) ? <X className="transparent-mark" size={22} aria-label="بدون لون" /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
     return field.customerLink ? <Link className="customer-link" href={`/customers/${encodeURIComponent(String(row.id))}`}>{content}</Link> : content;
   };
-  return <>{showHero ? <PageHero kicker={`سجل البيانات · ${rows.length} سجل معروض`} title={cfg.title} description={`استعرض وأدر سجلات ${cfg.title}.`} onRefresh={load} refreshing={busy} actions={writable && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة {cfg.singular}</button>} /> : writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة {cfg.singular}</button></div>}{error && <div className="error" role="alert">{error}</div>}<section className="panel"><div className="panel-head"><div><h3>سجل {cfg.title}</h3><small className="muted-text">السجلات المعروضة من البيانات المحملة</small></div><div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor={`${kind}-search`}>بحث في {cfg.title}</label><input id={`${kind}-search`} aria-label={`بحث في ${cfg.title}`} className="search" placeholder="بحث في السجل…" value={search} onChange={(e) => setSearch(e.target.value)} /></div></div>{busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>لا توجد سجلات مطابقة</strong>ابدأ بإضافة أول سجل لهذا القسم.</div> : <div className="table-wrap"><table><thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{(writable || deletable || clonable) && <th>إجراء</th>}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{(writable || deletable || clonable) && <td><div className="actions">{writable && <button aria-label={`تعديل ${cfg.singular}`} title="تعديل" className="btn btn-plain" onClick={() => setEdit(row)}><Pencil size={16} /></button>}{clonable && <button aria-label={`استنساخ ${cfg.singular}`} title="استنساخ" className="btn btn-plain" onClick={() => clone(row)}><Copy size={16} /></button>}{deletable && <button aria-label={`حذف ${cfg.singular}`} title="حذف" className="btn btn-plain" onClick={() => remove(row.id)}><Trash2 size={16} /></button>}</div></td>}</tr>)}</tbody></table><div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{(writable || deletable || clonable) && <div className="actions">{writable && <button className="btn btn-muted" onClick={() => setEdit(row)}><Pencil size={15} /> تعديل</button>}{clonable && <button className="btn btn-muted" onClick={() => clone(row)}><Copy size={15} /> استنساخ</button>}{deletable && <button aria-label="حذف السجل" className="btn btn-danger" onClick={() => remove(row.id)}><Trash2 size={15} /> حذف</button>}</div>}</article>; })}</div></div>}</section>{edit && (kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />)}</>;
+  return <>
+    {showHero ? <PageHero kicker={`سجل البيانات · ${rows.length} سجل معروض`} title={cfg.title} description={`استعرض وأدر سجلات ${cfg.title}.`} onRefresh={load} refreshing={busy} actions={writable && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة {cfg.singular}</button>} /> : writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة {cfg.singular}</button></div>}
+    {error && <div className="error" role="alert">{error}</div>}
+    <section className="panel">
+      <div className="panel-head">
+        <div><h3>سجل {cfg.title}</h3><small className="muted-text">السجلات المعروضة من البيانات المحملة</small></div>
+        <div className="tools">
+          <Search size={17} aria-hidden="true" />
+          <label className="sr-only" htmlFor={`${kind}-search`}>بحث في {cfg.title}</label>
+          <input id={`${kind}-search`} aria-label={`بحث في ${cfg.title}`} className="search" placeholder="بحث في السجل…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
+        </div>
+      </div>
+      {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>لا توجد سجلات مطابقة</strong>ابدأ بإضافة أول سجل لهذا القسم.</div> : <div className="table-wrap">
+        <table>
+          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{(writable || deletable || clonable) && <th>إجراء</th>}</tr></thead>
+          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{(writable || deletable || clonable) && <td><div className="actions">{writable && <button aria-label={`تعديل ${cfg.singular}`} title="تعديل" className="btn btn-plain" onClick={() => setEdit(row)}><Pencil size={16} /></button>}{clonable && <button aria-label={`استنساخ ${cfg.singular}`} title="استنساخ" className="btn btn-plain" onClick={() => clone(row)}><Copy size={16} /></button>}{deletable && <button aria-label={`حذف ${cfg.singular}`} title="حذف" className="btn btn-plain" onClick={() => remove(row.id)}><Trash2 size={16} /></button>}</div></td>}</tr>)}</tbody>
+        </table>
+        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{(writable || deletable || clonable) && <div className="actions">{writable && <button className="btn btn-muted" onClick={() => setEdit(row)}><Pencil size={15} /> تعديل</button>}{clonable && <button className="btn btn-muted" onClick={() => clone(row)}><Copy size={15} /> استنساخ</button>}{deletable && <button aria-label="حذف السجل" className="btn btn-danger" onClick={() => remove(row.id)}><Trash2 size={15} /> حذف</button>}</div>}</article>; })}</div>
+      </div>}
+      {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`صفحات ${cfg.title}`}>
+        <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>السابق</button>
+        <span>صفحة {page + 1}</span>
+        <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>التالي</button>
+      </nav>}
+    </section>
+    {edit && (kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />)}
+  </>;
 }
 
 function EntityModal(props: { cfg: Config; row: Row; onClose: () => void; onSaved: () => void }) {
@@ -216,7 +289,32 @@ function EntityFormModal({ cfg, row, onClose, onSaved }: { cfg: Config; row: Row
     cfg.fields.filter((field) => field.type === "decimal" && !(cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness"))).forEach((field) => { initial[field.key] = decimalInputValue(initial[field.key]); });
     return initial;
   }); const [error, setError] = useState(""); const [saving, setSaving] = useState(false); const [options, setOptions] = useState<Record<string, Row[]>>({}); const [optionErrors, setOptionErrors] = useState<string[]>([]);
-  useEffect(() => { setOptionErrors([]); setOptions({}); const relations = cfg.fields.filter((f) => f.relation); Promise.all(relations.map(async (f) => { try { const values = await list(f.relation!); return [f.key, Array.isArray(values) ? values : []] as const; } catch (e) { return [f.key, { error: `${f.label}: ${(e as Error).message}` }] as const; } })).then((pairs) => { const next: Record<string, Row[]> = {}; const errors: string[] = []; pairs.forEach(([key, value]) => { if (Array.isArray(value)) next[key] = value.filter((item, index, all) => all.findIndex((candidate) => String(candidate.id) === String(item.id)) === index); else errors.push(value.error); }); cfg.fields.filter((f) => f.relation && form[f.key] && next[f.key] && !next[f.key].some((o) => String(o.id) === String(form[f.key]))).forEach((f) => errors.push(`${f.label}: القيمة الحالية (${form[f.key]}) غير موجودة ضمن الخيارات`)); setOptions(next); setOptionErrors(errors); }); }, [cfg]);
+  useEffect(() => {
+    let active = true;
+    setOptionErrors([]);
+    setOptions({});
+    const relations = cfg.fields.filter((field) => field.relation);
+    Promise.all(relations.map(async (field) => {
+      try {
+        const values = await list(field.relation!);
+        return [field.key, values] as const;
+      } catch (e) {
+        return [field.key, { error: `${field.label}: ${(e as Error).message}` }] as const;
+      }
+    })).then((pairs) => {
+      if (!active) return;
+      const next: Record<string, Row[]> = {};
+      const errors: string[] = [];
+      pairs.forEach(([key, value]) => {
+        if (Array.isArray(value)) next[key] = value.filter((item, index, all) => all.findIndex((candidate) => String(candidate.id) === String(item.id)) === index);
+        else errors.push(value.error);
+      });
+      cfg.fields.filter((field) => field.relation && form[field.key] && next[field.key] && !next[field.key].some((option) => String(option.id) === String(form[field.key]))).forEach((field) => errors.push(`${field.label}: القيمة الحالية (${form[field.key]}) غير موجودة ضمن الخيارات`));
+      setOptions(next);
+      setOptionErrors(errors);
+    });
+    return () => { active = false; };
+  }, [cfg]);
   useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !saving) onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [saving, onClose]);
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -316,7 +414,13 @@ const nationalityOptions = [
 function UserModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<Row>({ status: "active", include_in_attendance: true, must_change_password: false, is_system_user: false, ...row });
   const [roles, setRoles] = useState<Row[]>([]); const [sections, setSections] = useState<Row[]>([]); const [error, setError] = useState("");
-  useEffect(() => { Promise.all([list("/roles"), list("/sections")]).then(([r, s]) => { setRoles(r); setSections(s); }).catch((e) => setError(e.message)); }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.all([list("/roles"), list("/sections")]).then(([r, s]) => {
+      if (active) { setRoles(r); setSections(s); }
+    }).catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, []);
   const textFields = [["username","اسم المستخدم"],["display_name","الاسم الظاهر"],["display_name_ar","الاسم الظاهر بالعربية"],["phone","الهاتف"],["email","البريد الإلكتروني"],["national_id","رقم الهوية"]] as const;
   const save = async (event: FormEvent) => { event.preventDefault(); setError(""); try {
     const body: Row = {};
@@ -351,13 +455,59 @@ function UserModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; o
 }
 
 function UsersAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: number }) {
-  const [rows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [edit, setEdit] = useState<Row | null>(null); const [error, setError] = useState("");
-  const load = () => { setError(""); list("/users", search).then((v) => setRows(Array.isArray(v) ? v : [])).catch((e) => setError(e.message)); };
-  useEffect(() => { load(); }, [search, refreshToken]);
-  const remove = async (row: Row) => { if (!confirm("تأكيد حذف المستخدم؟")) return; try { await api(`/users/${row.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
+  const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busy, setBusy] = useState(true); const [edit, setEdit] = useState<Row | null>(null); const [error, setError] = useState("");
+  const requestGate = useRef(createLatestRequestGate());
+  const activeKey = `${search}|${page}|${refreshToken}`;
+  const rows = resultKey === activeKey ? loadedRows : [];
+  const requestBusy = busy || resultKey !== activeKey;
+  const load = useCallback(() => {
+    const request = requestGate.current.begin();
+    const requestKey = activeKey;
+    setBusy(true);
+    setResultKey("");
+    setError("");
+    void runLatestRequest(requestGate.current, request, listPage("/users", search, page * LIST_PAGE_SIZE), {
+      onSuccess: (value) => {
+        setRows(value);
+        setResultKey(requestKey);
+      },
+      onError: (requestError) => {
+        setRows([]);
+        setResultKey(requestKey);
+        setError(requestError.message);
+      },
+      onSettled: () => setBusy(false),
+    });
+  }, [activeKey, page, search]);
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
+  useEffect(() => {
+    const gate = requestGate.current;
+    load();
+    return () => gate.invalidate();
+  }, [load]);
+  const remove = async (row: Row) => { if (!confirm("تأكيد حذف المستخدم؟")) return; try { await api(`/users/${row.id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const arabicName = (row: Row) => row.display_name_ar || row.full_name || row.display_name || "—";
   const englishName = (row: Row) => row.display_name || row.full_name || "—";
-  return <><div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة مستخدم</button></div>{error && <div className="error">{error}</div>}<section className="panel"><div className="panel-head"><div><h3>دليل المستخدمين</h3><small className="muted-text">بيانات الهوية، الدور، والقسم في مكان واحد</small></div><div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor="users-search">بحث في المستخدمين</label><input id="users-search" aria-label="بحث بالاسم أو المستخدم" className="search" placeholder="بحث بالاسم أو المستخدم…" value={search} onChange={(e) => setSearch(e.target.value)} /></div></div><div className="table-wrap"><table className="users-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>القسم</th><th>الدور</th><th>الهاتف</th><th>خيارات</th></tr></thead><tbody>{rows.map((r) => <tr key={r.id}><td><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small></td><td>{r.username || "—"}</td><td>{r.section_name_ar || r.section_name || "—"}</td><td>{r.role_name_ar || r.role_name || "—"}</td><td>{r.phone || "—"}</td><td><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-plain" title="تعديل" onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-plain" title="حذف" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody></table><div className="mobile-cards user-cards">{rows.map((r) => <article className="entity-card" key={r.id}><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small><div className="card-line"><span>اسم المستخدم</span><b>{r.username || "—"}</b></div><div className="card-line"><span>القسم</span><b>{r.section_name_ar || r.section_name || "—"}</b></div><div className="card-line"><span>الدور</span><b>{r.role_name_ar || r.role_name || "—"}</b></div><div className="card-line"><span>الهاتف</span><b>{r.phone || "—"}</b></div><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-muted" onClick={() => setEdit(r)}><Pencil size={15} /> تعديل</button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-danger" onClick={() => remove(r)}><Trash2 size={15} /> حذف</button>}</div></article>)}</div>{!rows.length && <div className="empty"><strong>لا توجد حسابات</strong>أنشئ حساباً جديداً لبدء إدارة الوصول.</div>}</div></section>{edit && <UserModal row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
+  return <>
+    <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة مستخدم</button></div>
+    {error && <div className="error" role="alert">{error}</div>}
+    <section className="panel">
+      <div className="panel-head">
+        <div><h3>دليل المستخدمين</h3><small className="muted-text">بيانات الهوية، الدور، والقسم</small></div>
+        <div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor="users-search">بحث في المستخدمين</label><input id="users-search" aria-label="بحث بالاسم أو المستخدم" className="search" placeholder="بحث بالاسم أو المستخدم…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); setEdit(null); }} /></div>
+      </div>
+      {requestBusy ? <div style={{ padding: 20 }} aria-busy="true"><div className="skeleton" /></div> : <div className="table-wrap">
+        <table className="users-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>القسم</th><th>الدور</th><th>الهاتف</th><th>خيارات</th></tr></thead>
+          <tbody>{rows.map((r) => <tr key={r.id}><td><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small></td><td>{r.username || "—"}</td><td>{r.section_name_ar || r.section_name || "—"}</td><td>{r.role_name_ar || r.role_name || "—"}</td><td>{r.phone || "—"}</td><td><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-plain" title="تعديل" onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-plain" title="حذف" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody>
+        </table>
+        <div className="mobile-cards user-cards">{rows.map((r) => <article className="entity-card" key={r.id}><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small><div className="card-line"><span>اسم المستخدم</span><b>{r.username || "—"}</b></div><div className="card-line"><span>القسم</span><b>{r.section_name_ar || r.section_name || "—"}</b></div><div className="card-line"><span>الدور</span><b>{r.role_name_ar || r.role_name || "—"}</b></div><div className="card-line"><span>الهاتف</span><b>{r.phone || "—"}</b></div><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-muted" onClick={() => setEdit(r)}><Pencil size={15} /> تعديل</button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-danger" onClick={() => remove(r)}><Trash2 size={15} /> حذف</button>}</div></article>)}</div>
+        {!rows.length && <div className="empty"><strong>لا توجد حسابات مطابقة</strong>أنشئ حساباً جديداً لبدء إدارة الوصول.</div>}
+      </div>}
+      {!requestBusy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label="صفحات المستخدمين"><button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>السابق</button><span>صفحة {page + 1}</span><button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>التالي</button></nav>}
+    </section>
+    {edit && <UserModal row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />}
+  </>;
 }
 
 function RoleModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; onSaved: () => void }) {
@@ -370,9 +520,25 @@ function RoleModal({ row, onClose, onSaved }: { row: Row; onClose: () => void; o
 
 function RolesAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: number }) {
   const [rows, setRows] = useState<Row[]>([]); const [edit, setEdit] = useState<Row | null>(null); const [error, setError] = useState("");
-  const load = () => { setError(""); list("/roles").then((v) => setRows(v)).catch((e) => setError(e.message)); }; useEffect(() => { load(); }, [refreshToken]);
-  const remove = async (r: Row) => { if (!confirm("تأكيد حذف الدور؟")) return; try { await api(`/roles/${r.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
-  return <><div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} /> إضافة دور</button></div>{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{r.name_ar || r.name}</strong><span className="cell-sub">{r.name}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0} صلاحية</div></div><div className="actions"><button aria-label={`تعديل دور ${r.name_ar || r.name}`} title="تعديل" className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label={`حذف دور ${r.name_ar || r.name}`} title="حذف" className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>لا توجد أدوار</strong>أنشئ أول سياسة وصول للنظام.</div>}</div>{edit && <RoleModal row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
+  const writable = can(user, configs.roles.write);
+  const deletable = can(user, configs.roles.del || ["admin"]);
+  const requestGate = useRef(createLatestRequestGate());
+  const load = useCallback(() => {
+    const request = requestGate.current.begin();
+    setError("");
+    list("/roles").then((value) => {
+      if (requestGate.current.isCurrent(request)) setRows(value);
+    }).catch((e) => {
+      if (requestGate.current.isCurrent(request)) setError(e.message);
+    });
+  }, []);
+  useEffect(() => {
+    const gate = requestGate.current;
+    load();
+    return () => gate.invalidate();
+  }, [load, refreshToken]);
+  const remove = async (r: Row) => { if (!deletable || !confirm("تأكيد حذف الدور؟")) return; try { await api(`/roles/${r.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
+  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} /> إضافة دور</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{r.name_ar || r.name}</strong><span className="cell-sub">{r.name}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0} صلاحية</div></div><div className="actions">{writable && <button aria-label={`تعديل دور ${r.name_ar || r.name}`} title="تعديل" className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`حذف دور ${r.name_ar || r.name}`} title="حذف" className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>لا توجد أدوار</strong>{writable ? "أنشئ أول سياسة وصول للنظام." : "لا توجد أدوار مسجلة."}</div>}</div>{edit && writable && <RoleModal row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
 }
 
 function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
@@ -431,9 +597,11 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
   };
 
   useEffect(() => {
+    let active = true;
     setError("");
     Promise.all([api("/company-profile"), list("/system-settings")])
       .then(([company, sys]) => {
+        if (!active) return;
         const loadedProfile = company || {};
         setSettings(Array.isArray(sys) ? sys : []);
         setProfile({
@@ -447,7 +615,8 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
           working_hours_per_day: Number(loadedProfile.working_hours_per_day ?? 8) || 8,
         });
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
   }, [refreshToken]);
 
   useEffect(() => {
@@ -467,7 +636,8 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
     if (!existing) {
       const candidates = await list("/system-settings", key);
       if (Array.isArray(candidates)) {
-        existing = candidates.find((row) => String(row.setting_key) === key);
+        const matchingSetting = candidates.find((row) => String(row.setting_key) === key);
+        if (matchingSetting) existing = matchingSetting;
       }
     }
     if (existing?.id) {
@@ -673,24 +843,51 @@ function CustomersPage({ user }: { user: Row }) {
 function CustomerDetail({ user }: { user: Row }) {
   const [, params] = useRoute("/customers/:id");
   const [location, setLocation] = useLocation();
-  const [customer, setCustomer] = useState<Row | null>(null);
-  const [products, setProducts] = useState<Row[]>([]);
+  const [loadedCustomer, setCustomer] = useState<Row | null>(null);
+  const [loadedProducts, setProducts] = useState<Row[]>([]);
+  const [loadedCustomerId, setLoadedCustomerId] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<Row | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [errorState, setError] = useState("");
+  const [loadingState, setLoading] = useState(true);
   const customerId = params?.id || "";
+  const customerIdRef = useRef(customerId);
+  customerIdRef.current = customerId;
+  const requestGate = useRef(createLatestRequestGate());
+  const customer = loadedCustomerId === customerId ? loadedCustomer : null;
+  const products = loadedCustomerId === customerId ? loadedProducts : [];
+  const error = loadedCustomerId === customerId ? errorState : "";
+  const loading = loadedCustomerId !== customerId || loadingState;
   const productConfig: Config = { ...configs.products, lockedFields: ["customer_id"] };
-  const load = () => {
+  const load = useCallback(() => {
+    const requestedCustomerId = customerId;
+    if (customerIdRef.current !== requestedCustomerId) return;
+    const request = requestGate.current.begin();
     setLoading(true);
     setError("");
+    setLoadedCustomerId(null);
     setCustomer(null);
     setProducts([]);
-    api(`/customers/${encodeURIComponent(customerId)}/detail`).then((data) => {
+    setEditingProduct(null);
+    api(`/customers/${encodeURIComponent(requestedCustomerId)}/detail`).then((data) => {
+      if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
       setCustomer(data.customer || null);
       setProducts(Array.isArray(data.products) ? data.products.map((product: Row, index: number) => ({ ...product, __sequence: index + 1 })) : []);
-    }).catch((err) => { setCustomer(null); setProducts([]); setError(err.message); }).finally(() => setLoading(false));
-  };
-  useEffect(load, [customerId]);
+      setLoadedCustomerId(requestedCustomerId);
+    }).catch((err) => {
+      if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
+      setCustomer(null);
+      setProducts([]);
+      setLoadedCustomerId(requestedCustomerId);
+      setError(err.message);
+    }).finally(() => {
+      if (requestGate.current.isCurrent(request) && customerIdRef.current === requestedCustomerId) setLoading(false);
+    });
+  }, [customerId]);
+  useEffect(() => {
+    const gate = requestGate.current;
+    load();
+    return () => gate.invalidate();
+  }, [load]);
   const back = () => window.history.length > 1 ? window.history.back() : setLocation("/customers");
   const writable = can(user, configs.products.write);
   const productColumns = (configs.products.columns || []).filter((column) => column.key !== "customer_name_ar");

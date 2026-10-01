@@ -7,6 +7,7 @@ import {
   items,
   master_batch_colors,
   orders,
+  production_orders,
 } from "../shared/schema";
 import router from "../server/routes";
 import { db } from "../server/db";
@@ -37,6 +38,7 @@ describe("customer product routes", () => {
   let savedInsert: Record<string, any> | null = null;
   let savedUpdate: Record<string, any> | null = null;
   let fixtureCategoryName = "Bag";
+  let productionOrderReference = false;
 
   const fixtureCategory = () => ({ id: "CAT1", name: fixtureCategoryName, name_ar: fixtureCategoryName });
   const fixtureItem = () => ({ id: "IT1", category_id: itemCategoryId });
@@ -47,12 +49,15 @@ describe("customer product routes", () => {
       select: () => {
         let table: unknown;
         let locked = false;
+        let joined = false;
         let condition: any;
         const builder: any = {
           from(value: unknown) { table = value; return builder; },
           where(value: unknown) { condition = value; return builder; },
+          innerJoin() { joined = true; return builder; },
           for() { locked = true; return builder; },
           limit: async () => {
+            if (table === production_orders && joined) return productionOrderReference ? [{ id: 44 }] : [];
             if (table === customers) return [{ id: "C1" }];
             if (table === categories) return [fixtureCategory()];
             if (table === items) return [fixtureItem()];
@@ -117,6 +122,7 @@ describe("customer product routes", () => {
     itemCategoryId = "CAT1";
     fixtureCategoryName = "Bag";
     masterBatchActive = true;
+    productionOrderReference = false;
     currentProduct = null;
     sourceProduct = null;
     savedInsert = null;
@@ -206,6 +212,14 @@ describe("customer product routes", () => {
     currentProduct = { id: 5, ...createInput() };
     const response = await request("customer-products/5", "PUT", { left_facing: "17" });
     expect(response.status).toBe(400);
+    expect(savedUpdate).toBeNull();
+  });
+  it("prevents transferring a product already used by another customer's production order", async () => {
+    currentProduct = { id: 5, ...createInput() };
+    productionOrderReference = true;
+    const response = await request("customer-products/5", "PUT", { customer_id: "C2" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).message).toContain("لا يمكن نقل المنتج");
     expect(savedUpdate).toBeNull();
   });
   it("blocks unrelated edits on an existing product whose facing sum is already invalid", async () => {

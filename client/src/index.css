@@ -199,6 +199,8 @@ input[type="checkbox"] { accent-color:var(--teal); width:16px; height:16px; }
 .setting-control input:disabled { color:#889795; background:#f1f4f1; }
 .success { display:flex; gap:7px; align-items:center; color:#176b55; background:#e1f2e9; border:1px solid #bfe0cf; padding:11px 14px; }
 .btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+.list-pagination { display:flex; align-items:center; justify-content:center; gap:12px; padding:14px; border-top:1px solid var(--line); color:var(--muted); }
+.list-pagination .btn { min-width:88px; justify-content:center; }
 @media(max-width:700px){ .btn-plain, .admin-tabs button { min-width:44px; min-height:44px; } .role-card-main, .setting-row, .admin-intro, .entity-card { min-width:0; overflow-wrap:anywhere; } .role-card-main strong, .role-card-main .cell-sub, .setting-row strong, .setting-row .cell-sub { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; max-width:100%; } }
 @media(max-width: 900px){ .sidebar{width:210px;flex-basis:210px}.content{padding:24px 20px}.topbar{padding:0 20px}.stats{grid-template-columns:repeat(3,1fr)} .login-art{padding:40px}.login-art h1{font-size:52px} }
 @media(min-width:701px) and (max-width:900px){ .table-wrap table:has(.priority-column) th:not(.priority-column):not(:last-child), .table-wrap table:has(.priority-column) td:not(.priority-column):not(:last-child){display:none}.table-wrap table:has(.priority-column) th:first-child,.table-wrap table:has(.priority-column) td:first-child{display:table-cell}.table-wrap table:has(.priority-column){min-width:0} }

@@ -190,7 +190,7 @@ router.post("/attendance-events", handle(async (req, res) => {
       action: attendance_events.action,
       occurredAt: attendance_events.occurred_at,
     }).from(attendance_events).where(eq(attendance_events.session_id, session.id))
-      .orderBy(desc(attendance_events.occurred_at), desc(attendance_events.id)).limit(1);
+      .orderBy(desc(attendance_events.id)).limit(1);
     const latest = latestRows[0];
     if (!latest || latest.action !== "break_start") {
       return { error: { status: 409, message: "يمكن تسجيل نهاية الاستراحة يدويًا فقط عند وجود استراحة مفتوحة" } };
@@ -339,7 +339,7 @@ router.post("/attendance-sessions/:id/checkout", handle(async (req, res) => {
     }).from(attendance_events).where(and(
       eq(attendance_events.session_id, current.id),
       eq(attendance_events.user_id, current.userId),
-    )).orderBy(desc(attendance_events.occurred_at), desc(attendance_events.id)).limit(1);
+    )).orderBy(desc(attendance_events.id)).limit(1);
     const latest = latestRows[0];
     if (!latest) return { error: { status: 409, message: "لا يوجد إجراء دخول مرتبط بالجلسة للتحقق من حالتها" } };
     if (latest && occurredAt <= latest.occurredAt) {
@@ -348,26 +348,13 @@ router.post("/attendance-sessions/:id/checkout", handle(async (req, res) => {
     if (latest.occurredAt < current.checkInAt) {
       return { error: { status: 409, message: "آخر إجراء في الجلسة يسبق تسجيل الحضور" } };
     }
-    if (latest?.action === "break_start") {
+    if (latest.action !== "check_in" && latest.action !== "break_end" && latest.action !== "break_start") {
+      return { error: { status: 409, message: "حالة الجلسة لا تسمح بتسجيل الانصراف" } };
+    }
+    if (latest.action === "break_start") {
       if (!breakEndAt || breakEndAt <= latest.occurredAt || breakEndAt >= occurredAt) {
         return { error: { status: 409, message: "أدخل وقت نهاية الاستراحة بعد بدايتها وقبل الانصراف" } };
       }
-      await tx.insert(attendance_events).values({
-        user_id: current.userId,
-        shift_assignment_id: current.assignmentId,
-        session_id: current.id,
-        action: "break_end",
-        occurred_at: breakEndAt,
-        latitude: "0",
-        longitude: "0",
-        accuracy: "0",
-        source: "manual",
-        created_by: req.user!.id,
-        updated_by: req.user!.id,
-      });
-    }
-    if (latest.action !== "check_in" && latest.action !== "break_end" && latest.action !== "break_start") {
-      return { error: { status: 409, message: "حالة الجلسة لا تسمح بتسجيل الانصراف" } };
     }
     if (latest.action !== "break_start" && breakEndAt) {
       return { error: { status: 409, message: "لا توجد استراحة مفتوحة لهذه الجلسة" } };
@@ -379,6 +366,21 @@ router.post("/attendance-sessions/:id/checkout", handle(async (req, res) => {
       )).orderBy(attendance_sessions.shift_start_at).limit(1);
     if (nextSession[0] && occurredAt >= nextSession[0].checkInAt) {
       return { error: { status: 409, message: "وقت الانصراف يتداخل مع وردية لاحقة" } };
+    }
+    if (latest.action === "break_start") {
+      await tx.insert(attendance_events).values({
+        user_id: current.userId,
+        shift_assignment_id: current.assignmentId,
+        session_id: current.id,
+        action: "break_end",
+        occurred_at: breakEndAt!,
+        latitude: "0",
+        longitude: "0",
+        accuracy: "0",
+        source: "manual",
+        created_by: req.user!.id,
+        updated_by: req.user!.id,
+      });
     }
     const [event] = await tx.insert(attendance_events).values({
       user_id: current.userId,

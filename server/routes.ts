@@ -39,6 +39,7 @@ import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
+import { canGrantPermissions, isProtectedProductionOrder, plannedFinalQuantity } from "./audit-rules";
 import hr from "./hr";
 import selfService from "./self-service";
 
@@ -246,6 +247,27 @@ const orderEditSchema = orderWithItemsSchema.omit({ customer_id: true }).extend(
     "اختر منتجًا مسجلًا أو أنشئ منتجًا جديدًا لكل سطر").array().min(1).max(25),
 }).strict();
 
+const numericIdInput = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^\d+$/).transform(Number).refine((value) => Number.isSafeInteger(value) && value > 0),
+]);
+const productionQuantity = z.union([z.string(), z.number().finite().transform(String)])
+  .pipe(positiveKg);
+const productionOverrun = z.union([z.string(), z.number().finite().transform(String)])
+  .pipe(z.string().regex(/^\d{1,3}(?:\.\d{1,2})?$/)
+    .refine((value) => Number(value) >= 0 && Number(value) <= 50, "نسبة الهالك يجب أن تكون بين 0 و50"));
+const productionOrderInputSchema = z.object({
+  production_order_number: z.string().trim().min(1).max(50).optional(),
+  order_id: numericIdInput.optional(),
+  customer_product_id: numericIdInput.nullable().optional(),
+  quantity_kg: productionQuantity.optional(),
+  overrun_percentage: productionOverrun.optional(),
+  final_quantity_kg: productionQuantity.optional(),
+  status: z.enum(["pending", "active", "completed", "cancelled", "archived"]).optional(),
+  previous_status: z.string().max(30).nullable().optional(),
+  batch_number: z.string().max(50).nullable().optional(),
+}).strict();
+
 function orderError(message: string, status = 409) {
   return Object.assign(new Error(message), { status });
 }
@@ -259,6 +281,44 @@ function page(req: Request) {
 
 function parsed(schema: { parse: (value: unknown) => any }, body: unknown) {
   return schema.parse(body);
+}
+
+function assertGrantWithinActor(actorPermissions: unknown, grant: unknown) {
+  if (!canGrantPermissions(actorPermissions, Array.isArray(grant) ? grant : [])) {
+    throw Object.assign(new Error("لا يمكن منح صلاحيات تتجاوز صلاحياتك الفعلية"), { status: 403 });
+  }
+}
+
+async function assertProductionProductMatchesOrder(tx: any, orderId: number, productId?: number | null) {
+  const [order] = await tx.select({ id: orders.id, customer_id: orders.customer_id }).from(orders)
+    .where(eq(orders.id, orderId)).for("share").limit(1);
+  if (!order) throw orderError("الطلب المحدد غير موجود", 400);
+  if (productId == null) return;
+
+  const [product] = await tx.select({ id: customer_products.id, customer_id: customer_products.customer_id })
+    .from(customer_products).where(eq(customer_products.id, productId)).for("update").limit(1);
+  if (!product) throw orderError("المنتج المحدد غير موجود", 400);
+  if (product.customer_id !== order.customer_id) {
+    throw orderError("المنتج غير تابع لعميل الطلب", 400);
+  }
+}
+
+async function assertProductCanTransfer(tx: any, productId: number, customerId: string | null) {
+  const [conflict] = await tx.select({ id: production_orders.id }).from(production_orders)
+    .innerJoin(orders, eq(production_orders.order_id, orders.id))
+    .where(and(
+      eq(production_orders.customer_product_id, productId),
+      sql`${orders.customer_id} IS DISTINCT FROM ${customerId}`,
+    )).limit(1);
+  if (conflict) throw orderError("لا يمكن نقل المنتج؛ فهو مرتبط بطلب إنتاج لعميل آخر", 409);
+}
+
+async function validateUserRoleGrant(tx: any, roleId: number | null | undefined, actorPermissions: unknown) {
+  if (roleId == null) return;
+  const [role] = await tx.select({ permissions: roles.permissions }).from(roles)
+    .where(eq(roles.id, roleId)).for("update").limit(1);
+  if (!role) throw Object.assign(new Error("الدور المحدد غير موجود"), { status: 400 });
+  assertGrantWithinActor(actorPermissions, role.permissions);
 }
 
 function userId(raw: string) {
@@ -438,7 +498,10 @@ router.post("/users", usersRead, async (req, res, next) => {
     if (!username) return res.status(400).json({ message: "اسم المستخدم مطلوب" });
     if (password.length < 8) return res.status(400).json({ message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
     const body = parsed(insertUserSchema.strict(), { ...raw, username, password });
-    const inserted = await db.insert(users).values({ ...body, password: await bcrypt.hash(password, 12) }).returning({ id: users.id });
+    const inserted = await db.transaction(async (tx) => {
+      await validateUserRoleGrant(tx, body.role_id, req.user?.permissions ?? []);
+      return tx.insert(users).values({ ...body, password: await bcrypt.hash(password, 12) }).returning({ id: users.id });
+    });
     res.status(201).json({ id: inserted[0].id });
   } catch (error) { next(error); }
 });
@@ -450,10 +513,23 @@ router.put("/users/:id", usersRead, async (req, res, next) => {
       if (typeof raw.password !== "string" || raw.password.length < 8) {
         return res.status(400).json({ message: "كلمة المرور يجب أن تكون 8 أحرف على الأقل" });
       }
-      raw.password = await bcrypt.hash(raw.password, 12);
     }
     const body = parsed(insertUserSchema.strict().partial(), raw);
-    const row: any[] = (await db.update(users).set(body).where(eq(users.id, id)).returning({ id: users.id, username: users.username, status: users.status })) as any;
+    const row: any[] = await db.transaction(async (tx) => {
+      const [target] = await tx.select({ id: users.id, role_id: users.role_id }).from(users)
+        .where(eq(users.id, id)).for("update").limit(1);
+      if (!target) return [];
+      if (target.role_id != null) {
+        await validateUserRoleGrant(tx, target.role_id, req.user?.permissions ?? []);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "role_id") && body.role_id !== target.role_id) {
+        await validateUserRoleGrant(tx, body.role_id, req.user?.permissions ?? []);
+      }
+      const values = { ...body };
+      if (typeof values.password === "string") values.password = await bcrypt.hash(values.password, 12);
+      return tx.update(users).set(values).where(eq(users.id, id))
+        .returning({ id: users.id, username: users.username, status: users.status });
+    });
     if (!row[0]) return res.status(404).json({ message: "المستخدم غير موجود" });
     res.json(row[0]);
   } catch (error) { next(error); }
@@ -493,9 +569,34 @@ router.delete("/users/:id", admin, async (req, res, next) => {
 
 router.get("/roles", rolesRead, async (_req, res, next) => { try { res.json(await db.select().from(roles).orderBy(roles.id)); } catch (e) { next(e); } });
 router.get("/sections", sectionsRead, async (_req, res, next) => { try { res.json(await db.select().from(sections).orderBy(sections.id)); } catch (e) { next(e); } });
-router.post("/roles", rolesWrite, async (req, res, next) => { try { const row = await db.insert(roles).values(parsed(insertRoleSchema.strict(), req.body)).returning(); res.status(201).json(row[0]); } catch (e) { next(e); } });
+router.post("/roles", rolesWrite, async (req, res, next) => {
+  try {
+    const body = parsed(insertRoleSchema.strict(), req.body);
+    assertGrantWithinActor(req.user?.permissions ?? [], body.permissions);
+    const row = await db.insert(roles).values(body).returning();
+    res.status(201).json(row[0]);
+  } catch (e) { next(e); }
+});
 router.post("/sections", sectionsWrite, async (req, res, next) => { try { const row = await db.insert(sections).values(parsed(insertSectionSchema.strict(), req.body)).returning(); res.status(201).json(row[0]); } catch (e) { next(e); } });
-router.put("/roles/:id", rolesWrite, async (req, res, next) => { try { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" }); const row = await db.update(roles).set(parsed(insertRoleSchema.strict().partial(), req.body)).where(eq(roles.id, id)).returning(); if (!row[0]) return res.status(404).json({ message: "الدور غير موجود" }); res.json(row[0]); } catch (e) { next(e); } });
+router.put("/roles/:id", rolesWrite, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" });
+    const body = parsed(insertRoleSchema.strict().partial(), req.body);
+    const row = await db.transaction(async (tx) => {
+      const [current] = await tx.select({ permissions: roles.permissions }).from(roles)
+        .where(eq(roles.id, id)).for("update").limit(1);
+      if (!current) return [];
+      assertGrantWithinActor(req.user?.permissions ?? [], current.permissions);
+      if (Object.prototype.hasOwnProperty.call(body, "permissions")) {
+        assertGrantWithinActor(req.user?.permissions ?? [], body.permissions);
+      }
+      return tx.update(roles).set(body).where(eq(roles.id, id)).returning();
+    });
+    if (!row[0]) return res.status(404).json({ message: "الدور غير موجود" });
+    res.json(row[0]);
+  } catch (e) { next(e); }
+});
 router.put("/sections/:id", sectionsWrite, async (req, res, next) => { try { const row = await db.update(sections).set(parsed(insertSectionSchema.strict().partial(), req.body)).where(eq(sections.id, req.params.id)).returning(); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json(row[0]); } catch (e) { next(e); } });
 router.delete("/roles/:id", admin, async (req, res, next) => { try { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "المعرّف الرقمي غير صالح" }); const row = await db.delete(roles).where(eq(roles.id, id)).returning({ id: roles.id }); if (!row[0]) return res.status(404).json({ message: "الدور غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
 router.delete("/sections/:id", admin, async (req, res, next) => { try { const row = await db.delete(sections).where(eq(sections.id, req.params.id)).returning({ id: sections.id }); if (!row[0]) return res.status(404).json({ message: "القسم غير موجود" }); res.json({ success: true, id: row[0].id }); } catch (e) { next(e); } });
@@ -544,7 +645,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
         } else {
           const [existing] = await tx.select({ id: customer_products.id }).from(customer_products)
             .where(and(eq(customer_products.id, productId!), eq(customer_products.customer_id, input.customer_id)))
-            .limit(1);
+            .for("update").limit(1);
           if (!existing) {
             const error = new Error(`منتج السطر ${index + 1} غير تابع للعميل المحدد`);
             (error as Error & { status: number }).status = 400;
@@ -610,7 +711,7 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
       const remaining = new Set(submittedIds);
       for (const line of existing) {
         const unchanged = input.items.find((item) => item.id === line.id);
-        if ((line.status !== "pending" || line.batch_number) &&
+        if (isProtectedProductionOrder(line.status, line.batch_number, line.previous_status) &&
           (!unchanged || unchanged.new_product || unchanged.customer_product_id !== line.customer_product_id ||
             Number(unchanged.quantity_kg) !== Number(line.quantity_kg))) {
           throw orderError(`بدأ العمل على أمر الإنتاج ${line.production_order_number}؛ لا يمكن تغيير منتجه أو كميته أو حذفه`);
@@ -643,7 +744,8 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
           productId = created.id;
         } else {
           const [product] = await tx.select({ id: customer_products.id }).from(customer_products)
-            .where(and(eq(customer_products.id, productId!), eq(customer_products.customer_id, order.customer_id))).limit(1);
+            .where(and(eq(customer_products.id, productId!), eq(customer_products.customer_id, order.customer_id)))
+            .for("update").limit(1);
           if (!product) throw orderError("المنتج غير تابع لعميل الطلب", 400);
         }
         if (line.id) {
@@ -651,8 +753,15 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
           if (previous.customer_product_id === productId && Number(previous.quantity_kg) === Number(line.quantity_kg)) {
             resultLines.push(previous);
           } else {
+            const quantityChanged = Number(previous.quantity_kg) !== Number(line.quantity_kg);
+            const finalQuantity = quantityChanged
+              ? productionQuantity.parse(plannedFinalQuantity(
+                line.quantity_kg,
+                productionOverrun.parse(String(previous.overrun_percentage ?? "0")),
+              ))
+              : previous.final_quantity_kg;
             const [updated] = await tx.update(production_orders).set({
-              customer_product_id: productId, quantity_kg: line.quantity_kg, final_quantity_kg: line.quantity_kg,
+              customer_product_id: productId, quantity_kg: line.quantity_kg, final_quantity_kg: finalQuantity,
             }).where(eq(production_orders.id, line.id)).returning();
             resultLines.push(updated);
           }
@@ -913,6 +1022,25 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         });
         return res.status(201).json(row[0]);
       }
+      if (path === "production-orders") {
+        const productionInput = parsed(productionOrderInputSchema, input);
+        if (!productionInput.production_order_number || !productionInput.order_id || !productionInput.quantity_kg) {
+          return res.status(400).json({ message: "رقم أمر الإنتاج والطلب والكمية المطلوبة حقول إلزامية" });
+        }
+        const overrun = productionInput.overrun_percentage ?? "0";
+        const finalQuantity = productionInput.final_quantity_kg ??
+          productionQuantity.parse(plannedFinalQuantity(productionInput.quantity_kg, overrun));
+        const values = {
+          ...productionInput,
+          overrun_percentage: overrun,
+          final_quantity_kg: finalQuantity,
+        };
+        const row = await db.transaction(async (tx) => {
+          await assertProductionProductMatchesOrder(tx, productionInput.order_id!, productionInput.customer_product_id);
+          return tx.insert(production_orders).values(values).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
       if (path === "categories") {
         // The ID must come from the server, never from a submitted form.
         const body = parsed(insertCategorySchema.strict().omit({ id: true }), input);
@@ -988,6 +1116,9 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           const facingNotice = customerProductFacingNotice(merged);
           if (facingNotice?.kind === "blocking") throw invalidProduct(facingNotice.message);
           const category = await validateCustomerProductReferences(tx, merged, current.master_batch_id);
+          if (merged.customer_id !== current.customer_id) {
+            await assertProductCanTransfer(tx, current.id, merged.customer_id);
+          }
           validateProductImage(merged.cliche_front_design, current.cliche_front_design);
           validateProductImage(merged.cliche_back_design, current.cliche_back_design);
 
@@ -1019,6 +1150,85 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         if (!row) return res.status(404).json({ message: "المنتج غير موجود" });
         return res.json(row[0]);
       }
+      if (path === "production-orders") {
+        const readOnly = new Set(["id", "created_at"]);
+        const input = parsed(productionOrderInputSchema, Object.fromEntries(
+          Object.entries(req.body ?? {}).filter(([field]) => !readOnly.has(field)),
+        ));
+        if (Object.keys(input).length === 0) return res.status(400).json({ message: "لا توجد بيانات للتعديل" });
+        const row = await db.transaction(async (tx) => {
+          const [snapshot] = await tx.select({
+            id: production_orders.id,
+            order_id: production_orders.order_id,
+          }).from(production_orders).where(eq(production_orders.id, key as number)).limit(1);
+          if (!snapshot) return null;
+          const orderIds = [...new Set([snapshot.order_id, input.order_id ?? snapshot.order_id])].sort((a, b) => a - b);
+          for (const orderId of orderIds) {
+            await tx.select({ id: orders.id }).from(orders).where(eq(orders.id, orderId)).for("share").limit(1);
+          }
+          const [current] = await tx.select().from(production_orders)
+            .where(eq(production_orders.id, key as number)).for("update").limit(1);
+          if (!current) return null;
+          if (current.order_id !== snapshot.order_id) {
+            throw orderError("تغير الطلب المرتبط؛ أعد تحميل أمر الإنتاج قبل التعديل", 409);
+          }
+
+          const currentIsProtected = isProtectedProductionOrder(
+            current.status,
+            current.batch_number,
+            current.previous_status,
+          );
+          if (currentIsProtected) {
+            const productChanged = Object.prototype.hasOwnProperty.call(input, "customer_product_id") &&
+              input.customer_product_id !== current.customer_product_id;
+            const quantityChanged = Object.prototype.hasOwnProperty.call(input, "quantity_kg") &&
+              Number(input.quantity_kg) !== Number(current.quantity_kg);
+            const orderChanged = Object.prototype.hasOwnProperty.call(input, "order_id") &&
+              input.order_id !== current.order_id;
+            if (productChanged || quantityChanged || orderChanged) {
+              throw orderError("لا يمكن تغيير المنتج أو الكمية أو الطلب بعد بدء أمر الإنتاج", 409);
+            }
+            if (current.status !== "pending" && input.status === "pending") {
+              throw orderError("لا يمكن إعادة أمر إنتاج بدأ العمل عليه إلى حالة الانتظار", 409);
+            }
+            if (current.batch_number != null &&
+              Object.prototype.hasOwnProperty.call(input, "batch_number") &&
+              (typeof input.batch_number !== "string" || !input.batch_number.trim())) {
+              throw orderError("لا يمكن إزالة رقم تشغيلة من أمر إنتاج محفوظ", 409);
+            }
+            const hasProtectedPreviousStatus = current.status === "pending" &&
+              current.previous_status != null && current.previous_status !== "pending";
+            if (hasProtectedPreviousStatus &&
+              Object.prototype.hasOwnProperty.call(input, "previous_status") &&
+              input.previous_status !== current.previous_status) {
+              throw orderError("لا يمكن إزالة سجل حالة أمر إنتاج سبق بدء العمل عليه", 409);
+            }
+          }
+
+          const merged = { ...current, ...input };
+          const quantity = productionQuantity.parse(String(merged.quantity_kg));
+          const overrun = productionOverrun.parse(String(merged.overrun_percentage ?? "0"));
+          const finalWasSubmitted = Object.prototype.hasOwnProperty.call(input, "final_quantity_kg");
+          const quantityPlanChanged = Object.prototype.hasOwnProperty.call(input, "quantity_kg") ||
+            Object.prototype.hasOwnProperty.call(input, "overrun_percentage");
+          const finalQuantity = finalWasSubmitted
+            ? productionQuantity.parse(String(input.final_quantity_kg))
+            : quantityPlanChanged
+              ? productionQuantity.parse(plannedFinalQuantity(quantity, overrun))
+              : productionQuantity.parse(String(merged.final_quantity_kg));
+
+          await assertProductionProductMatchesOrder(tx, merged.order_id, merged.customer_product_id);
+          const values = {
+            ...input,
+            ...(quantityPlanChanged && !finalWasSubmitted ? { final_quantity_kg: finalQuantity } : {}),
+            ...(finalWasSubmitted ? { final_quantity_kg: finalQuantity } : {}),
+          };
+          return tx.update(production_orders).set(values)
+            .where(eq(production_orders.id, key as number)).returning();
+        });
+        if (!row) return res.status(404).json({ message: "العنصر غير موجود" });
+        return res.json(row[0]);
+      }
       const readOnly = new Set(["id", "created_at", "updated_at", "universal_thickness"]);
       const input = Object.fromEntries(Object.entries(req.body ?? {}).filter(([key]) => !readOnly.has(key)));
       if (path === "orders" && ("order_number" in input || "customer_id" in input)) {
@@ -1033,7 +1243,79 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   router.delete(`/${path}/:id`, admin, async (req, res, next) => {
     try {
       const key = entityId(path, req.params.id);
-      const row: any[] = (await db.delete(table).where(eq(table.id, key)).returning({ id: table.id })) as any;
+      const row: any[] = await db.transaction(async (tx) => {
+        if (path === "customer-products") {
+          const [current] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(eq(customer_products.id, key as number)).for("update").limit(1);
+          if (!current) return [];
+          const [reference] = await tx.select({ id: production_orders.id }).from(production_orders)
+            .where(eq(production_orders.customer_product_id, key as number)).limit(1);
+          if (reference) throw orderError("لا يمكن حذف المنتج لارتباطه بأوامر إنتاج", 409);
+        } else if (path === "customers") {
+          const [current] = await tx.select({ id: customers.id }).from(customers)
+            .where(eq(customers.id, key as string)).for("update").limit(1);
+          if (!current) return [];
+          const [productReference] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(eq(customer_products.customer_id, key as string)).limit(1);
+          const [orderReference] = await tx.select({ id: orders.id }).from(orders)
+            .where(eq(orders.customer_id, key as string)).limit(1);
+          if (productReference || orderReference) {
+            throw orderError("لا يمكن حذف العميل لارتباطه بمنتجات أو طلبات", 409);
+          }
+        } else if (path === "categories") {
+          const [current] = await tx.select({ id: categories.id }).from(categories)
+            .where(eq(categories.id, key as string)).for("update").limit(1);
+          if (!current) return [];
+          const [productReference] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(eq(customer_products.category_id, key as string)).limit(1);
+          const [itemReference] = await tx.select({ id: items.id }).from(items)
+            .where(eq(items.category_id, key as string)).limit(1);
+          const [childReference] = await tx.select({ id: categories.id }).from(categories)
+            .where(eq(categories.parent_id, key as string)).limit(1);
+          if (productReference || itemReference || childReference) {
+            throw orderError("لا يمكن حذف التصنيف لارتباطه بمنتجات أو تصنيفات فرعية", 409);
+          }
+        } else if (path === "items") {
+          const [current] = await tx.select({ id: items.id }).from(items)
+            .where(eq(items.id, key as string)).for("update").limit(1);
+          if (!current) return [];
+          const [reference] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(eq(customer_products.item_id, key as string)).limit(1);
+          if (reference) throw orderError("لا يمكن حذف الصنف لارتباطه بمنتجات العملاء", 409);
+        } else if (path === "master-batch-colors") {
+          const [current] = await tx.select({ id: master_batch_colors.id }).from(master_batch_colors)
+            .where(eq(master_batch_colors.id, key as string)).for("update").limit(1);
+          if (!current) return [];
+          const [reference] = await tx.select({ id: customer_products.id }).from(customer_products)
+            .where(eq(customer_products.master_batch_id, key as string)).limit(1);
+          if (reference) throw orderError("لا يمكن حذف لون الخامة لارتباطه بمنتجات العملاء", 409);
+        } else if (path === "production-orders") {
+          const [current] = await tx.select({
+            id: production_orders.id,
+            status: production_orders.status,
+            previous_status: production_orders.previous_status,
+            batch_number: production_orders.batch_number,
+          }).from(production_orders).where(eq(production_orders.id, key as number)).for("update").limit(1);
+          if (!current) return [];
+          if (isProtectedProductionOrder(current.status, current.batch_number, current.previous_status)) {
+            throw orderError("لا يمكن حذف أمر إنتاج غير معلق أو مرتبط بتشغيلة", 409);
+          }
+        } else if (path === "orders") {
+          const [current] = await tx.select({ id: orders.id }).from(orders)
+            .where(eq(orders.id, key as number)).for("update").limit(1);
+          if (!current) return [];
+          const productionLines = await tx.select({
+            status: production_orders.status,
+            previous_status: production_orders.previous_status,
+            batch_number: production_orders.batch_number,
+          }).from(production_orders).where(eq(production_orders.order_id, key as number));
+          if (productionLines.some((line: any) =>
+            isProtectedProductionOrder(line.status, line.batch_number, line.previous_status))) {
+            throw orderError("لا يمكن حذف الطلب لاحتوائه على أوامر إنتاج غير معلقة أو مرتبطة بتشغيلة", 409);
+          }
+        }
+        return tx.delete(table).where(eq(table.id, key)).returning({ id: table.id });
+      });
       if (!row[0]) return res.status(404).json({ message: "العنصر غير موجود" });
       res.json({ success: true, id: row[0].id });
     } catch (error) { next(error); }

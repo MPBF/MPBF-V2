@@ -40,10 +40,13 @@ describe("creating an order with delivery days", () => {
       execute: async () => ({ rows: [{ max_number: "19" }] }),
       select: () => ({
         from: (table: unknown) => ({
-          where: () => ({
-            limit: async () => table === customers ? [{ id: "C1" }] :
-              table === customer_products ? [{ id: 3 }] : [],
-          }),
+          where: () => {
+            const query = {
+              limit: async () => table === customers ? [{ id: "C1" }] :
+                table === customer_products ? [{ id: 3 }] : [],
+            };
+            return { ...query, for: () => query };
+          },
         }),
       }),
       insert: (table: unknown) => ({

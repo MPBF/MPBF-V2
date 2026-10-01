@@ -1,6 +1,8 @@
 import { AlertTriangle, CalendarDays, Check, Download, Edit3, FileDown, Plus, Printer, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
+import { riyadhDateTimeInput, riyadhDateTimeToIso } from "../lib/riyadh-time";
+
 export type HrEmployee = {
   id: number;
   username: string | null;
@@ -68,11 +70,6 @@ const reportEnglishName = (employee: HrEmployee) => employee.display_name || "�
 const sectionName = (employee: HrEmployee) => employee.section_name || "—";
 const riyadhToday = () => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const riyadhMonth = () => riyadhToday().slice(0, 7);
-const localDateTime = (value = new Date()) => {
-  const shifted = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
-  return shifted.toISOString().slice(0, 16);
-};
-const riyadhDateTimeToIso = (value: string) => new Date(`${value}:00+03:00`).toISOString();
 const formatDateTime = (value: string) => new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
   dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Riyadh",
 }).format(new Date(value));
@@ -139,7 +136,7 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
     try {
       await hrApi(eventDraft.id ? `/attendance-events/${eventDraft.id}` : "/attendance-events", {
         method: eventDraft.id ? "PUT" : "POST",
-        body: JSON.stringify({ user_id: Number(eventDraft.user_id), action: eventDraft.action, occurred_at: new Date(eventDraft.occurred_at).toISOString() }),
+        body: JSON.stringify({ user_id: Number(eventDraft.user_id), action: eventDraft.action, occurred_at: riyadhDateTimeToIso(eventDraft.occurred_at) }),
       });
       setEventDraft(null); setNotice(eventDraft.id ? "تم تعديل سجل الحضور." : "تمت إضافة سجل الحضور اليدوي."); await load();
     } catch (cause) { setError((cause as Error).message); }
@@ -253,8 +250,8 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
       {tab === "audit" && <>
         <div className="hr-ops-head"><div><span>INCOMPLETE SHIFTS</span><h3>ورديات بانتظار تصحيح الانصراف</h3><p>لا تُحتسب الساعات أو الأجر قبل تسجيل وقت الانصراف الفعلي. يمكنك تصحيح استراحة مفتوحة والانصراف معًا.</p></div></div>
         <div className="hr-table-wrap"><table className="hr-data-table"><thead><tr><th>الموظف</th><th>تاريخ احتساب الوردية</th><th>وقت الحضور الفعلي</th><th>الوردية</th><th>الإجراء</th></tr></thead><tbody>{openSessions.map((session) => <tr key={session.id}><td>{employeeName(session)}</td><td>{session.shift_date}</td><td>{formatDateTime(session.check_in_at)}</td><td>{session.shift_id}</td><td><button className="hr-icon-action" type="button" onClick={() => setCorrection({ session, checkout: "", breakEnd: "" })}>تصحيح الانصراف</button></td></tr>)}</tbody></table>{!loading && !openSessions.length && <div className="hr-empty">لا توجد ورديات غير مكتملة.</div>}</div>
-        <div className="hr-ops-head"><div><span>ATTENDANCE AUDIT</span><h3>سجل التدقيق</h3><p>جميع حركات الحضور مرتبة من الأحدث إلى الأقدم.</p></div><button className="hr-primary" type="button" onClick={() => setEventDraft({ user_id: filters.user, action: "break_end", occurred_at: localDateTime() })}><Plus size={17} /> إنهاء استراحة يدويًا</button></div>
-        <div className="hr-table-wrap"><table className="hr-data-table hr-audit-table"><thead><tr><th>الموظف</th><th>القسم</th><th>الحركة</th><th>وقت الحركة الفعلي</th><th>يوم احتساب الوردية</th><th>المصدر</th><th>الإجراء</th></tr></thead><tbody>{events.map((entry) => <tr key={entry.id}><td className="hr-employee-cell"><strong>{reportArabicName(entry)}</strong><small>{reportEnglishName(entry)}</small></td><td>{sectionName(entry)}</td><td><span className={`hr-action-pill ${entry.action}`}>{actionLabels[entry.action]}</span></td><td>{formatDateTime(entry.occurred_at)}</td><td>{entry.shift_date || "سجل قديم"}</td><td><span className={`hr-source ${entry.source}`}>{entry.source === "manual" ? "يدوي" : "الموظف"}</span></td><td>{entry.session_id != null ? <span>محفوظ ضمن الجلسة</span> : <div className="hr-row-actions"><button className="hr-icon-action" type="button" onClick={() => setEventDraft({ id: entry.id, user_id: String(entry.user_id), action: entry.action, occurred_at: localDateTime(new Date(entry.occurred_at)) })}><Edit3 size={15} /> تعديل</button><button className="hr-icon-action danger" type="button" disabled={busy === `delete-event-${entry.id}`} onClick={() => void deleteAttendanceEvent(entry)}><Trash2 size={15} />{busy === `delete-event-${entry.id}` ? "جارٍ الحذف…" : "حذف"}</button></div>}</td></tr>)}</tbody></table>{!loading && !events.length && <div className="hr-empty">لا توجد سجلات مطابقة لهذا اليوم.</div>}</div>
+        <div className="hr-ops-head"><div><span>ATTENDANCE AUDIT</span><h3>سجل التدقيق</h3><p>جميع حركات الحضور مرتبة من الأحدث إلى الأقدم.</p></div><button className="hr-primary" type="button" onClick={() => setEventDraft({ user_id: filters.user, action: "break_end", occurred_at: riyadhDateTimeInput() })}><Plus size={17} /> إنهاء استراحة يدويًا</button></div>
+        <div className="hr-table-wrap"><table className="hr-data-table hr-audit-table"><thead><tr><th>الموظف</th><th>القسم</th><th>الحركة</th><th>وقت الحركة الفعلي</th><th>يوم احتساب الوردية</th><th>المصدر</th><th>الإجراء</th></tr></thead><tbody>{events.map((entry) => <tr key={entry.id}><td className="hr-employee-cell"><strong>{reportArabicName(entry)}</strong><small>{reportEnglishName(entry)}</small></td><td>{sectionName(entry)}</td><td><span className={`hr-action-pill ${entry.action}`}>{actionLabels[entry.action]}</span></td><td>{formatDateTime(entry.occurred_at)}</td><td>{entry.shift_date || "سجل قديم"}</td><td><span className={`hr-source ${entry.source}`}>{entry.source === "manual" ? "يدوي" : "الموظف"}</span></td><td>{entry.session_id != null ? <span>محفوظ ضمن الجلسة</span> : <div className="hr-row-actions"><button className="hr-icon-action" type="button" onClick={() => setEventDraft({ id: entry.id, user_id: String(entry.user_id), action: entry.action, occurred_at: riyadhDateTimeInput(new Date(entry.occurred_at)) })}><Edit3 size={15} /> تعديل</button><button className="hr-icon-action danger" type="button" disabled={busy === `delete-event-${entry.id}`} onClick={() => void deleteAttendanceEvent(entry)}><Trash2 size={15} />{busy === `delete-event-${entry.id}` ? "جارٍ الحذف…" : "حذف"}</button></div>}</td></tr>)}</tbody></table>{!loading && !events.length && <div className="hr-empty">لا توجد سجلات مطابقة لهذا اليوم.</div>}</div>
       </>}
 
       {tab === "report" && <>
@@ -269,13 +266,13 @@ export default function HumanResourcesOperations({ tab, employees, refreshToken 
     </section>
 
     {correction && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCorrection(null)}><form className="hr-modal hr-compact-modal" onSubmit={correctSession}><header><div><span>ATTENDANCE CORRECTION</span><h3>تصحيح وردية {correction.session.shift_date}</h3></div><button type="button" onClick={() => setCorrection(null)} aria-label="إغلاق"><X /></button></header><p>الموظف: {employeeName(correction.session)} · الحضور: {formatDateTime(correction.session.check_in_at)}. أدخل وقت الانصراف الحقيقي، لا وقت إدخال التصحيح.</p><div className="hr-form-grid">
-      {correction.session.last_action === "break_start" && <label><span>وقت نهاية الاستراحة الفعلي</span><input required type="datetime-local" value={correction.breakEnd} onChange={(event) => setCorrection({ ...correction, breakEnd: event.target.value })} /></label>}
-      <label><span>وقت الانصراف الفعلي</span><input required type="datetime-local" value={correction.checkout} onChange={(event) => setCorrection({ ...correction, checkout: event.target.value })} /></label>
+      {correction.session.last_action === "break_start" && <label><span>وقت نهاية الاستراحة الفعلي (بتوقيت الرياض)</span><input required type="datetime-local" value={correction.breakEnd} onChange={(event) => setCorrection({ ...correction, breakEnd: event.target.value })} /></label>}
+      <label><span>وقت الانصراف الفعلي (بتوقيت الرياض)</span><input required type="datetime-local" value={correction.checkout} onChange={(event) => setCorrection({ ...correction, checkout: event.target.value })} /></label>
     </div><footer><button className="hr-primary" disabled={busy === "correction"}>{busy === "correction" ? "جارٍ التصحيح…" : "حفظ التصحيح"}</button><button type="button" onClick={() => setCorrection(null)}>إلغاء</button></footer></form></div>}
     {eventDraft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setEventDraft(null)}><form className="hr-modal hr-compact-modal" onSubmit={saveEvent}><header><div><span>ATTENDANCE RECORD</span><h3>{eventDraft.id ? "تعديل سجل الحضور" : "إضافة سجل يدوي"}</h3></div><button type="button" onClick={() => setEventDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid">
       <label><span>الموظف</span><select required value={eventDraft.user_id} onChange={(event) => setEventDraft({ ...eventDraft, user_id: event.target.value })}><option value="">اختر الموظف</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)} — {sectionName(employee)}</option>)}</select></label>
       <label><span>الحركة</span><select disabled={!eventDraft.id} value={eventDraft.action} onChange={(event) => setEventDraft({ ...eventDraft, action: event.target.value as AttendanceAction })}>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label><span>التاريخ والوقت</span><input required type="datetime-local" value={eventDraft.occurred_at} onChange={(event) => setEventDraft({ ...eventDraft, occurred_at: event.target.value })} /></label>
+      <label><span>التاريخ والوقت (بتوقيت الرياض)</span><input required type="datetime-local" value={eventDraft.occurred_at} onChange={(event) => setEventDraft({ ...eventDraft, occurred_at: event.target.value })} /></label>
     </div><footer><button className="hr-primary" disabled={busy === "event"}>{busy === "event" ? "جارٍ الحفظ…" : "حفظ السجل"}</button><button type="button" onClick={() => setEventDraft(null)}>إلغاء</button></footer></form></div>}
 
     {violationDraft && <div className="hr-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setViolationDraft(null)}><form className="hr-modal hr-compact-modal" onSubmit={saveViolation}><header><div><span>EMPLOYEE VIOLATION</span><h3>إعطاء مخالفة</h3></div><button type="button" onClick={() => setViolationDraft(null)} aria-label="إغلاق"><X /></button></header><div className="hr-form-grid hr-violation-form">
