@@ -1,9 +1,10 @@
-import { AlertCircle, Check, ChevronDown, CircleHelp, FileImage, LoaderCircle, Package, Plus, Search, Trash2, X } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, CircleHelp, FileImage, LoaderCircle, Package, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import { PRINTING_CYLINDERS, deriveCustomerProductFields, isManualCuttingProduct, punchingOptions, type ProductInput } from "../../../shared/customer-product-fields";
 
 import { buildCustomerProductDirtyPayload, buildCustomerProductPayload, customerProductSourcesChanged, initializeCustomerProductForm, validateCustomerProductForm } from "./customer-product-form";
+import { CustomerPicker, ProductValueSelect, PRODUCT_SELECT_VALUES } from "./customer-product-controls";
 import "./CustomerProductModal.css";
 
 type Row = Record<string, any>;
@@ -59,7 +60,6 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
   const [optionError, setOptionError] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [customerQuery, setCustomerQuery] = useState("");
   const [colorOpen, setColorOpen] = useState(false);
   const [imageStatus, setImageStatus] = useState<Record<Side, ImageStatus>>({ front: { loading: false, error: "" }, back: { loading: false, error: "" } });
   const [newFrontColor, setNewFrontColor] = useState("#bd4e41");
@@ -133,10 +133,6 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
     return result;
   }, [computed, form, historicalPreview, row]);
   const automaticCutLength = computed.cutting_length_cm;
-  const filteredCustomers = useMemo(() => {
-    const q = customerQuery.trim().toLocaleLowerCase();
-    return q ? options.customers.filter((c) => [c.id, c.name, c.name_ar, c.display_name, c.display_name_ar].some((v) => String(v ?? "").toLocaleLowerCase().includes(q))) : options.customers;
-  }, [customerQuery, options.customers]);
   const categoryItems = options.items.filter((i) => String(i.category_id) === String(form.category_id));
   const selectedCustomerValid = options.customers.some((c) => String(c.id) === String(form.customer_id));
   const legacyUncategorizedItem = Boolean(form.item_id && !form.category_id && !row.category_id && String(form.item_id) === String(row.item_id));
@@ -254,20 +250,22 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
         {loading ? <div className="cp-loading" aria-label="جار تحميل الخيارات" aria-busy="true"><i /><i /><i /><i /></div> : <>
           <section className="cp-section"><h3 className="cp-section-title"><span>01</span>العميل والتصنيف</h3>
             <div className="cp-grid cp-three">
-              <div className="cp-field"><label htmlFor="cp-customer-search">العميل <b aria-hidden="true">*</b></label><div className="cp-searchbox"><Search className="cp-search-icon" size={15} /><input id="cp-customer-search" value={customerQuery} onChange={(e) => setCustomerQuery(e.target.value)} placeholder="ابحث بالاسم أو الرقم" autoComplete="off" aria-label="ابحث عن العميل بالاسم أو الرقم" /></div><select aria-label="اختر العميل" required value={String(form.customer_id || "")} onChange={(e) => { set("customer_id", e.target.value); setCustomerQuery(""); }}><option value="">اختر العميل</option>{filteredCustomers.map((c) => <option key={c.id} value={String(c.id)}>{customerName(c)}</option>)}{form.customer_id && !selectedCustomerValid && <option value={String(form.customer_id)}>قيمة حالية غير موجودة ({form.customer_id}) — اختر عميلاً صالحاً</option>}</select><span className="cp-result-count">{filteredCustomers.length} عميل مطابق</span></div>
+               <div className="cp-field"><label htmlFor="cp-customer">العميل <b aria-hidden="true">*</b></label><CustomerPicker customers={options.customers} value={String(form.customer_id || "")} onChange={(id) => set("customer_id", id)} labelFor={customerName} /></div>
               <div className="cp-field"><label htmlFor="cp-category">التصنيف</label><select id="cp-category" value={String(form.category_id || "")} onChange={(e) => changeCategory(e.target.value)}><option value="">غير محدد</option>{options.categories.map((c) => <option key={c.id} value={String(c.id)}>{name(c)} ({c.id})</option>)}{form.category_id && !category && <option value={String(form.category_id)}>التصنيف الحالي ({form.category_id}) — اختر تصنيفاً صالحاً</option>}</select></div>
                <div className="cp-field"><label htmlFor="cp-item">الصنف</label><select id="cp-item" disabled={!form.category_id} value={String(form.item_id || "")} onChange={(e) => set("item_id", e.target.value)}><option value="">{form.category_id ? "غير محدد" : "اختر التصنيف أولاً"}</option>{legacyUncategorizedItem && <option value={String(form.item_id)}>الصنف الحالي ({form.item_id}) — دون تصنيف</option>}{categoryItems.map((i) => <option key={i.id} value={String(i.id)}>{name(i)}{i.code ? ` (${i.code})` : ""}</option>)}{form.item_id && !itemValid && <option value={String(form.item_id)}>الصنف الحالي ({form.item_id}) — لا يتبع التصنيف</option>}</select>{!itemValid && <span className="cp-invalid">يرجى اختيار صنف ضمن التصنيف الحالي أو مسح الصنف.</span>}</div>
             </div>
           </section>
           <section className="cp-section"><h3 className="cp-section-title"><span>02</span>المواصفات والأبعاد</h3>
-            <div className="cp-grid">
-               <div className="cp-field"><label>وصف المقاس المحسوب</label><div className="cp-readonly">{preview.size_caption || "—"}</div></div>
+            <div className="cp-grid cp-dimensions">
+              <ProductValueSelect label="الجانب الأيمن" id="cp-right" value={form.right_facing} values={PRODUCT_SELECT_VALUES.facing} onChange={(v) => set("right_facing", v)} />
+              <ProductValueSelect label="العرض (سم)" id="cp-width" value={form.width} values={PRODUCT_SELECT_VALUES.width} onChange={(v) => set("width", v)} />
+              <ProductValueSelect label="الجانب الأيسر" id="cp-left" value={form.left_facing} values={PRODUCT_SELECT_VALUES.facing} onChange={(v) => set("left_facing", v)} />
+              <div className="cp-field"><label>وصف المقاس المحسوب</label><div className="cp-readonly">{preview.size_caption || "—"}</div></div>
+            </div>
+            <div className="cp-grid cp-specifications">
+              <ProductValueSelect label="السماكة (ميكرون)" id="cp-thickness" value={form.thickness} values={PRODUCT_SELECT_VALUES.thickness} onChange={(v) => set("thickness", v)} />
+              <ProductValueSelect label="الكثافة" id="cp-density" value={form.density} values={PRODUCT_SELECT_VALUES.density} onChange={(v) => set("density", v)} />
               <div className="cp-field"><label htmlFor="cp-punching">التخريم</label><select id="cp-punching" value={String(form.punching || "بدون")} onChange={(e) => set("punching", e.target.value)}>{(punchingOptions(categoryName) || []).map((p) => <option key={p} value={p}>{p}</option>)}{form.punching && !(punchingOptions(categoryName) || []).includes(String(form.punching)) && <option value={String(form.punching)}>القيمة الحالية: {String(form.punching)}</option>}</select></div>
-              <Field label="الجانب الأيمن" id="cp-right" value={form.right_facing} onChange={(v) => set("right_facing", v)} inputMode="numeric" min="0" hint="عدد صحيح غير سالب" />
-              <Field label="العرض (سم)" id="cp-width" value={form.width} onChange={(v) => set("width", v)} inputMode="numeric" min="1" max="999999" hint="عدد صحيح · حتى 999999" />
-              <Field label="الجانب الأيسر" id="cp-left" value={form.left_facing} onChange={(v) => set("left_facing", v)} inputMode="numeric" min="0" hint="عدد صحيح غير سالب" />
-               <Field label="السماكة (ميكرون)" id="cp-thickness" value={form.thickness} onChange={(v) => set("thickness", v)} inputMode="numeric" min="1" max="99999" hint="عدد صحيح · بين 1 و99999" />
-              <Field label="الكثافة" id="cp-density" value={form.density} onChange={(v) => set("density", v)} inputMode="decimal" min="0.001" hint="موجب حتى 3 منازل عشرية · مثال 0.95" />
                <div className="cp-field"><label>وزن الكيس (جرام)</label><div className="cp-readonly ltr">{preview.bag_weight_grams || "—"}</div></div>
                <div className="cp-field"><label>عدد الأكياس في الكيلو</label><div className="cp-readonly ltr">{preview.bags_per_kilo || "—"}</div></div>
             </div>
@@ -275,7 +273,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
           <section className="cp-section"><h3 className="cp-section-title"><span>03</span>الطباعة والقطع</h3>
             <div className="cp-grid">
               <div className="cp-field"><label htmlFor="cp-cylinder">سلندر الطباعة</label><select id="cp-cylinder" value={String(form.printing_cylinder || "")} onChange={(e) => changeCylinder(e.target.value)}><option value="">بدون سلندر</option>{options.cylinders.map((v) => <option key={v} value={v}>{v}</option>)}{form.printing_cylinder && !options.cylinders.includes(String(form.printing_cylinder)) && <option value={String(form.printing_cylinder)}>القيمة الحالية: {String(form.printing_cylinder)}</option>}</select></div>
-               <Field label="طول القطع (سم)" id="cp-cut-length" value={manualCut ? form.cutting_length_cm : automaticCutLength ?? ""} onChange={(v) => { setUserCutChanged(true); set("cutting_length_cm", v); }} inputMode="numeric" min="1" disabled={!manualCut} hint={manualCut ? "عدد صحيح موجب · إدخال يدوي" : "يُحسب من محيط السلندر"} />
+               <ProductValueSelect label="طول القطع (سم)" id="cp-cut-length" value={manualCut ? form.cutting_length_cm : automaticCutLength ?? ""} values={PRODUCT_SELECT_VALUES.cuttingLength} onChange={(v) => { setUserCutChanged(true); set("cutting_length_cm", v); }} zeroMeansUnset disabled={!manualCut} hint={manualCut ? "من 0 إلى 300 · 0 = غير محدد" : "يُحسب من محيط السلندر"} />
               <div className="cp-field"><label>حالة الطباعة</label><div className="cp-check"><input type="checkbox" checked={Boolean(computed.is_printed)} disabled readOnly aria-label="منتج مطبوع" /><span>{computed.is_printed ? "منتج مطبوع" : "بدون طباعة"}</span></div></div>
               <div className="cp-field"><label htmlFor="cp-cut-unit">وحدة القطع</label><select id="cp-cut-unit" value={String(form.cutting_unit || "")} onChange={(e) => set("cutting_unit", e.target.value)}><option value="">اختر الوحدة</option><option value="كيلو">كيلو / Kg</option><option value="باكت">باكت / PKT</option><option value="كيس">كيس / Bag</option><option value="رول">رول / Roll</option><option value="كرتون">كرتون / Box</option><option value="بندل">بندل / Bundle</option></select></div>
             </div>
