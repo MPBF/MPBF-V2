@@ -20,3 +20,9 @@ Packaging weight choices displayed in grams are a presentation change, not a sto
 **Why:** The user requested more convenient gram-based choices in this form, not changes to existing product records or downstream package-weight calculations.
 
 **How to apply:** Keep the saved weight and calculation inputs in their established kilogram units, with gram labels in the selector. Do not multiply stored historical weights as part of a UI-only refinement.
+
+A product's selected category must remain explicit, even when its item belongs to a catalog category.
+
+**Why:** Legacy products can have an unspecified category despite a categorized item. Inferring that category silently changes category-sensitive cutting and weight calculations, disagreeing with the form's preview and the user's selection.
+
+**How to apply:** Do not auto-assign a category during creation, cloning, editing, or embedded order creation. Any future auto-selection rule must also appear in the shared form and explicitly address historical products.

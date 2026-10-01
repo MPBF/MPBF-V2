@@ -16,6 +16,7 @@ const port = Number(process.env.PORT || 5000);
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use("/api/customer-products", express.json({ limit: "16mb" }));
+app.use("/api/orders", express.json({ limit: "16mb" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
@@ -59,6 +60,10 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   }
   const status = Number((error as { status?: number })?.status) || 500;
   const code = (error as { code?: unknown })?.code;
+  if (status === 413) {
+    const limit = /^\/api\/(?:orders|customer-products)(?:\/|\?|$)/.test(_req.originalUrl) ? "16 ميجابايت" : "10 ميجابايت";
+    return res.status(413).json({ message: `حجم البيانات أكبر من الحد المسموح به (${limit})` });
+  }
   res.status(status).json({
     message: status === 500 ? "حدث خطأ داخلي" : String((error as Error)?.message || error),
     ...(typeof code === "string" && code ? { code } : {}),

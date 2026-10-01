@@ -1,3 +1,4 @@
+.order-product-draft{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;background:#edf4ef;border:1px solid #d3e2d7;border-radius:6px;min-width:0}.order-product-draft span{overflow-wrap:anywhere;min-width:0}.order-product-draft button{flex:none;min-height:44px;padding:6px 10px;color:#176659;background:white;border:1px solid #bdd5c7;border-radius:5px;font:inherit;font-size:12px}
 .order-create-backdrop {
   position: fixed;
   inset: 0;

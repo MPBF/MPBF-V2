@@ -63,3 +63,4 @@
 - [Mixed item identifier prefixes](mixed-item-identifiers.md) — preserve legacy ITEM and ITM IDs; allocate new items in the dominant ITM series and sort naturally within each prefix.
 - [Responsive browser focus testing](responsive-browser-testing.md) — run focus-dependent iframe checks sequentially; concurrent frames steal focus and falsely close dropdowns.
 - [Product calculation provenance](product-calculation-provenance.md) — legacy size/cylinder rules were reconstructed from records, not supplied formulas; retain untouched historical cutting lengths.
+- [Order product drafts](order-product-draft-lifecycle.md) — sharing the customer-product editor must preserve deferred, atomic creation; cancelling an order must not leave new products behind.

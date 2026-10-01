@@ -1,6 +1,6 @@
 import express from "express";
-import { afterAll, beforeAll, describe, expect, it, jest } from "@jest/globals";
-import { orders, production_orders, customer_products } from "../shared/schema";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { categories, customer_products, customers, items, orders, production_orders } from "../shared/schema";
 import router from "../server/routes";
 import { db } from "../server/db";
 
@@ -24,14 +24,25 @@ const baseLines = [
   { id: 12, order_id: 7, production_order_number: "TEST-7-02", customer_product_id: 2, quantity_kg: "20.00", final_quantity_kg: "20.00", status: "pending", batch_number: null },
 ];
 
-function fakeTransaction(state: { order: any; lines: any[] }, failInsert = false) {
+function fakeTransaction(
+  state: { order: any; lines: any[] },
+  failInsert = false,
+  createdProducts: any[] = [],
+  itemCategoryId = "CAT1",
+) {
   return async (callback: (tx: any) => Promise<any>) => {
     // Writes are private until callback succeeds, just as in a DB transaction.
     const draft = structuredClone(state);
+    const pendingProducts: any[] = [];
     const tx = {
       select: () => ({
         from(table: unknown) {
-          const rows = table === orders ? [draft.order] : table === production_orders ? [...draft.lines] : table === customer_products ? [{ id: 1 }, { id: 2 }, { id: 3 }] : [];
+          const rows = table === orders ? [draft.order] :
+            table === production_orders ? [...draft.lines] :
+              table === customer_products ? [{ id: 1 }, { id: 2 }, { id: 3 }] :
+                table === customers ? [{ id: "C1" }] :
+                  table === categories ? [{ id: "CAT1", name: "Bag", name_ar: "كيس" }] :
+                    table === items ? [{ id: "IT1", category_id: itemCategoryId }] : [];
           const query: any = {
             where: () => query,
             orderBy: () => query,
@@ -56,12 +67,13 @@ function fakeTransaction(state: { order: any; lines: any[] }, failInsert = false
           };
         },
       }),
-      insert: (_table: unknown) => ({
-        values: (_values: any) => ({
+      insert: (table: unknown) => ({
+        values: (values: any) => ({
           returning: async () => {
-            if (failInsert) throw new Error("simulated insert failure");
-            const created = { id: 99, ..._values };
-            draft.lines.push(created);
+            if (failInsert && table === production_orders) throw new Error("simulated insert failure");
+            const created = { id: table === customer_products ? 88 : 99, ...values };
+            if (table === customer_products) pendingProducts.push(created);
+            else if (table === production_orders) draft.lines.push(created);
             return [created];
           },
         }),
@@ -71,6 +83,7 @@ function fakeTransaction(state: { order: any; lines: any[] }, failInsert = false
     const result = await callback(tx);
     state.order = draft.order;
     state.lines = draft.lines;
+    createdProducts.push(...pendingProducts);
     return result;
   };
 }
@@ -85,7 +98,8 @@ describe("editing an order with production lines", () => {
     const app = express();
     app.use(express.json());
     app.use("/api", router);
-    app.use((error: any, _req: any, res: any, _next: any) => res.status(error.status || 500).json({ message: error.message }));
+    app.use((error: any, _req: any, res: any, _next: any) =>
+      res.status(error.name === "ZodError" ? 400 : error.status || 500).json({ message: error.message }));
     server = app.listen(0);
     await new Promise<void>((resolve) => server.once("listening", resolve));
     url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -97,6 +111,37 @@ describe("editing an order with production lines", () => {
       headers: { "Content-Type": "application/json", "x-test-permission": permission },
       body: JSON.stringify(body(items)),
     });
+
+  const draftProduct = () => ({
+    category_id: "CAT1",
+    item_id: "IT1",
+    width: "20",
+    left_facing: "2",
+    right_facing: "3",
+    thickness: "20",
+    density: "",
+    printing_cylinder: "8\"",
+    cutting_length_cm: 18,
+    raw_material: "LDPE",
+    master_batch_id: null,
+    cutting_unit: "automatic",
+    punching: "handle",
+    unit_weight_kg: "1.250",
+    unit_quantity: 4,
+    cliche_front_design: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`,
+    cliche_back_design: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`,
+    front_print_colors: ["#112233", "Red"],
+    back_print_colors: ["#445566"],
+    notes: "draft product",
+  });
+
+  const untouchedLines = () => baseLines.map((line) => ({
+    id: line.id,
+    customer_product_id: line.customer_product_id,
+    quantity_kg: line.quantity_kg,
+  }));
+
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it("keeps the surviving production-order ID and creates a new numbered line", async () => {
     const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
@@ -149,5 +194,100 @@ describe("editing an order with production lines", () => {
     const response = await request([], "view_orders");
     expect(response.status).toBe(403);
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("creates a full order draft product through the same normalization and derivation on edit", async () => {
+    const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    const createdProducts: any[] = [];
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, createdProducts) as typeof db.transaction);
+    const response = await request([
+      ...untouchedLines(),
+      { new_product: draftProduct(), quantity_kg: "5.00" },
+    ]);
+    expect(response.status).toBe(200);
+    expect(createdProducts).toHaveLength(1);
+    expect(createdProducts[0]).toMatchObject({
+      customer_id: "C1",
+      category_id: "CAT1",
+      item_id: "IT1",
+      width: "20",
+      left_facing: "2",
+      right_facing: "3",
+      thickness: "20",
+      density: "0.95",
+      printing_cylinder: "8\"",
+      cutting_length_cm: 20,
+      raw_material: "LDPE",
+      master_batch_id: null,
+      cutting_unit: "automatic",
+      punching: "handle",
+      unit_weight_kg: "1.250",
+      unit_quantity: 4,
+      cliche_front_design: expect.stringContaining("data:image/png;base64,"),
+      cliche_back_design: expect.stringContaining("data:image/png;base64,"),
+      front_print_colors: ["#112233", "Red"],
+      back_print_colors: ["#445566"],
+      notes: "draft product",
+      size_caption: "20+2+3X20",
+      is_printed: true,
+      bag_weight_grams: "5",
+      bags_per_kilo: "211",
+      package_weight_kg: "5.00",
+    });
+    expect(createdProducts[0]).not.toHaveProperty("universal_thickness");
+  });
+
+  it("rejects forged child customer and computed product fields on edit", async () => {
+    const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    const forged = draftProduct() as any;
+    forged.customer_id = "OTHER";
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    const response = await request([...untouchedLines(), { new_product: forged, quantity_kg: "5.00" }]);
+    expect(response.status).toBe(400);
+    expect(db.transaction).not.toHaveBeenCalled();
+
+    const computed = { ...draftProduct(), bag_weight_grams: "1" } as any;
+    const computedResponse = await request([...untouchedLines(), { new_product: computed, quantity_kg: "5.00" }]);
+    expect(computedResponse.status).toBe(400);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects wrong references, invalid images, and blocked facing sums for draft products on edit", async () => {
+    const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    const createdProducts: any[] = [];
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, createdProducts, "CAT2") as typeof db.transaction);
+    const wrongReference = await request([...untouchedLines(), {
+      new_product: draftProduct(), quantity_kg: "5.00",
+    }]);
+    expect(wrongReference.status).toBe(400);
+    expect(createdProducts).toHaveLength(0);
+
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, createdProducts) as typeof db.transaction);
+    const badImage = await request([...untouchedLines(), {
+      new_product: { ...draftProduct(), cliche_front_design: `data:image/png;base64,${Buffer.from("<html>").toString("base64")}` },
+      quantity_kg: "5.00",
+    }]);
+    expect(badImage.status).toBe(400);
+    expect(createdProducts).toHaveLength(0);
+
+    const blocked = await request([...untouchedLines(), {
+      new_product: { ...draftProduct(), left_facing: "10", right_facing: "10" },
+      quantity_kg: "5.00",
+    }]);
+    expect(blocked.status).toBe(400);
+    expect(createdProducts).toHaveLength(0);
+  });
+
+  it("rolls back a draft product and order changes when its production-line insert fails", async () => {
+    const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    const createdProducts: any[] = [];
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, true, createdProducts) as typeof db.transaction);
+    const response = await request([...untouchedLines(), {
+      new_product: draftProduct(), quantity_kg: "5.00",
+    }]);
+    expect(response.status).toBe(500);
+    expect(createdProducts).toHaveLength(0);
+    expect(state.order).toEqual(baseOrder);
+    expect(state.lines).toEqual(baseLines);
   });
 });

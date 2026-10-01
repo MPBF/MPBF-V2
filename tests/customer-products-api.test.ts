@@ -30,14 +30,15 @@ jest.mock("../server/auth", () => ({
 describe("customer product routes", () => {
   let server: ReturnType<ReturnType<typeof express>["listen"]>;
   let url: string;
-  let itemCategoryId = "CAT1";
+  let itemCategoryId: string | null = "CAT1";
   let masterBatchActive = true;
   let currentProduct: Record<string, any> | null = null;
   let sourceProduct: Record<string, any> | null = null;
   let savedInsert: Record<string, any> | null = null;
   let savedUpdate: Record<string, any> | null = null;
+  let fixtureCategoryName = "Bag";
 
-  const fixtureCategory = { id: "CAT1", name: "Bag", name_ar: "كيس" };
+  const fixtureCategory = () => ({ id: "CAT1", name: fixtureCategoryName, name_ar: fixtureCategoryName });
   const fixtureItem = () => ({ id: "IT1", category_id: itemCategoryId });
 
   function transactionForTest() {
@@ -53,7 +54,7 @@ describe("customer product routes", () => {
           for() { locked = true; return builder; },
           limit: async () => {
             if (table === customers) return [{ id: "C1" }];
-            if (table === categories) return [fixtureCategory];
+            if (table === categories) return [fixtureCategory()];
             if (table === items) return [fixtureItem()];
             if (table === master_batch_colors) {
               const id = condition?.queryChunks?.find((part: any) => typeof part.value === "string")?.value;
@@ -114,6 +115,7 @@ describe("customer product routes", () => {
 
   beforeEach(() => {
     itemCategoryId = "CAT1";
+    fixtureCategoryName = "Bag";
     masterBatchActive = true;
     currentProduct = null;
     sourceProduct = null;
@@ -225,6 +227,13 @@ describe("customer product routes", () => {
 
   it("rejects an item whose category does not match the selected category", async () => {
     itemCategoryId = "CAT2";
+    const response = await request("customer-products", "POST", createInput());
+    expect(response.status).toBe(400);
+    expect(savedInsert).toBeNull();
+  });
+
+  it("rejects a selected category when the referenced item has no category", async () => {
+    itemCategoryId = null;
     const response = await request("customer-products", "POST", createInput());
     expect(response.status).toBe(400);
     expect(savedInsert).toBeNull();
@@ -431,21 +440,192 @@ describe("customer product routes", () => {
     });
   });
 
-  it("keeps the intentionally simplified size path for inline new order products", async () => {
+  it("keeps an unselected item category null and derives numeric-cylinder cutting for create and clone", async () => {
+    fixtureCategoryName = "Table cover";
+    const source = {
+      id: 7,
+      master_batch_id: null,
+      cliche_front_design: null,
+      cliche_back_design: null,
+      category_id: "CAT1",
+      size_caption: "historical source caption",
+    };
+    sourceProduct = structuredClone(source);
+
+    const unselectedCategoryProduct = {
+      ...createInput(),
+      category_id: null,
+      printing_cylinder: "8\"",
+      cutting_length_cm: 18,
+    };
+    const created = await request("customer-products", "POST", unselectedCategoryProduct);
+    expect(created.status).toBe(201);
+    expect(savedInsert).toMatchObject({
+      category_id: null,
+      item_id: "IT1",
+      cutting_length_cm: 20,
+      size_caption: "20+2+3X20",
+      is_printed: true,
+    });
+
+    const cloned = await request("customer-products", "POST", {
+      ...unselectedCategoryProduct,
+      clone_source_id: 7,
+    });
+    expect(cloned.status).toBe(201);
+    expect(savedInsert).toMatchObject({
+      category_id: null,
+      cutting_length_cm: 20,
+      size_caption: "20+2+3X20",
+    });
+    expect(savedInsert?.size_caption).not.toBe(source.size_caption);
+    expect(sourceProduct).toEqual(source);
+  });
+
+  const orderProductInput = () => ({
+    category_id: "CAT1",
+    item_id: "IT1",
+    width: "20",
+    left_facing: "2",
+    right_facing: "3",
+    thickness: "20",
+    density: "",
+    printing_cylinder: "8\"",
+    cutting_length_cm: 18,
+    raw_material: "LDPE",
+    master_batch_id: null,
+    cutting_unit: "automatic",
+    punching: "handle",
+    unit_weight_kg: "1.250",
+    unit_quantity: 4,
+    cliche_front_design: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`,
+    cliche_back_design: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64")}`,
+    front_print_colors: ["#112233", "Red"],
+    back_print_colors: ["#445566"],
+    notes: "draft product",
+  });
+
+  const createOrderWithProduct = (new_product: Record<string, any>) => ({
+    customer_id: "C1",
+    delivery_days: 5,
+    items: [{ quantity_kg: "10.00", new_product }],
+  });
+
+  it("creates full order draft products through the same normalized fields as standalone products", async () => {
     const response = await request("orders/with-items", "POST", {
-      customer_id: "C1",
-      delivery_days: 5,
-      items: [{
-        quantity_kg: "10.00",
-        new_product: { item_id: "IT1", category_id: "CAT1", size_caption: "20 x manual", width: "20", thickness: "10" },
-      }],
+      ...createOrderWithProduct(orderProductInput()),
     }, "manage_orders");
     expect(response.status).toBe(201);
     expect(savedInsert).toMatchObject({
-      size_caption: "20 x manual",
-      is_printed: false,
-      bag_weight_grams: null,
-      package_weight_kg: null,
+      customer_id: "C1",
+      category_id: "CAT1",
+      item_id: "IT1",
+      width: "20",
+      left_facing: "2",
+      right_facing: "3",
+      thickness: "20",
+      density: "0.95",
+      printing_cylinder: "8\"",
+      cutting_length_cm: 20,
+      raw_material: "LDPE",
+      master_batch_id: null,
+      cutting_unit: "automatic",
+      punching: "handle",
+      unit_weight_kg: "1.250",
+      unit_quantity: 4,
+      cliche_front_design: expect.stringContaining("data:image/png;base64,"),
+      cliche_back_design: expect.stringContaining("data:image/png;base64,"),
+      front_print_colors: ["#112233", "Red"],
+      back_print_colors: ["#445566"],
+      notes: "draft product",
+      size_caption: "20+2+3X20",
+      is_printed: true,
+      bag_weight_grams: "5",
+      bags_per_kilo: "211",
+      package_weight_kg: "5.00",
     });
+    expect(savedInsert).not.toHaveProperty("universal_thickness");
+  });
+
+  it("allows asymmetric facings after client confirmation but always blocks a sum at the width", async () => {
+    const accepted = await request("orders/with-items", "POST", createOrderWithProduct(orderProductInput()), "manage_orders");
+    expect(accepted.status).toBe(201);
+    expect(savedInsert).toMatchObject({ left_facing: "2", right_facing: "3" });
+
+    savedInsert = null;
+    const blocked = await request("orders/with-items", "POST", createOrderWithProduct({
+      ...orderProductInput(), left_facing: "10", right_facing: "10",
+    }), "manage_orders");
+    expect(blocked.status).toBe(400);
+    expect((await blocked.json()).message).toContain("مجموع الجانب الأيمن والجانب الأيسر");
+    expect(savedInsert).toBeNull();
+  });
+
+  it("keeps category and item optional for order draft products", async () => {
+    const response = await request("orders/with-items", "POST", createOrderWithProduct({}), "manage_orders");
+    expect(response.status).toBe(201);
+    expect(savedInsert).toMatchObject({ customer_id: "C1", is_printed: false });
+    expect(savedInsert).not.toHaveProperty("category_id");
+    expect(savedInsert).not.toHaveProperty("item_id");
+  });
+
+  it("does not infer category from an item for order draft products", async () => {
+    fixtureCategoryName = "Table cover";
+    const response = await request("orders/with-items", "POST", createOrderWithProduct({
+      ...orderProductInput(),
+      category_id: null,
+      printing_cylinder: "8\"",
+      cutting_length_cm: 18,
+    }), "manage_orders");
+    expect(response.status).toBe(201);
+    expect(savedInsert).toMatchObject({
+      category_id: null,
+      item_id: "IT1",
+      cutting_length_cm: 20,
+      size_caption: "20+2+3X20",
+      is_printed: true,
+    });
+  });
+
+  it("derives manual-cutting fields from the referenced category", async () => {
+    fixtureCategoryName = "Table cover";
+    const response = await request("orders/with-items", "POST", createOrderWithProduct({
+      ...orderProductInput(),
+      printing_cylinder: "بدون طباعة",
+      cutting_length_cm: 18,
+    }), "manage_orders");
+    expect(response.status).toBe(201);
+    expect(savedInsert).toMatchObject({
+      density: "0.95",
+      cutting_length_cm: 18,
+      size_caption: "20+2+3X18",
+      is_printed: false,
+    });
+  });
+
+  it.each([
+    ["forged customer", { ...orderProductInput(), customer_id: "OTHER" }],
+    ["forged computed field", { ...orderProductInput(), size_caption: "forged caption" }],
+    ["forged universal thickness", { ...orderProductInput(), universal_thickness: "99" }],
+  ])("rejects %s in an order draft product", async (_label, product) => {
+    const response = await request("orders/with-items", "POST", createOrderWithProduct(product), "manage_orders");
+    expect(response.status).toBe(400);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects order draft products with invalid references or image signatures", async () => {
+    itemCategoryId = "CAT2";
+    const wrongReference = await request("orders/with-items", "POST",
+      createOrderWithProduct(orderProductInput()), "manage_orders");
+    expect(wrongReference.status).toBe(400);
+    expect(savedInsert).toBeNull();
+
+    itemCategoryId = "CAT1";
+    const badImage = await request("orders/with-items", "POST", createOrderWithProduct({
+      ...orderProductInput(),
+      cliche_back_design: `data:image/png;base64,${Buffer.from("<html>").toString("base64")}`,
+    }), "manage_orders");
+    expect(badImage.status).toBe(400);
+    expect(savedInsert).toBeNull();
   });
 });

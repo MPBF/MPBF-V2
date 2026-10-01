@@ -159,18 +159,18 @@ async function validateCustomerProductReferences(tx: any, input: Record<string, 
   if (!input.customer_id) throw invalidProduct("يجب اختيار عميل صالح");
   const [customer] = await tx.select({ id: customers.id }).from(customers)
     .where(eq(customers.id, input.customer_id)).limit(1);
-  const [category] = input.category_id
-    ? await tx.select({ id: categories.id, name: categories.name, name_ar: categories.name_ar })
-      .from(categories).where(eq(categories.id, input.category_id)).limit(1)
-    : [null];
   const [item] = input.item_id
     ? await tx.select({ id: items.id, category_id: items.category_id })
       .from(items).where(eq(items.id, input.item_id)).limit(1)
     : [null];
+  const [category] = input.category_id
+    ? await tx.select({ id: categories.id, name: categories.name, name_ar: categories.name_ar })
+      .from(categories).where(eq(categories.id, input.category_id)).limit(1)
+    : [null];
   if (!customer) throw invalidProduct("العميل المحدد غير موجود");
   if (input.category_id && !category) throw invalidProduct("التصنيف المحدد غير موجود");
   if (input.item_id && !item) throw invalidProduct("الصنف المحدد غير موجود");
-  if (item && category && item.category_id !== input.category_id) {
+  if (item && input.category_id && item.category_id !== input.category_id) {
     throw invalidProduct("الصنف لا ينتمي إلى التصنيف المحدد");
   }
   if (input.master_batch_id) {
@@ -184,22 +184,44 @@ async function validateCustomerProductReferences(tx: any, input: Record<string, 
   return category ?? null;
 }
 
+async function createCustomerProductInTransaction(
+  tx: any,
+  rawProduct: unknown,
+  customerId: string,
+  options: {
+    oldBatchId?: string | null;
+    previousFrontImage?: unknown;
+    previousBackImage?: unknown;
+  } = {},
+) {
+  const product = normalizeCustomerProductInput(
+    customerProductInputSchema.omit({ customer_id: true }).parse(rawProduct),
+  );
+  product.customer_id = customerId;
+
+  const facingNotice = customerProductFacingNotice(product);
+  if (facingNotice?.kind === "blocking") throw invalidProduct(facingNotice.message);
+
+  const category = await validateCustomerProductReferences(tx, product, options.oldBatchId);
+  validateProductImage(product.cliche_front_design, options.previousFrontImage);
+  validateProductImage(product.cliche_back_design, options.previousBackImage);
+
+  const fields = deriveCustomerProductFields(
+    { ...product, density: product.density === undefined ? "0.95" : product.density },
+    `${category?.name_ar ?? ""} ${category?.name ?? ""}`,
+  );
+  return tx.insert(customer_products).values({
+    ...product,
+    ...fields,
+    status: product.status ?? "active",
+  }).returning();
+}
+
 const positiveKg = z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/, "الكمية يجب أن تكون بالكيلو وحتى منزلتين عشريتين")
   .refine((value) => Number(value) > 0, "الكمية يجب أن تكون أكبر من صفر");
-const optionalMeasure = (maxDigits: number) => z.string()
-  .regex(new RegExp(`^\\d{1,${maxDigits}}$`), "المقاس يجب أن يكون عددًا صحيحًا")
-  .refine((value) => Number(value) > 0, "قيمة المقاس يجب أن تكون أكبر من صفر")
-  .optional();
 const orderLineSchema = z.object({
   customer_product_id: z.number().int().positive().optional(),
-  new_product: z.object({
-    item_id: z.string().min(1).max(20),
-    category_id: z.string().max(20).optional(),
-    size_caption: z.string().trim().min(1).max(50),
-    width: optionalMeasure(6),
-    thickness: optionalMeasure(5),
-    raw_material: z.string().trim().max(20).optional(),
-  }).strict().optional(),
+  new_product: customerProductInputSchema.omit({ customer_id: true }).optional(),
   quantity_kg: positiveKg,
 }).strict();
 const validOrderLine = <T extends { customer_product_id?: number; new_product?: unknown }>(line: T) =>
@@ -517,27 +539,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
       for (const [index, line] of input.items.entries()) {
         let productId = line.customer_product_id;
         if (line.new_product) {
-          const product = line.new_product;
-          const [item] = await tx.select({ id: items.id, category_id: items.category_id })
-            .from(items).where(eq(items.id, product.item_id)).limit(1);
-          if (!item || (product.category_id && item.category_id && item.category_id !== product.category_id)) {
-            const error = new Error(`الصنف المحدد غير صالح في السطر ${index + 1}`);
-            (error as Error & { status: number }).status = 400;
-            throw error;
-          }
-          if (product.category_id && !(await tx.select({ id: categories.id }).from(categories)
-            .where(eq(categories.id, product.category_id)).limit(1)).length) {
-            const error = new Error(`التصنيف المحدد غير موجود في السطر ${index + 1}`);
-            (error as Error & { status: number }).status = 400;
-            throw error;
-          }
-          const [created] = await tx.insert(customer_products).values({
-            ...product,
-            ...deriveCustomerProductFields(product),
-            category_id: product.category_id || item.category_id || null,
-            customer_id: input.customer_id,
-            status: "active",
-          }).returning({ id: customer_products.id });
+          const [created] = await createCustomerProductInTransaction(tx, line.new_product, input.customer_id);
           productId = created.id;
         } else {
           const [existing] = await tx.select({ id: customer_products.id }).from(customer_products)
@@ -637,21 +639,7 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
       for (const line of input.items) {
         let productId = line.customer_product_id;
         if (line.new_product) {
-          const product = line.new_product;
-          const [item] = await tx.select({ id: items.id, category_id: items.category_id })
-            .from(items).where(eq(items.id, product.item_id)).limit(1);
-          if (!item || (product.category_id && item.category_id && item.category_id !== product.category_id)) {
-            throw orderError("نوع المنتج أو تصنيفه غير صالح", 400);
-          }
-          if (product.category_id && !(await tx.select({ id: categories.id }).from(categories)
-            .where(eq(categories.id, product.category_id)).limit(1)).length) {
-            throw orderError("تصنيف المنتج غير موجود", 400);
-          }
-          const [created] = await tx.insert(customer_products).values({
-            ...product, ...deriveCustomerProductFields(product),
-            category_id: product.category_id || item.category_id || null,
-            customer_id: order.customer_id, status: "active",
-          }).returning({ id: customer_products.id });
+          const [created] = await createCustomerProductInTransaction(tx, line.new_product, order.customer_id);
           productId = created.id;
         } else {
           const [product] = await tx.select({ id: customer_products.id }).from(customer_products)
@@ -916,14 +904,12 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
             }).from(customer_products).where(eq(customer_products.id, cloneSourceId)).limit(1);
             if (!cloneSource) throw invalidProduct("المنتج المصدر للنسخ غير موجود");
           }
-          const category = await validateCustomerProductReferences(tx, body, cloneSource?.master_batch_id);
-          validateProductImage(body.cliche_front_design, cloneSource?.cliche_front_design);
-          validateProductImage(body.cliche_back_design, cloneSource?.cliche_back_design);
-          const fields = deriveCustomerProductFields(
-            { ...body, density: body.density === undefined ? "0.95" : body.density },
-            `${category?.name_ar ?? ""} ${category?.name ?? ""}`,
-          );
-          return tx.insert(customer_products).values({ ...body, ...fields }).returning();
+          const { customer_id: customerId, ...product } = body;
+          return createCustomerProductInTransaction(tx, product, customerId, {
+            oldBatchId: cloneSource?.master_batch_id,
+            previousFrontImage: cloneSource?.cliche_front_design,
+            previousBackImage: cloneSource?.cliche_back_design,
+          });
         });
         return res.status(201).json(row[0]);
       }

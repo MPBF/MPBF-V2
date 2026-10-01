@@ -8,7 +8,11 @@ import { CustomerPicker, ProductValueSelect, PRODUCT_SELECT_VALUES, unitWeightLa
 import "./CustomerProductModal.css";
 
 type Row = Record<string, any>;
-type Props = { row: Record<string, any>; onClose: () => void; onSaved: () => void };
+type Props = {
+  row: Record<string, any>; onClose: () => void; onSaved: () => void;
+  fixedCustomerId?: string;
+  onDraftSaved?: (payload: ProductInput) => void;
+};
 type Options = { customers: Row[]; categories: Row[]; items: Row[]; colors: Row[]; cylinders: string[] };
 type Named = { key: keyof Options; path: string };
 type Side = "front" | "back";
@@ -53,8 +57,10 @@ async function loadAll(path: string, signal: AbortSignal): Promise<Row[]> {
 const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif"]);
 const idField = (side: Side) => side === "front" ? "cliche_front_design" : "cliche_back_design";
 
-export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
-  const [form, setForm] = useState<ProductInput>(() => initializeCustomerProductForm(row));
+export default function CustomerProductModal({ row, onClose, onSaved, fixedCustomerId, onDraftSaved }: Props) {
+  const [form, setForm] = useState<ProductInput>(() => initializeCustomerProductForm({
+    ...row, ...(fixedCustomerId ? { customer_id: fixedCustomerId } : {}),
+  }));
   const [options, setOptions] = useState<Options>({ customers: [], categories: [], items: [], colors: [], cylinders: [] });
   const [loading, setLoading] = useState(true);
   const [optionError, setOptionError] = useState("");
@@ -151,7 +157,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
 
   const close = () => { if (!saving) onClose(); };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") { if (colorOpen) { setColorOpen(false); event.stopPropagation(); return; } if (facingWarning) { setFacingWarning(""); modalRef.current?.querySelector<HTMLButtonElement>(".cp-save")?.focus(); event.stopPropagation(); return; } close(); return; }
+    if (event.key === "Escape") { event.stopPropagation(); if (colorOpen) { setColorOpen(false); return; } if (facingWarning) { setFacingWarning(""); modalRef.current?.querySelector<HTMLButtonElement>(".cp-save")?.focus(); return; } close(); return; }
     if (event.key !== "Tab" || !modalRef.current) return;
     const elements = [...modalRef.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter((el) => el.offsetParent !== null);
     if (!elements.length) return;
@@ -227,6 +233,10 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
     }
     saveLock.current = true; setSaving(true);
     try {
+      if (onDraftSaved) {
+        onDraftSaved(payload);
+        return;
+      }
       const response = await fetch(`/api/customer-products${row.id ? `/${encodeURIComponent(String(row.id))}` : ""}`, {
         method: row.id ? "PUT" : "POST", credentials: "include",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -271,7 +281,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
         {loading ? <div className="cp-loading" aria-label="جار تحميل الخيارات" aria-busy="true"><i /><i /><i /><i /></div> : <>
           <section className="cp-section"><h3 className="cp-section-title"><span>01</span>العميل والتصنيف</h3>
             <div className="cp-grid cp-three">
-               <div className="cp-field"><label htmlFor="cp-customer">العميل <b aria-hidden="true">*</b></label><CustomerPicker customers={options.customers} value={String(form.customer_id || "")} onChange={(id) => set("customer_id", id)} labelFor={customerName} /></div>
+               <div className="cp-field"><label htmlFor="cp-customer">العميل <b aria-hidden="true">*</b></label>{fixedCustomerId ? <input id="cp-customer" value={customerName(options.customers.find((customer) => String(customer.id) === fixedCustomerId) || {}) || fixedCustomerId} readOnly aria-readonly="true" /> : <CustomerPicker customers={options.customers} value={String(form.customer_id || "")} onChange={(id) => set("customer_id", id)} labelFor={customerName} />}{fixedCustomerId && <span className="cp-hint">عميل الطلب · لا يمكن تغييره من هنا</span>}</div>
               <div className="cp-field"><label htmlFor="cp-category">التصنيف</label><select id="cp-category" value={String(form.category_id || "")} onChange={(e) => changeCategory(e.target.value)}><option value="">غير محدد</option>{options.categories.map((c) => <option key={c.id} value={String(c.id)}>{name(c)} ({c.id})</option>)}{form.category_id && !category && <option value={String(form.category_id)}>التصنيف الحالي ({form.category_id}) — اختر تصنيفاً صالحاً</option>}</select></div>
                <div className="cp-field"><label htmlFor="cp-item">الصنف</label><select id="cp-item" disabled={!form.category_id} value={String(form.item_id || "")} onChange={(e) => set("item_id", e.target.value)}><option value="">{form.category_id ? "غير محدد" : "اختر التصنيف أولاً"}</option>{legacyUncategorizedItem && <option value={String(form.item_id)}>الصنف الحالي ({form.item_id}) — دون تصنيف</option>}{categoryItems.map((i) => <option key={i.id} value={String(i.id)}>{name(i)}{i.code ? ` (${i.code})` : ""}</option>)}{form.item_id && !itemValid && <option value={String(form.item_id)}>الصنف الحالي ({form.item_id}) — لا يتبع التصنيف</option>}</select>{!itemValid && <span className="cp-invalid">يرجى اختيار صنف ضمن التصنيف الحالي أو مسح الصنف.</span>}</div>
             </div>
@@ -330,7 +340,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
         </>}
         </fieldset>
       </form>
-      <div className="cp-footer"><span className="cp-footer-note"><CircleHelp size={13} /> الحقول المحسوبة للقراءة فقط · السماكة العامة غير مرسلة</span><div className="cp-actions"><button className="cp-cancel" type="button" onClick={close} disabled={saving}>إلغاء</button><button className="cp-save" type="submit" form="cp-form" disabled={saving || loading || Boolean(optionError)}>{saving ? <><LoaderCircle size={16} className="cp-spin" /> جارٍ الحفظ</> : <><Check size={16} />{row.id ? "حفظ التعديلات" : "إضافة المنتج"}</>}</button></div></div>
+      <div className="cp-footer"><span className="cp-footer-note"><CircleHelp size={13} /> {onDraftSaved ? "مسودة · يُحفظ المنتج عند حفظ الطلب" : "الحقول المحسوبة للقراءة فقط · السماكة العامة غير مرسلة"}</span><div className="cp-actions"><button className="cp-cancel" type="button" onClick={close} disabled={saving}>إلغاء</button><button className="cp-save" type="submit" form="cp-form" disabled={saving || loading || Boolean(optionError)}>{saving ? <><LoaderCircle size={16} className="cp-spin" /> جارٍ الحفظ</> : <><Check size={16} />{onDraftSaved ? "إضافة إلى الطلب" : row.id ? "حفظ التعديلات" : "إضافة المنتج"}</>}</button></div></div>
     </div>
   </div>;
 }

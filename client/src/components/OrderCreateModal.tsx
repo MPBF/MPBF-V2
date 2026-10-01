@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Keybo
 import { AlertCircle, Boxes, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import "./OrderCreateModal.css";
 import CustomerProductSelect from "./CustomerProductSelect";
+import CustomerProductModal from "./CustomerProductModal";
+import { deriveCustomerProductFields, type ProductInput } from "../../../shared/customer-product-fields";
+import { validateCustomerProductForm } from "./customer-product-form";
 
 type Row = Record<string, any>;
 type OrderLine = {
@@ -12,12 +15,7 @@ type OrderLine = {
   mode: "existing" | "new";
   customerProductId: string;
   quantityKg: string;
-  categoryId: string;
-  itemId: string;
-  sizeCaption: string;
-  width: string;
-  thickness: string;
-  rawMaterial: string;
+  newProduct?: ProductInput;
 };
 type ChoiceState = { values: Row[]; loading: boolean; error: string };
 
@@ -26,12 +24,6 @@ const freshLine = (key: number): OrderLine => ({
   mode: "existing",
   customerProductId: "",
   quantityKg: "",
-  categoryId: "",
-  itemId: "",
-  sizeCaption: "",
-  width: "",
-  thickness: "",
-  rawMaterial: "",
 });
 
 const getRows = (payload: any): Row[] => {
@@ -128,7 +120,7 @@ const productLabel = (product: Row) => {
     thickness ? `سماكة ${thickness} µ` : "",
     product.raw_material ? `الخام: ${product.raw_material}` : "",
   ].filter(Boolean);
-  return details.join(" · ") || `منتج رقم ${product.id}`;
+  return details.join(" · ") || (product.id ? `منتج رقم ${product.id}` : "منتج جديد");
 };
 
 function Alert({ children, info = false }: { children: ReactNode; info?: boolean }) {
@@ -242,7 +234,6 @@ function CustomerSearchSelect({ customers, selectedId, onSelect, disabled }: {
 export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?: number; onClose: () => void; onSaved: () => void }) {
   const [customers, setCustomers] = useState<ChoiceState>({ values: [], loading: true, error: "" });
   const [categories, setCategories] = useState<ChoiceState>({ values: [], loading: true, error: "" });
-  const [items, setItems] = useState<ChoiceState>({ values: [], loading: true, error: "" });
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [customerProducts, setCustomerProducts] = useState<Row[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
@@ -262,6 +253,18 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [productEditorKey, setProductEditorKey] = useState<number | null>(null);
+  const orderPanelRef = useRef<HTMLElement>(null);
+  const productReturnFocus = useRef<HTMLElement | null>(null);
+  const activeProductLine = lines.find((line) => line.key === productEditorKey);
+
+  useEffect(() => {
+    orderPanelRef.current?.toggleAttribute("inert", productEditorKey !== null);
+    if (productEditorKey === null) {
+      productReturnFocus.current?.focus();
+      productReturnFocus.current = null;
+    }
+  }, [productEditorKey]);
 
   useEffect(() => {
     if (editId) return;
@@ -315,7 +318,6 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     };
     void loadChoices("/api/customers", setCustomers);
     void loadChoices("/api/categories", setCategories);
-    void loadChoices("/api/items", setItems);
     return () => { active = false; };
   }, [reloadOptions]);
 
@@ -347,14 +349,18 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !savingRef.current) onClose();
+      if (event.key === "Escape" && productEditorKey === null && !savingRef.current) onClose();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, productEditorKey]);
 
   const updateLine = (key: number, patch: Partial<OrderLine>) => {
     setLines((current) => current.map((line) => line.key === key ? { ...line, ...patch } : line));
+  };
+  const openProductEditor = (key: number) => {
+    productReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setProductEditorKey(key);
   };
 
   const addLine = () => {
@@ -366,7 +372,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const changeCustomer = (value: string) => {
     if (editId) return;
     setSelectedCustomer(value);
-    setLines((current) => current.map((line) => ({ ...line, customerProductId: "" })));
+    setLines((current) => current.map((line) => ({ ...line, mode: "existing", customerProductId: "", newProduct: undefined })));
   };
 
   const retryProducts = () => {
@@ -375,10 +381,10 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (savingRef.current) return;
+    if (savingRef.current || productEditorKey !== null) return;
     setError("");
     if (detailsLoading || detailsError) return;
-    const normalizedLines = lines.map((line) => ({ ...line, quantityKg: normalizeDigits(line.quantityKg), width: normalizeDigits(line.width), thickness: normalizeDigits(line.thickness) }));
+    const normalizedLines = lines.map((line) => ({ ...line, quantityKg: normalizeDigits(line.quantityKg) }));
     if (!selectedCustomer) {
       setError("يرجى اختيار العميل.");
       return;
@@ -404,27 +410,14 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
         return;
       }
       if (line.mode === "new") {
-        if (!line.categoryId) {
-          setError(`اختر تصنيف المنتج للبند ${index + 1}.`);
+        if (!line.newProduct) {
+          setError(`أكمل نموذج المنتج الجديد للبند ${index + 1}.`);
           return;
         }
-        if (!line.itemId || !items.values.some((item) => String(item.id) === line.itemId && String(item.category_id ?? item.categoryId ?? "") === line.categoryId)) {
-          setError(`اختر نوع منتج من التصنيف المحدد للبند ${index + 1}.`);
+        const productError = validateCustomerProductForm({ ...line.newProduct, customer_id: selectedCustomer });
+        if (productError) {
+          setError(`منتج البند ${index + 1}: ${productError}`);
           return;
-        }
-        if (!line.sizeCaption.trim()) {
-          setError(`أدخل مقاس المنتج للبند ${index + 1}.`);
-          return;
-        }
-        for (const [value, maximum, label] of [
-          [line.width, 999999, "العرض"],
-          [line.thickness, 99999, "السماكة"],
-        ] as const) {
-          const numberText = value.trim();
-          if (numberText && (!/^\d+$/.test(numberText) || Number(numberText) <= 0 || Number(numberText) > maximum)) {
-            setError(`${label} للبند ${index + 1} يجب أن يكون رقماً صحيحاً موجباً لا يتجاوز ${maximum}.`);
-            return;
-          }
         }
       }
     }
@@ -435,24 +428,20 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
         ...(editId ? { status, original_items: originalItems } : { customer_id: selectedCustomer }),
         delivery_days: normalizedDeliveryDays,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
-        items: normalizedLines.map((line) => ({
+        items: normalizedLines.map((line) => {
+          const { customer_id: _customerId, ...draft } = line.newProduct || {};
+          return {
           ...(editId && line.id ? { id: line.id } : {}),
           ...(line.mode === "existing"
             ? { customer_product_id: Number(line.customerProductId) }
-            : {
-                new_product: {
-                  ...(line.categoryId ? { category_id: line.categoryId } : {}),
-                  item_id: line.itemId,
-                  size_caption: line.sizeCaption.trim(),
-                  ...(line.width.trim() ? { width: line.width.trim() } : {}),
-                  ...(line.thickness.trim() ? { thickness: line.thickness.trim() } : {}),
-                  ...(line.rawMaterial.trim() ? { raw_material: line.rawMaterial.trim() } : {}),
-                },
-              }),
+            : { new_product: draft }),
           quantity_kg: line.quantityKg.trim().replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace(",", "."),
-        })),
+          };
+        }),
       };
-      await readApi(editId ? `/api/orders/${editId}/with-items` : "/api/orders/with-items", { method: editId ? "PUT" : "POST", body: JSON.stringify(payload) });
+      const body = JSON.stringify(payload);
+      if (new Blob([body]).size > 16 * 1024 * 1024) throw new Error("حجم بيانات وتصاميم الطلب مجتمعة يتجاوز 16 ميغابايت. قلّل حجم الصور أو استخدم منتجات مسجلة.");
+      await readApi(editId ? `/api/orders/${editId}/with-items` : "/api/orders/with-items", { method: editId ? "PUT" : "POST", body });
       onSaved();
     } catch (e) {
       setError((e as Error).message || "تعذر حفظ الطلب.");
@@ -462,10 +451,10 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     }
   };
 
-  const baseOptionErrors = [customers.error, categories.error, items.error].filter(Boolean);
+  const baseOptionErrors = [customers.error, categories.error].filter(Boolean);
   return (
-    <div className="order-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
-      <section className="order-create-modal" role="dialog" aria-modal="true" aria-labelledby="order-create-title">
+    <div className="order-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && productEditorKey === null && onClose()}>
+      <section ref={orderPanelRef} className="order-create-modal" role="dialog" aria-modal={productEditorKey === null} aria-hidden={productEditorKey !== null ? true : undefined} aria-labelledby="order-create-title">
         <header className="order-create-head">
           <div className="order-create-heading">
             <span className="order-create-mark" aria-hidden="true"><ClipboardList size={21} /></span>
@@ -546,9 +535,6 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
 
             <div className="order-lines">
               {lines.map((line, index) => {
-                const matchingItems = line.categoryId
-                  ? items.values.filter((item) => String(item.category_id ?? item.categoryId ?? "") === line.categoryId)
-                  : [];
                 return (
                   <article className="order-line-card" key={line.key} aria-label={`بند رقم ${index + 1}`}>
                     <div className="order-line-top">
@@ -557,8 +543,8 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                     </div>
 
                     <div className="order-product-mode" role="group" aria-label={`مصدر المنتج للبند ${index + 1}`}>
-                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", categoryId: "", itemId: "", sizeCaption: "", width: "", thickness: "", rawMaterial: "" })} disabled={saving || line.locked}>منتج مسجل</button>
-                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => updateLine(line.key, { mode: "new", customerProductId: "" })} disabled={saving || line.locked}>منتج جديد</button>
+                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", newProduct: undefined })} disabled={saving || line.locked}>منتج مسجل</button>
+                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => openProductEditor(line.key)} disabled={saving || line.locked || !selectedCustomer}>منتج جديد</button>
                     </div>
 
                     <div className="order-line-grid" style={{ marginTop: 11 }}>
@@ -577,11 +563,16 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                         </div>
                       ) : (
                         <div className="order-line-field order-line-product">
-                          <label htmlFor={`order-category-${line.key}`}>تصنيف المنتج <span aria-hidden="true">*</span></label>
-                          <select id={`order-category-${line.key}`} value={line.categoryId} onChange={(event) => updateLine(line.key, { categoryId: event.target.value, itemId: "" })} required disabled={saving || categories.loading || Boolean(categories.error)}>
-                            <option value="">{categories.loading ? "جارٍ تحميل التصنيفات…" : "اختر التصنيف"}</option>
-                            {categories.values.map((category, categoryIndex) => <option key={category.id ?? categoryIndex} value={category.id}>{labelFor(category)}</option>)}
-                          </select>
+                          <label>منتج جديد · مسودة</label>
+                          <div className="order-product-draft">
+                            <span>{line.newProduct ? productLabel({
+                              ...line.newProduct,
+                              ...deriveCustomerProductFields(line.newProduct, labelFor(categories.values.find((category) => String(category.id) === String(line.newProduct?.category_id)) || {})),
+                              category_name_ar: labelFor(categories.values.find((category) => String(category.id) === String(line.newProduct?.category_id)) || {}),
+                            }) : "أكمل بيانات المنتج"}</span>
+                            <button type="button" onClick={() => openProductEditor(line.key)} disabled={saving || line.locked}>تعديل المنتج</button>
+                          </div>
+                          <small className="order-create-hint">يُحفظ المنتج مع الطلب، ويظهر بعدها ضمن منتجات العميل.</small>
                         </div>
                       )}
                       <div className="order-line-field order-line-quantity">
@@ -593,39 +584,11 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                       </div>
                     </div>
 
-                    {line.mode === "new" && (
-                      <div className="order-new-product">
-                        <div className="order-line-field">
-                          <label htmlFor={`order-new-item-${line.key}`}>نوع المنتج <span aria-hidden="true">*</span></label>
-                          <select id={`order-new-item-${line.key}`} value={line.itemId} onChange={(event) => updateLine(line.key, { itemId: event.target.value })} required disabled={saving || !line.categoryId || items.loading || Boolean(items.error) || matchingItems.length === 0}>
-                            <option value="">{!line.categoryId ? "اختر التصنيف أولاً" : items.loading ? "جارٍ تحميل الأنواع…" : matchingItems.length === 0 ? "لا توجد أنواع في هذا التصنيف" : "اختر نوع المنتج"}</option>
-                            {matchingItems.map((item, itemIndex) => <option key={item.id ?? itemIndex} value={item.id}>{labelFor(item)}</option>)}
-                          </select>
-                        </div>
-                        <div className="order-line-field">
-                          <label htmlFor={`order-size-${line.key}`}>المقاس <span aria-hidden="true">*</span></label>
-                           <input id={`order-size-${line.key}`} type="text" maxLength={50} value={line.sizeCaption} onChange={(event) => updateLine(line.key, { sizeCaption: event.target.value })} placeholder="مثال: 30 × 40" required disabled={saving} />
-                        </div>
-                        <div className="order-line-field">
-                          <label htmlFor={`order-width-${line.key}`}>العرض</label>
-                           <input id={`order-width-${line.key}`} type="number" min="1" max="999999" step="1" value={line.width} onChange={(event) => updateLine(line.key, { width: event.target.value })} placeholder="سم · اختياري" disabled={saving} />
-                        </div>
-                        <div className="order-line-field">
-                          <label htmlFor={`order-thickness-${line.key}`}>السماكة</label>
-                           <input id={`order-thickness-${line.key}`} type="number" min="1" max="99999" step="1" value={line.thickness} onChange={(event) => updateLine(line.key, { thickness: event.target.value })} placeholder="ميكرون · اختياري" disabled={saving} />
-                        </div>
-                        <div className="order-line-field order-create-field-wide">
-                          <label htmlFor={`order-raw-material-${line.key}`}>الخامة</label>
-                           <input id={`order-raw-material-${line.key}`} type="text" maxLength={20} value={line.rawMaterial} onChange={(event) => updateLine(line.key, { rawMaterial: event.target.value })} placeholder="اختياري" disabled={saving} />
-                        </div>
-                      </div>
-                    )}
                   </article>
                 );
               })}
             </div>
              <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} /> إضافة بند آخر</button>
-            {lineOptionsIssue(categories, items) && <p className="order-create-inline-note">{lineOptionsIssue(categories, items)}</p>}
           </section>
 
           <section className="order-create-section order-notes-section" aria-labelledby="order-notes-heading">
@@ -647,13 +610,17 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
           </footer>
         </form>
       </section>
+      {activeProductLine && selectedCustomer && <CustomerProductModal
+        key={activeProductLine.key}
+        row={activeProductLine.newProduct || {}}
+        fixedCustomerId={selectedCustomer}
+        onClose={() => setProductEditorKey(null)}
+        onSaved={() => {}}
+        onDraftSaved={(product) => {
+          updateLine(activeProductLine.key, { mode: "new", customerProductId: "", newProduct: product });
+          setProductEditorKey(null);
+        }}
+      />}
     </div>
   );
-}
-
-function lineOptionsIssue(categories: ChoiceState, items: ChoiceState) {
-  const messages = [];
-  if (categories.error) messages.push("تعذر تحميل التصنيفات؛ أعد تحميل الخيارات لإضافة منتج جديد.");
-  if (items.error) messages.push("تعذر تحميل أنواع المنتجات؛ أعد تحميل الخيارات للمتابعة.");
-  return messages.join(" ");
 }
