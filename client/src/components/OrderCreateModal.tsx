@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AlertCircle, Boxes, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import "./OrderCreateModal.css";
+import CustomerProductSelect from "./CustomerProductSelect";
 
 type Row = Record<string, any>;
 type OrderLine = {
@@ -564,10 +565,15 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                       {line.mode === "existing" ? (
                         <div className="order-line-field order-line-product">
                           <label htmlFor={`order-product-${line.key}`}>منتج العميل <span aria-hidden="true">*</span></label>
-                          <select id={`order-product-${line.key}`} value={line.customerProductId} onChange={(event) => updateLine(line.key, { customerProductId: event.target.value })} required disabled={saving || line.locked || !selectedCustomer || productsLoading || Boolean(productsError)}>
-                            <option value="">اختر منتجاً</option>
-                            {customerProducts.map((product, productIndex) => <option key={product.id ?? productIndex} value={product.id}>{productLabel(product)}</option>)}
-                          </select>
+                          <CustomerProductSelect
+                            id={`order-product-${line.key}`}
+                            products={customerProducts}
+                            categories={categories.values}
+                            selectedId={line.customerProductId}
+                            onSelect={(customerProductId) => updateLine(line.key, { customerProductId })}
+                            labelFor={productLabel}
+                            disabled={saving || Boolean(line.locked) || !selectedCustomer || productsLoading || Boolean(productsError)}
+                          />
                         </div>
                       ) : (
                         <div className="order-line-field order-line-product">

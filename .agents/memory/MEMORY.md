@@ -61,3 +61,4 @@
 - [Unfinished Git merges](unfinished-git-merges.md) — when conflicts recur after a passing preview, check MERGE_HEAD and resolve/complete the merge, not just the working tree.
 - [Order delivery calendar days](order-delivery-calendar-days.md) — delivery is based on the original order day in Riyadh; preserve editable historical dates after they pass.
 - [Mixed item identifier prefixes](mixed-item-identifiers.md) — preserve legacy ITEM and ITM IDs; allocate new items in the dominant ITM series and sort naturally within each prefix.
+- [Responsive browser focus testing](responsive-browser-testing.md) — run focus-dependent iframe checks sequentially; concurrent frames steal focus and falsely close dropdowns.
