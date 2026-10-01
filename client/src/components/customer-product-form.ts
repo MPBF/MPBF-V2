@@ -1,4 +1,4 @@
-import { deriveCustomerProductFields, isManualCuttingProduct, type ProductInput } from "../../../shared/customer-product-fields";
+import { customerProductFacingNotice, deriveCustomerProductFields, isManualCuttingProduct, type ProductInput } from "../../../shared/customer-product-fields";
 
 export type CustomerProductRow = Record<string, any>;
 export type CustomerProductValidationOptions = {
@@ -113,7 +113,8 @@ export function validateCustomerProductForm(
   if (form.unit_quantity !== "" && form.unit_quantity != null && (!whole(form.unit_quantity) || Number(form.unit_quantity) <= 0)) return "كمية العبوة يجب أن تكون عدداً صحيحاً موجباً.";
   if (options.validateCuttingLength !== false && form.cutting_length_cm !== "" && form.cutting_length_cm != null &&
     (!whole(form.cutting_length_cm) || Number(form.cutting_length_cm) <= 0)) return "طول القطع يجب أن يكون عدداً صحيحاً موجباً.";
-  return null;
+  const facingNotice = customerProductFacingNotice(form);
+  return facingNotice?.kind === "blocking" ? facingNotice.message : null;
 }
 
 /**

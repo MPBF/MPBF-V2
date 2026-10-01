@@ -62,6 +62,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     };
     const save = async () => {
       await page.locator(".cp-save").click();
+      if (await page.getByRole("button", { name: "الاستمرار في الحفظ" }).count()) {
+        await page.getByRole("button", { name: "الاستمرار في الحفظ" }).click();
+      }
       await page.waitForFunction(() => window.saved === true);
     };
     for (const width of [390, 768, 1024]) {
@@ -137,6 +140,16 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
         await page.locator(".cp-body").evaluate((el) => el.scrollTop = 0);
         await page.screenshot({ path: "/tmp/customer-product-dropdowns-desktop.png" });
       }
+      await page.locator("#cp-left").selectOption("4");
+      const writesBeforeWarning = writes.length;
+      await page.locator(".cp-save").click();
+      const warning = page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" });
+      await warning.waitFor();
+      assert.equal(writes.length, writesBeforeWarning);
+      assert(await warning.evaluate((el) => el.scrollWidth <= el.clientWidth + 1));
+      if (width === 1024) await page.screenshot({ path: "/tmp/customer-product-facing-warning-desktop.png" });
+      await page.getByRole("button", { name: "العودة للتعديل" }).click();
+      await page.locator("#cp-left").selectOption("5");
       await save();
       assert.equal(writes.at(-1).body.customer_id, "1");
       assert.equal(writes.at(-1).body.cutting_length_cm, 50);
@@ -151,6 +164,34 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await page.locator("#cp-cut-length").selectOption("0");
     await save();
     assert.equal(writes.at(-1).body.cutting_length_cm, null);
+    await open(1024, { customer_id: 1 });
+    await page.locator("#cp-width").selectOption("30");
+    await page.locator("#cp-right").selectOption("5");
+    await page.locator("#cp-left").selectOption("4");
+    const beforeWarning = writes.length;
+    await page.locator(".cp-save").click();
+    await page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" }).waitFor();
+    assert.equal(writes.length, beforeWarning);
+    await page.getByRole("button", { name: "العودة للتعديل" }).click();
+    await page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" }).waitFor({ state: "detached" });
+    assert.equal(await page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" }).count(), 0);
+    assert.equal(writes.length, beforeWarning);
+    await page.locator(".cp-save").click();
+    await page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" }).waitFor();
+    await page.locator("#cp-left").selectOption("5");
+    await page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" }).waitFor({ state: "detached" });
+    assert.equal(await page.getByRole("alert", { name: "تنبيه اختلاف الجانبين" }).count(), 0);
+    await page.locator("#cp-width").selectOption("10");
+    await page.locator(".cp-save").click();
+    await page.getByRole("alert").filter({ hasText: "مجموع الجانب الأيمن والجانب الأيسر" }).waitFor();
+    assert.equal(writes.length, beforeWarning);
+    assert.equal(await page.getByRole("button", { name: "الاستمرار في الحفظ" }).count(), 0);
+    await page.locator("#cp-right").selectOption("6");
+    await page.locator(".cp-save").click();
+    assert.equal(writes.length, beforeWarning);
+    await page.locator("#cp-width").selectOption("30");
+    await save();
+    assert.equal(writes.length, beforeWarning + 1);
     const historic = { id: 17, customer_id: 1, width: "150", right_facing: "55", left_facing: "52", thickness: "80", density: "0.92", cutting_length_cm: 350, cutting_unit: "بندل", unit_weight_kg: "4.125", unit_quantity: 40, notes: "قديم", punching: "بدون", status: "active", front_print_colors: [], back_print_colors: [] };
     await open(1024, historic);
     for (const [id, value] of [["cp-width", "150"], ["cp-right", "55"], ["cp-left", "52"], ["cp-thickness", "80"], ["cp-density", "0.92"], ["cp-cut-length", "350"], ["cp-cut-unit", "بندل"], ["cp-unit-weight", "4.125"], ["cp-unit-quantity", "40"]]) {

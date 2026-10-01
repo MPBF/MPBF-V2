@@ -191,6 +191,28 @@ describe("customer product routes", () => {
     expect(savedInsert).not.toHaveProperty("item_id");
   });
 
+  it.each(["10", "11"])("blocks new products when the facing sum meets or exceeds width %s", async (right) => {
+    const response = await request("customer-products", "POST", {
+      ...createInput(), width: "20", left_facing: "10", right_facing: right,
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).message).toContain("مجموع الجانب الأيمن والجانب الأيسر");
+    expect(savedInsert).toBeNull();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+  it("checks partial updates against the locked, merged product, not the patch alone", async () => {
+    currentProduct = { id: 5, ...createInput() };
+    const response = await request("customer-products/5", "PUT", { left_facing: "17" });
+    expect(response.status).toBe(400);
+    expect(savedUpdate).toBeNull();
+  });
+  it("blocks unrelated edits on an existing product whose facing sum is already invalid", async () => {
+    currentProduct = { id: 5, ...createInput(), width: "5" };
+    const response = await request("customer-products/5", "PUT", { notes: "unchanged invalid dimensions" });
+    expect(response.status).toBe(400);
+    expect(savedUpdate).toBeNull();
+  });
+
   it("normalizes a blank density to the same 0.95 value used by shared calculations", async () => {
     const response = await request("customer-products", "POST", { ...createInput(), density: null });
     expect(response.status).toBe(201);

@@ -51,6 +51,23 @@ function nonnegativeNumber(value: unknown): number | null {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
 }
 
+/** Blank facings mean zero; a missing width cannot establish the sum limit. */
+export function customerProductFacingNotice(input: ProductInput): {
+  kind: "blocking" | "warning"; message: string;
+} | null {
+  const left = nonnegativeNumber(input.left_facing);
+  const right = nonnegativeNumber(input.right_facing);
+  if (left === null || right === null) return null;
+  const width = positiveNumber(input.width);
+  if (width !== null && left + right >= width) {
+    return { kind: "blocking", message: "لا يمكن الحفظ: مجموع الجانب الأيمن والجانب الأيسر يساوي العرض أو يزيد عليه. يجب أن يكون مجموع الجانبين أقل من العرض." };
+  }
+  if (left !== right) {
+    return { kind: "warning", message: "الجانب الأيمن لا يساوي الجانب الأيسر. هل تريد الاستمرار في الحفظ بهذه القيم؟" };
+  }
+  return null;
+}
+
 export function deriveCustomerProductFields(
   input: ProductInput,
   categoryName?: string,

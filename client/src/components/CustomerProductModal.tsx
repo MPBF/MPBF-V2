@@ -1,7 +1,7 @@
 import { AlertCircle, Check, ChevronDown, CircleHelp, FileImage, LoaderCircle, Package, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type SyntheticEvent, type KeyboardEvent } from "react";
 
-import { PRINTING_CYLINDERS, deriveCustomerProductFields, isManualCuttingProduct, punchingOptions, type ProductInput } from "../../../shared/customer-product-fields";
+import { PRINTING_CYLINDERS, customerProductFacingNotice, deriveCustomerProductFields, isManualCuttingProduct, punchingOptions, type ProductInput } from "../../../shared/customer-product-fields";
 
 import { buildCustomerProductDirtyPayload, buildCustomerProductPayload, customerProductSourcesChanged, initializeCustomerProductForm, validateCustomerProductForm } from "./customer-product-form";
 import { CustomerPicker, ProductValueSelect, PRODUCT_SELECT_VALUES, unitWeightLabel } from "./customer-product-controls";
@@ -59,6 +59,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true);
   const [optionError, setOptionError] = useState("");
   const [error, setError] = useState("");
+  const [facingWarning, setFacingWarning] = useState("");
   const [saving, setSaving] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [imageStatus, setImageStatus] = useState<Record<Side, ImageStatus>>({ front: { loading: false, error: "" }, back: { loading: false, error: "" } });
@@ -73,6 +74,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
   const fileTokens = useRef<Record<Side, number>>({ front: 0, back: 0 });
   const live = useRef(true);
   const saveLock = useRef(false);
+  const warningRef = useRef<HTMLDivElement>(null);
   const titleId = "customer-product-title";
 
   useEffect(() => {
@@ -85,6 +87,12 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
     const timer = window.setTimeout(() => modalRef.current?.querySelector<HTMLElement>("button, input, select, textarea")?.focus(), 0);
     return () => { window.clearTimeout(timer); returnFocus.current?.focus(); };
   }, []);
+  useEffect(() => {
+    if (facingWarning) warningRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [facingWarning]);
+  useEffect(() => {
+    setFacingWarning("");
+  }, [form.left_facing, form.right_facing, form.width]);
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {
@@ -143,7 +151,7 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
 
   const close = () => { if (!saving) onClose(); };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") { if (colorOpen) { setColorOpen(false); event.stopPropagation(); return; } close(); return; }
+    if (event.key === "Escape") { if (colorOpen) { setColorOpen(false); event.stopPropagation(); return; } if (facingWarning) { setFacingWarning(""); modalRef.current?.querySelector<HTMLButtonElement>(".cp-save")?.focus(); event.stopPropagation(); return; } close(); return; }
     if (event.key !== "Tab" || !modalRef.current) return;
     const elements = [...modalRef.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')].filter((el) => el.offsetParent !== null);
     if (!elements.length) return;
@@ -189,10 +197,11 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
     set(key, normalizeColors(form[key]).filter((_, i) => i !== index));
   };
 
-  const save = async (event: FormEvent) => {
+  const save = async (event: SyntheticEvent, confirmUnequalSides = false) => {
     event.preventDefault();
     if (saveLock.current) return;
     setError("");
+    setFacingWarning("");
     if (loading || optionError) { setError("حمّل خيارات النموذج بنجاح قبل الحفظ."); return; }
     const validation = validateCustomerProductForm(form, {
       customers: options.customers,
@@ -210,6 +219,11 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
     });
     if (payload.cutting_length_cm != null && (!Number.isInteger(payload.cutting_length_cm) || payload.cutting_length_cm <= 0)) {
       setError("طول القطع يجب أن يكون عدداً صحيحاً موجباً."); return;
+    }
+    const facingNotice = customerProductFacingNotice(form);
+    if (facingNotice?.kind === "warning" && !confirmUnequalSides) {
+      setFacingWarning(facingNotice.message);
+      return;
     }
     saveLock.current = true; setSaving(true);
     try {
@@ -245,6 +259,13 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
       <div className="cp-head"><div className="cp-title"><span className="cp-mark"><Package size={20} /></span><div><h2 id={titleId}>{row.id ? "تعديل منتج العميل" : "إضافة منتج عميل"}</h2><p>{row.id ? "حدّث مواصفات المنتج مع الحفاظ على القيم الحالية." : "عرّف المقاس والطباعة والتعبئة بدقة."}</p></div></div><button className="cp-close" type="button" aria-label="إغلاق النافذة" onClick={close} disabled={saving}><X size={19} /></button></div>
       {optionError && <div className="cp-options-state" role="alert"><AlertCircle size={15} /> تعذر تحميل خيارات النموذج. <button type="button" onClick={() => setRetryIndex((v) => v + 1)}>إعادة المحاولة</button><span className="cp-invalid">{optionError}</span></div>}
       {error && <div className="cp-error" role="alert">{error}</div>}
+      {facingWarning && <div className="cp-facing-warning" ref={warningRef} role="alert" aria-label="تنبيه اختلاف الجانبين">
+        <p><AlertCircle size={16} aria-hidden="true" />{facingWarning}</p>
+        <div className="cp-warning-actions">
+          <button type="button" onClick={() => { setFacingWarning(""); modalRef.current?.querySelector<HTMLSelectElement>("#cp-right")?.focus(); }}>العودة للتعديل</button>
+          <button type="button" onClick={(event) => void save(event, true)}>الاستمرار في الحفظ</button>
+        </div>
+      </div>}
       <form id="cp-form" className="cp-body" onSubmit={save} noValidate>
         <fieldset className="cp-fields" disabled={saving}>
         {loading ? <div className="cp-loading" aria-label="جار تحميل الخيارات" aria-busy="true"><i /><i /><i /><i /></div> : <>

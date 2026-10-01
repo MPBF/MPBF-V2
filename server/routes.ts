@@ -37,7 +37,7 @@ import { nextCategoryId } from "./category-id";
 import { nextItemId } from "./item-id";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
-import { deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
+import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import hr from "./hr";
 import selfService from "./self-service";
@@ -903,6 +903,8 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         const cloneSourceId = z.number().int().positive().optional().parse(input.clone_source_id);
         const { clone_source_id: _cloneSourceMetadata, ...productInput } = input;
         const body = normalizeCustomerProductInput(parsed(customerProductInputSchema, productInput));
+        const facingNotice = customerProductFacingNotice(body);
+        if (facingNotice?.kind === "blocking") throw invalidProduct(facingNotice.message);
         const row = await db.transaction(async (tx) => {
           let cloneSource: Record<string, any> | null = null;
           if (cloneSourceId !== undefined) {
@@ -997,6 +999,8 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
             .where(eq(customer_products.id, key as number)).for("update").limit(1);
           if (!current) return null;
           const merged = { ...current, ...input };
+          const facingNotice = customerProductFacingNotice(merged);
+          if (facingNotice?.kind === "blocking") throw invalidProduct(facingNotice.message);
           const category = await validateCustomerProductReferences(tx, merged, current.master_batch_id);
           validateProductImage(merged.cliche_front_design, current.cliche_front_design);
           validateProductImage(merged.cliche_back_design, current.cliche_back_design);
