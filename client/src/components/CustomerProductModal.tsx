@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent,
 import { PRINTING_CYLINDERS, deriveCustomerProductFields, isManualCuttingProduct, punchingOptions, type ProductInput } from "../../../shared/customer-product-fields";
 
 import { buildCustomerProductDirtyPayload, buildCustomerProductPayload, customerProductSourcesChanged, initializeCustomerProductForm, validateCustomerProductForm } from "./customer-product-form";
-import { CustomerPicker, ProductValueSelect, PRODUCT_SELECT_VALUES } from "./customer-product-controls";
+import { CustomerPicker, ProductValueSelect, PRODUCT_SELECT_VALUES, unitWeightLabel } from "./customer-product-controls";
 import "./CustomerProductModal.css";
 
 type Row = Record<string, any>;
@@ -271,11 +271,10 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
             </div>
           </section>
           <section className="cp-section"><h3 className="cp-section-title"><span>03</span>الطباعة والقطع</h3>
-            <div className="cp-grid">
+            <div className="cp-grid cp-three">
               <div className="cp-field"><label htmlFor="cp-cylinder">سلندر الطباعة</label><select id="cp-cylinder" value={String(form.printing_cylinder || "")} onChange={(e) => changeCylinder(e.target.value)}><option value="">بدون سلندر</option>{options.cylinders.map((v) => <option key={v} value={v}>{v}</option>)}{form.printing_cylinder && !options.cylinders.includes(String(form.printing_cylinder)) && <option value={String(form.printing_cylinder)}>القيمة الحالية: {String(form.printing_cylinder)}</option>}</select></div>
                <ProductValueSelect label="طول القطع (سم)" id="cp-cut-length" value={manualCut ? form.cutting_length_cm : automaticCutLength ?? ""} values={PRODUCT_SELECT_VALUES.cuttingLength} onChange={(v) => { setUserCutChanged(true); set("cutting_length_cm", v); }} zeroMeansUnset disabled={!manualCut} hint={manualCut ? "من 0 إلى 300 · 0 = غير محدد" : "يُحسب من محيط السلندر"} />
               <div className="cp-field"><label>حالة الطباعة</label><div className="cp-check"><input type="checkbox" checked={Boolean(computed.is_printed)} disabled readOnly aria-label="منتج مطبوع" /><span>{computed.is_printed ? "منتج مطبوع" : "بدون طباعة"}</span></div></div>
-              <div className="cp-field"><label htmlFor="cp-cut-unit">وحدة القطع</label><select id="cp-cut-unit" value={String(form.cutting_unit || "")} onChange={(e) => set("cutting_unit", e.target.value)}><option value="">اختر الوحدة</option><option value="كيلو">كيلو / Kg</option><option value="باكت">باكت / PKT</option><option value="كيس">كيس / Bag</option><option value="رول">رول / Roll</option><option value="كرتون">كرتون / Box</option><option value="بندل">بندل / Bundle</option></select></div>
             </div>
           </section>
           <section className="cp-section"><h3 className="cp-section-title"><span>04</span>المواد والخامات</h3>
@@ -285,9 +284,10 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
             </div>
           </section>
           <section className="cp-section"><h3 className="cp-section-title"><span>05</span>الأوزان والتعبئة</h3>
-            <div className="cp-grid cp-three">
-              <Field label="وزن الوحدة (كجم)" id="cp-unit-weight" value={form.unit_weight_kg} onChange={(v) => set("unit_weight_kg", v)} inputMode="decimal" min="0.001" hint="موجب حتى 3 منازل عشرية" />
-              <Field label="كمية الوحدة" id="cp-unit-quantity" value={form.unit_quantity} onChange={(v) => set("unit_quantity", v)} inputMode="numeric" min="1" hint="عدد صحيح موجب" />
+            <div className="cp-grid cp-three cp-packaging">
+              <ProductValueSelect label="الوحدة" id="cp-cut-unit" value={form.cutting_unit} values={PRODUCT_SELECT_VALUES.cuttingUnit} onChange={(v) => set("cutting_unit", v)} />
+              <ProductValueSelect label="وزن الوحدة (جرام)" id="cp-unit-weight" value={form.unit_weight_kg} values={PRODUCT_SELECT_VALUES.unitWeightKg} labelForValue={unitWeightLabel} onChange={(v) => set("unit_weight_kg", v)} />
+              <ProductValueSelect label="التعبئة / عبوة" id="cp-unit-quantity" value={form.unit_quantity} values={PRODUCT_SELECT_VALUES.packageQuantity} onChange={(v) => set("unit_quantity", v)} />
                <div className="cp-field"><label>وزن العبوة المحسوب (كجم)</label><div className="cp-readonly ltr">{preview.package_weight_kg || "—"}</div></div>
               <div className="cp-field"><label htmlFor="cp-status">الحالة</label><select id="cp-status" value={String(form.status || "active")} onChange={(e) => set("status", e.target.value)}><option value="active">نشط</option><option value="inactive">غير نشط</option>{form.status && !["active", "inactive"].includes(String(form.status)) && <option value={String(form.status)}>القيمة الحالية: {String(form.status)}</option>}</select></div>
             </div>
@@ -312,8 +312,4 @@ export default function CustomerProductModal({ row, onClose, onSaved }: Props) {
       <div className="cp-footer"><span className="cp-footer-note"><CircleHelp size={13} /> الحقول المحسوبة للقراءة فقط · السماكة العامة غير مرسلة</span><div className="cp-actions"><button className="cp-cancel" type="button" onClick={close} disabled={saving}>إلغاء</button><button className="cp-save" type="submit" form="cp-form" disabled={saving || loading || Boolean(optionError)}>{saving ? <><LoaderCircle size={16} className="cp-spin" /> جارٍ الحفظ</> : <><Check size={16} />{row.id ? "حفظ التعديلات" : "إضافة المنتج"}</>}</button></div></div>
     </div>
   </div>;
-}
-
-function Field({ label, id, value, onChange, inputMode, min, max, disabled, hint }: { label: string; id: string; value: unknown; onChange: (v: string) => void; inputMode?: "numeric" | "decimal"; min?: string; max?: string; disabled?: boolean; hint?: string }) {
-  return <div className="cp-field"><label htmlFor={id}>{label}</label><input id={id} type="number" inputMode={inputMode} min={min} max={max} step={inputMode === "decimal" ? "any" : "1"} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} disabled={disabled} />{hint && <span className="cp-hint">{hint}</span>}</div>;
 }

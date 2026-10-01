@@ -100,6 +100,16 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
       await page.locator("#cp-thickness").selectOption("20");
       await page.locator("#cp-density").selectOption("1.15");
       await page.locator("#cp-cut-length").selectOption("50");
+      assert.equal(await page.locator(".cp-packaging #cp-cut-unit").count(), 1);
+      const packagingLabels = await page.locator(".cp-packaging .cp-field label").allTextContents();
+      assert.deepEqual(packagingLabels.slice(0, 3), ["الوحدة", "وزن الوحدة (جرام)", "التعبئة / عبوة"]);
+      assert.deepEqual(await page.locator("#cp-cut-unit option").evaluateAll((options) => options.map((o) => o.value).filter(Boolean)), ["كيلو", "رول", "باكت", "كيس", "كرتون"]);
+      assert.deepEqual(await page.locator("#cp-unit-weight option").evaluateAll((options) => options.filter((o) => o.value).map((o) => o.textContent)), Array.from({ length: 59 }, (_, i) => `${100 + i * 50} جرام`));
+      assert.deepEqual(await page.locator("#cp-unit-quantity option").evaluateAll((options) => options.map((o) => o.value).filter(Boolean)), Array.from({ length: 25 }, (_, i) => String(i + 1)));
+      await page.locator("#cp-cut-unit").selectOption("باكت");
+      await page.locator("#cp-unit-weight").selectOption("0.15");
+      await page.locator("#cp-unit-quantity").selectOption("25");
+      assert.equal(await page.locator(".cp-packaging .cp-readonly").innerText(), "3.75");
       assert.equal(await page.locator(".cp-dimensions .cp-readonly").innerText(), "30+5+5X50");
       await page.locator("#cp-cylinder").selectOption('20"');
       assert.equal(await page.locator("#cp-cut-length").inputValue(), "51");
@@ -130,6 +140,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
       await save();
       assert.equal(writes.at(-1).body.customer_id, "1");
       assert.equal(writes.at(-1).body.cutting_length_cm, 50);
+      assert.equal(writes.at(-1).body.cutting_unit, "باكت");
+      assert.equal(writes.at(-1).body.unit_weight_kg, "0.15");
+      assert.equal(writes.at(-1).body.unit_quantity, 25);
       console.log(`PASS: search, keyboard, lists, calculations, layout, save at ${width}px`);
     }
     await open(1024);
@@ -138,9 +151,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await page.locator("#cp-cut-length").selectOption("0");
     await save();
     assert.equal(writes.at(-1).body.cutting_length_cm, null);
-    const historic = { id: 17, customer_id: 1, width: "150", right_facing: "55", left_facing: "52", thickness: "80", density: "0.92", cutting_length_cm: 350, notes: "قديم", punching: "بدون", status: "active", front_print_colors: [], back_print_colors: [] };
+    const historic = { id: 17, customer_id: 1, width: "150", right_facing: "55", left_facing: "52", thickness: "80", density: "0.92", cutting_length_cm: 350, cutting_unit: "بندل", unit_weight_kg: "4.125", unit_quantity: 40, notes: "قديم", punching: "بدون", status: "active", front_print_colors: [], back_print_colors: [] };
     await open(1024, historic);
-    for (const [id, value] of [["cp-width", "150"], ["cp-right", "55"], ["cp-left", "52"], ["cp-thickness", "80"], ["cp-density", "0.92"], ["cp-cut-length", "350"]]) {
+    for (const [id, value] of [["cp-width", "150"], ["cp-right", "55"], ["cp-left", "52"], ["cp-thickness", "80"], ["cp-density", "0.92"], ["cp-cut-length", "350"], ["cp-cut-unit", "بندل"], ["cp-unit-weight", "4.125"], ["cp-unit-quantity", "40"]]) {
       assert.equal(await page.locator(`#${id}`).inputValue(), value);
       assert.match(await page.locator(`#${id} option:checked`).innerText(), /القيمة الحالية/);
     }
@@ -148,6 +161,13 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
     await save();
     assert.equal(writes.at(-1).method, "PUT");
     assert.deepEqual(writes.at(-1).body, { notes: "تعديل ملاحظات فقط" });
+    assert.equal(await page.locator("#cp-unit-weight option:checked").innerText(), "القيمة الحالية: 4125 جرام");
+    assert.equal(await page.locator(".cp-packaging .cp-readonly").innerText(), "165.00");
+    await open(1024, historic);
+    await page.locator("#cp-unit-weight").selectOption("3");
+    await page.locator("#cp-unit-quantity").selectOption("2");
+    await save();
+    assert.deepEqual(writes.at(-1).body, { unit_weight_kg: "3", unit_quantity: 2 });
     assert.deepEqual(errors, []);
     console.log("PASS: zero/unset length and historical values preserved on notes-only PUT; no page errors");
   } finally {

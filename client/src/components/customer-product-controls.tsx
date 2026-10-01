@@ -110,11 +110,20 @@ export const PRODUCT_SELECT_VALUES = {
   thickness: integerOptions(1, 60),
   density: ["0.95", "1", "1.15"],
   cuttingLength: integerOptions(0, 300),
+  cuttingUnit: ["كيلو", "رول", "باكت", "كيس", "كرتون"],
+  unitWeightKg: Array.from({ length: 59 }, (_, index) => String((100 + index * 50) / 1000)),
+  packageQuantity: integerOptions(1, 25),
 };
 
-export function ProductValueSelect({ id, label, value, values, onChange, disabled = false, zeroMeansUnset = false, hint }: {
+export function unitWeightLabel(value: string): string {
+  const kilos = Number(value);
+  return Number.isFinite(kilos) ? `${Math.round(kilos * 1000)} جرام` : value;
+}
+
+export function ProductValueSelect({ id, label, value, values, onChange, disabled = false, zeroMeansUnset = false, hint, labelForValue }: {
   id: string; label: string; value: unknown; values: string[]; onChange: (value: string) => void;
   disabled?: boolean; zeroMeansUnset?: boolean; hint?: string;
+  labelForValue?: (value: string) => string;
 }) {
   const text = value == null ? "" : String(value);
   const selected = text === "" ? (zeroMeansUnset ? "0" : "") : values.find((option) => Number(option) === Number(text)) ?? text;
@@ -123,8 +132,8 @@ export function ProductValueSelect({ id, label, value, values, onChange, disable
     <select id={id} value={selected} disabled={disabled}
       onChange={(event) => onChange(zeroMeansUnset && event.target.value === "0" ? "" : event.target.value)}>
       {!zeroMeansUnset && <option value="">غير محدد</option>}
-      {values.map((option) => <option key={option} value={option}>{zeroMeansUnset && option === "0" ? "0 — غير محدد" : option}</option>)}
-      {selected && !values.includes(selected) && <option value={selected}>القيمة الحالية: {text}</option>}
+      {values.map((option) => <option key={option} value={option}>{zeroMeansUnset && option === "0" ? "0 — غير محدد" : labelForValue ? labelForValue(option) : option}</option>)}
+      {selected && !values.includes(selected) && <option value={selected}>القيمة الحالية: {labelForValue ? labelForValue(text) : text}</option>}
     </select>
     {hint && <span className="cp-hint">{hint}</span>}
   </div>;

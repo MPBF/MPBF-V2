@@ -14,3 +14,9 @@ Dropdown ranges are selection presets, not retroactive factory validity limits.
 **Why:** The user requested preferred lists as a refinement to the approved legacy-compatible form, not a data migration or stricter backend limits. Historical dimensions and densities outside those presets must remain editable without silently changing them.
 
 **How to apply:** Retain the current historical value as an option. A zero cutting-length choice means unspecified (null on save), not a physical zero-length product; this reconciles the requested 0–300 list with the existing positive-length-or-unspecified business rule.
+
+Packaging weight choices displayed in grams are a presentation change, not a storage-unit migration.
+
+**Why:** The user requested more convenient gram-based choices in this form, not changes to existing product records or downstream package-weight calculations.
+
+**How to apply:** Keep the saved weight and calculation inputs in their established kilogram units, with gram labels in the selector. Do not multiply stored historical weights as part of a UI-only refinement.
