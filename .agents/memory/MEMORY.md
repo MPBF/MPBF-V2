@@ -62,3 +62,4 @@
 - [Order delivery calendar days](order-delivery-calendar-days.md) — delivery is based on the original order day in Riyadh; preserve editable historical dates after they pass.
 - [Mixed item identifier prefixes](mixed-item-identifiers.md) — preserve legacy ITEM and ITM IDs; allocate new items in the dominant ITM series and sort naturally within each prefix.
 - [Responsive browser focus testing](responsive-browser-testing.md) — run focus-dependent iframe checks sequentially; concurrent frames steal focus and falsely close dropdowns.
+- [Product calculation provenance](product-calculation-provenance.md) — legacy size/cylinder rules were reconstructed from records, not supplied formulas; retain untouched historical cutting lengths.

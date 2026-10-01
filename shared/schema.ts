@@ -536,7 +536,15 @@ export const insertCustomerProductSchema = createInsertSchema(customer_products,
   right_facing: wholeProductNumber,
   thickness: wholeProductNumber,
   bags_per_kilo: wholeProductNumber,
-}).omit({ id: true, created_at: true });
+}).omit({
+  id: true,
+  created_at: true,
+  size_caption: true,
+  bag_weight_grams: true,
+  bags_per_kilo: true,
+  package_weight_kg: true,
+  is_printed: true,
+});
 export const insertMachineSchema = createInsertSchema(machines);
 export const insertNewOrderSchema = createInsertSchema(orders).omit({ id: true, created_at: true });
 export const insertProductionOrderSchema = createInsertSchema(production_orders).omit({ id: true, created_at: true });

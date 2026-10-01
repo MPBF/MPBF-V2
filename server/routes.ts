@@ -37,6 +37,7 @@ import { nextCategoryId } from "./category-id";
 import { nextItemId } from "./item-id";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
+import { deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import hr from "./hr";
 import selfService from "./self-service";
@@ -66,6 +67,122 @@ const masterBatchRead = requireAnyPermission("manage_master_batch", "manage_defi
 const categoriesWrite = requireAnyPermission("manage_categories", "manage_definitions", "manage_customers", "manage_orders", "admin");
 const itemsWrite = requireAnyPermission("manage_items", "manage_definitions", "manage_customers", "manage_orders", "admin");
 const masterBatchWrite = requireAnyPermission("manage_master_batch", "manage_definitions", "manage_customers", "manage_orders", "admin");
+
+const positiveWhole = z.string().regex(/^\d+$/, "يجب إدخال عدد صحيح دون كسور")
+  .refine((value) => Number(value) > 0, "يجب أن تكون القيمة أكبر من صفر").nullish();
+const nonnegativeWhole = z.string().regex(/^\d+$/, "يجب إدخال عدد صحيح دون كسور").nullish();
+const positiveDecimalString = (maxIntegerDigits: number, maxDecimalDigits: number) => z.string()
+  .regex(new RegExp(`^\\d{1,${maxIntegerDigits}}(?:\\.\\d{1,${maxDecimalDigits}})?$`))
+  .refine((value) => Number(value) > 0, "يجب أن تكون القيمة أكبر من صفر").nullish();
+const positiveIntegerValue = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^\d+$/).refine((value) => Number(value) > 0),
+]).nullish();
+const productColor = z.string().trim().min(1).max(40)
+  .refine((color) => /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(color) ||
+    /^[\p{L}\p{N} _-]+$/u.test(color), "لون الطباعة غير صالح");
+const productColors = z.array(productColor).max(12).nullish();
+const customerProductInputSchema = insertCustomerProductSchema.strict().extend({
+  width: positiveWhole,
+  left_facing: nonnegativeWhole,
+  right_facing: nonnegativeWhole,
+  thickness: positiveWhole,
+  cutting_length_cm: positiveIntegerValue,
+  density: z.union([positiveDecimalString(3, 3), z.literal("")]).nullish(),
+  unit_weight_kg: positiveDecimalString(5, 3),
+  unit_quantity: positiveIntegerValue,
+  front_print_colors: productColors,
+  back_print_colors: productColors,
+});
+
+const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
+const productImageMimeTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif"]);
+
+function invalidProduct(message: string, status = 400) {
+  return Object.assign(new Error(message), { status });
+}
+
+function isExistingImageUrl(value: string) {
+  return /^https?:\/\/[^\s]+$/i.test(value) ||
+    /^(?:\/(?!\/)|\.{1,2}\/)[A-Za-z0-9_./%?=&-]+$/u.test(value) ||
+    /^[A-Za-z0-9_-]+\/[A-Za-z0-9_./%?=&-]+$/u.test(value);
+}
+
+function validateProductImage(value: unknown, previousValue?: unknown) {
+  if (value === null || value === undefined || value === "") return;
+  if (typeof value !== "string") throw invalidProduct("صورة التصميم غير صالحة");
+  if (value === previousValue && isExistingImageUrl(value)) return;
+  const match = value.match(/^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/i);
+  if (!match || !productImageMimeTypes.has(match[1].toLowerCase())) {
+    throw invalidProduct("يجب استخدام صورة PNG أو JPEG أو GIF أو WebP أو BMP أو AVIF");
+  }
+  const encoded = match[2];
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.length > MAX_PRODUCT_IMAGE_BYTES || bytes.toString("base64") !== encoded) {
+    throw invalidProduct("يجب ألا يتجاوز حجم الصورة 5 ميجابايت وأن تكون بياناتها صالحة");
+  }
+  const mime = match[1].toLowerCase();
+  const starts = (signature: number[]) => signature.every((byte, index) => bytes[index] === byte);
+  const validSignature =
+    (mime === "image/png" && starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ||
+    (mime === "image/jpeg" && starts([0xff, 0xd8, 0xff])) ||
+    (mime === "image/gif" && ["GIF87a", "GIF89a"].some((signature) => bytes.subarray(0, 6).toString("ascii") === signature)) ||
+    (mime === "image/webp" && bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP") ||
+    (mime === "image/bmp" && bytes.subarray(0, 2).toString("ascii") === "BM") ||
+    (mime === "image/avif" && bytes.length >= 16 && bytes.subarray(4, 8).toString("ascii") === "ftyp" &&
+      ["avif", "avis"].some((brand) => {
+        for (let offset = 8; offset + 4 <= Math.min(bytes.length, 32); offset += 4) {
+          if (bytes.subarray(offset, offset + 4).toString("ascii") === brand) return true;
+        }
+        return false;
+      }));
+  if (!validSignature) throw invalidProduct("نوع الصورة لا يطابق بيانات الملف");
+}
+
+function normalizeCustomerProductInput(input: Record<string, any>) {
+  const normalized = { ...input };
+  if (normalized.density === null || normalized.density === "") normalized.density = "0.95";
+  for (const field of ["category_id", "item_id", "master_batch_id"] as const) {
+    if (normalized[field] === "") normalized[field] = null;
+  }
+  for (const field of ["density", "unit_weight_kg"] as const) {
+    if (normalized[field] !== null && normalized[field] !== undefined) normalized[field] = String(normalized[field]);
+  }
+  for (const field of ["cutting_length_cm", "unit_quantity"] as const) {
+    if (typeof normalized[field] === "string") normalized[field] = Number(normalized[field]);
+  }
+  return normalized;
+}
+
+async function validateCustomerProductReferences(tx: any, input: Record<string, any>, oldBatchId?: string | null) {
+  if (!input.customer_id) throw invalidProduct("يجب اختيار عميل صالح");
+  const [customer] = await tx.select({ id: customers.id }).from(customers)
+    .where(eq(customers.id, input.customer_id)).limit(1);
+  const [category] = input.category_id
+    ? await tx.select({ id: categories.id, name: categories.name, name_ar: categories.name_ar })
+      .from(categories).where(eq(categories.id, input.category_id)).limit(1)
+    : [null];
+  const [item] = input.item_id
+    ? await tx.select({ id: items.id, category_id: items.category_id })
+      .from(items).where(eq(items.id, input.item_id)).limit(1)
+    : [null];
+  if (!customer) throw invalidProduct("العميل المحدد غير موجود");
+  if (input.category_id && !category) throw invalidProduct("التصنيف المحدد غير موجود");
+  if (input.item_id && !item) throw invalidProduct("الصنف المحدد غير موجود");
+  if (item && category && item.category_id !== input.category_id) {
+    throw invalidProduct("الصنف لا ينتمي إلى التصنيف المحدد");
+  }
+  if (input.master_batch_id) {
+    const [batch] = await tx.select({ id: master_batch_colors.id, is_active: master_batch_colors.is_active })
+      .from(master_batch_colors).where(eq(master_batch_colors.id, input.master_batch_id)).limit(1);
+    if (!batch) throw invalidProduct("لون الخامة المحدد غير موجود");
+    if (!batch.is_active && input.master_batch_id !== oldBatchId) {
+      throw invalidProduct("لا يمكن اختيار لون خامة غير نشط");
+    }
+  }
+  return category ?? null;
+}
 
 const positiveKg = z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/, "الكمية يجب أن تكون بالكيلو وحتى منزلتين عشريتين")
   .refine((value) => Number(value) > 0, "الكمية يجب أن تكون أكبر من صفر");
@@ -416,6 +533,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
           }
           const [created] = await tx.insert(customer_products).values({
             ...product,
+            ...deriveCustomerProductFields(product),
             category_id: product.category_id || item.category_id || null,
             customer_id: input.customer_id,
             status: "active",
@@ -530,7 +648,8 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
             throw orderError("تصنيف المنتج غير موجود", 400);
           }
           const [created] = await tx.insert(customer_products).values({
-            ...product, category_id: product.category_id || item.category_id || null,
+            ...product, ...deriveCustomerProductFields(product),
+            category_id: product.category_id || item.category_id || null,
             customer_id: order.customer_id, status: "active",
           }).returning({ id: customer_products.id });
           productId = created.id;
@@ -618,6 +737,23 @@ const entitySearch: Record<Entity, any[]> = {
 const categoryParent = aliasedTable(categories, "category_parent");
 const itemCategory = aliasedTable(categories, "item_category");
 const customerSalesRep = aliasedTable(users, "customer_sales_rep");
+
+router.get("/customer-products/form-options", customerProductsRead, async (_req, res, next) => {
+  try {
+    const rows = await db.selectDistinct({ printing_cylinder: customer_products.printing_cylinder })
+      .from(customer_products);
+    const seen = new Set(PRINTING_CYLINDERS);
+    const printing_cylinders = [...PRINTING_CYLINDERS];
+    for (const row of rows) {
+      const value = row.printing_cylinder;
+      if (value?.trim() && !seen.has(value)) {
+        seen.add(value);
+        printing_cylinders.push(value);
+      }
+    }
+    res.json({ printing_cylinders });
+  } catch (error) { next(error); }
+});
 
 for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   const mutationGuard = entityWrite[path];
@@ -763,6 +899,32 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   router.post(`/${path}`, mutationGuard, async (req, res, next) => {
     try {
       const input = { ...(req.body ?? {}) };
+      if (path === "customer-products") {
+        const cloneSourceId = z.number().int().positive().optional().parse(input.clone_source_id);
+        const { clone_source_id: _cloneSourceMetadata, ...productInput } = input;
+        const body = normalizeCustomerProductInput(parsed(customerProductInputSchema, productInput));
+        const row = await db.transaction(async (tx) => {
+          let cloneSource: Record<string, any> | null = null;
+          if (cloneSourceId !== undefined) {
+            [cloneSource] = await tx.select({
+              id: customer_products.id,
+              master_batch_id: customer_products.master_batch_id,
+              cliche_front_design: customer_products.cliche_front_design,
+              cliche_back_design: customer_products.cliche_back_design,
+            }).from(customer_products).where(eq(customer_products.id, cloneSourceId)).limit(1);
+            if (!cloneSource) throw invalidProduct("المنتج المصدر للنسخ غير موجود");
+          }
+          const category = await validateCustomerProductReferences(tx, body, cloneSource?.master_batch_id);
+          validateProductImage(body.cliche_front_design, cloneSource?.cliche_front_design);
+          validateProductImage(body.cliche_back_design, cloneSource?.cliche_back_design);
+          const fields = deriveCustomerProductFields(
+            { ...body, density: body.density === undefined ? "0.95" : body.density },
+            `${category?.name_ar ?? ""} ${category?.name ?? ""}`,
+          );
+          return tx.insert(customer_products).values({ ...body, ...fields }).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
       if (path === "categories") {
         // The ID must come from the server, never from a submitted form.
         const body = parsed(insertCategorySchema.strict().omit({ id: true }), input);
@@ -827,6 +989,45 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           .where(eq(system_settings.id, key as number))
           .returning();
         return res.json(updated[0]);
+      }
+      if (path === "customer-products") {
+        const input = normalizeCustomerProductInput(parsed(customerProductInputSchema.partial(), req.body ?? {}));
+        const row = await db.transaction(async (tx) => {
+          const [current] = await tx.select().from(customer_products)
+            .where(eq(customer_products.id, key as number)).for("update").limit(1);
+          if (!current) return null;
+          const merged = { ...current, ...input };
+          const category = await validateCustomerProductReferences(tx, merged, current.master_batch_id);
+          validateProductImage(merged.cliche_front_design, current.cliche_front_design);
+          validateProductImage(merged.cliche_back_design, current.cliche_back_design);
+
+          const sizeSourcesChanged = ["width", "left_facing", "right_facing", "printing_cylinder", "cutting_length_cm", "category_id"]
+            .some((field) => Object.prototype.hasOwnProperty.call(input, field) && input[field] !== (current as any)[field]);
+          const bagSourcesChanged = ["width", "left_facing", "right_facing", "thickness", "density", "printing_cylinder", "cutting_length_cm", "category_id"]
+            .some((field) => Object.prototype.hasOwnProperty.call(input, field) && input[field] !== (current as any)[field]);
+          const packageSourcesChanged = ["unit_weight_kg", "unit_quantity"]
+            .some((field) => Object.prototype.hasOwnProperty.call(input, field) && input[field] !== (current as any)[field]);
+          const cylinderUnchanged = merged.printing_cylinder === current.printing_cylinder;
+          const categoryUnchanged = merged.category_id === current.category_id;
+          const fields = deriveCustomerProductFields(
+            {
+              ...merged,
+              density: merged.density === undefined ? "0.95" : merged.density,
+              size_caption: sizeSourcesChanged ? null : current.size_caption,
+            },
+            `${category?.name_ar ?? ""} ${category?.name ?? ""}`,
+            cylinderUnchanged && categoryUnchanged,
+          );
+          if (!bagSourcesChanged && fields.bag_weight_grams === null && fields.bags_per_kilo === null) {
+            fields.bag_weight_grams = current.bag_weight_grams;
+            fields.bags_per_kilo = current.bags_per_kilo;
+          }
+          if (!packageSourcesChanged && fields.package_weight_kg === null) fields.package_weight_kg = current.package_weight_kg;
+          return tx.update(customer_products).set({ ...input, ...fields })
+            .where(eq(customer_products.id, key as number)).returning();
+        });
+        if (!row) return res.status(404).json({ message: "المنتج غير موجود" });
+        return res.json(row[0]);
       }
       const readOnly = new Set(["id", "created_at", "updated_at", "universal_thickness"]);
       const input = Object.fromEntries(Object.entries(req.body ?? {}).filter(([key]) => !readOnly.has(key)));

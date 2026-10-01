@@ -15,6 +15,7 @@ const port = Number(process.env.PORT || 5000);
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+app.use("/api/customer-products", express.json({ limit: "16mb" }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
