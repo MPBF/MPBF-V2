@@ -1,3 +1,5 @@
+import { translate } from "../i18n";
+
 export const LIST_PAGE_SIZE = 200;
 
 export async function fetchAllPages<T>(
@@ -9,8 +11,8 @@ export async function fetchAllPages<T>(
 
   while (true) {
     const page = await fetchPage(offset, pageSize);
-    if (!Array.isArray(page)) throw new Error("تعذر تحميل قائمة البيانات");
-    if (page.length > pageSize) throw new Error("أعاد الخادم صفحة أكبر من الحد المطلوب");
+    if (!Array.isArray(page)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
+    if (page.length > pageSize) throw new Error(translate("أعاد الخادم صفحة أكبر من الحد المطلوب"));
     rows.push(...page);
     if (page.length < pageSize) return rows;
     offset += pageSize;

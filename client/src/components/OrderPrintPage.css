@@ -15,7 +15,7 @@
 .opp-print-error { margin: 12px 24px; padding: 10px 14px; color: #824d28; background: #fff3e8; border: 1px solid #e6c7ad; border-radius: 8px; font: 13px system-ui, sans-serif; }
 .opp-spin { animation: opp-rotate 1s linear infinite; }
 .opp-preview-scroll { width: 100%; overflow-x: auto; overflow-y: visible; padding: 32px 24px 48px; overscroll-behavior-inline: contain; }
-.opp-sheet { page: opp-page; box-sizing: border-box; width: 1122px; min-height: 794px; margin: 0 auto; padding: 24px; color: #1c2d2b; background: #fff; box-shadow: 0 12px 38px rgb(36 59 50 / 15%); direction: rtl; font-family: "Times New Roman", Times, serif; font-size: 11px; font-weight: 700; line-height: 1.35; }
+.opp-sheet { page: opp-page; box-sizing: border-box; width: 1122px; min-height: 794px; margin: 0 auto; padding: 24px; color: #1c2d2b; background: #fff; box-shadow: 0 12px 38px rgb(36 59 50 / 15%); direction: inherit; font-family: "Times New Roman", Times, serif; font-size: 11px; font-weight: 700; line-height: 1.35; }
 .opp-sheet *, .opp-sheet *::before, .opp-sheet *::after { box-sizing: border-box; }
 .opp-sheet-header { display: grid; grid-template-columns: 1fr .8fr 1.03fr 74px; align-items: center; gap: 15px; padding: 0 0 11px; margin-bottom: 12px; border-bottom: 3px solid var(--opp-navy); }
 .opp-brand { display: flex; min-width: 0; align-items: center; gap: 11px; }
@@ -23,7 +23,7 @@
 .opp-logo-fallback { display: grid; place-items: center; color: #fff; background: #2f7168; border-radius: 50%; font-size: 20px; }
 .opp-brand-names { min-width: 0; }
 .opp-brand-names h1 { margin: 0; color: var(--opp-navy); font-size: 25px; font-weight: 900; line-height: 1.25; }
-.opp-brand-names p { margin: 4px 0 0; color: #63736e; font-size: 13px; font-weight: 800; text-align: right; }
+.opp-brand-names p { margin: 4px 0 0; color: #63736e; font-size: 13px; font-weight: 800; text-align: start; }
 .opp-document-title { text-align: center; }
 .opp-document-title h2 { margin: 0; color: var(--opp-navy); font-size: 20px; font-weight: 900; }
 .opp-document-title span { font-size: 11px; letter-spacing: .07em; }
@@ -39,7 +39,7 @@
 .opp-overview { font-size: 12px !important; }
 .opp-overview th { width: 6%; background: #f0f3f1; }
 .opp-overview td { font-size: 13px; }
-.opp-overview .opp-customer-cell { width: 18%; text-align: right; }
+.opp-overview .opp-customer-cell { width: 18%; text-align: start; }
 .opp-customer-cell strong,.opp-customer-cell span,.opp-customer-cell small { display: block; }
 .opp-customer-cell strong { font-size: 20px; }
 .opp-customer-cell span { font-size: 16px; }
@@ -60,7 +60,7 @@
 .opp-spec-table td { padding: 5px 3px; }
 .opp-spec-row { break-inside: avoid; page-break-inside: avoid; }
 .opp-row-number { font-size: 11px; }
-.opp-item-cell { text-align: right !important; }
+.opp-item-cell { text-align: start !important; }
 .opp-item-cell strong,.opp-item-cell small { display: block; }
 .opp-item-cell strong { margin-bottom: 2px; font-size: 14px; }
 .opp-item-cell small { color: #536660; font-size: 10px; line-height: 1.35; }
@@ -76,7 +76,7 @@
 .opp-qty-value span { color: #5e7069; font-size: 10px; }
 .opp-qty-value small { margin-top: 2px; color: #385c52; font-size: 10px; }
 .opp-qty-value .opp-quantity-warning { color: #8d553e; }
-.opp-notes { white-space: pre-wrap; text-align: right !important; }
+.opp-notes { white-space: pre-wrap; text-align: start !important; }
 .opp-no-rows { height: 60px; color: #6c7d75; }
 .opp-signatures { display: flex; justify-content: space-between; gap: 6%; margin-top: 18px; padding-top: 10px; border-top: 1.5px solid #bbc5bf; break-inside: avoid; page-break-inside: avoid; }
 .opp-signatures > div { display: flex; width: 29%; min-height: 65px; flex-direction: column; align-items: center; text-align: center; }

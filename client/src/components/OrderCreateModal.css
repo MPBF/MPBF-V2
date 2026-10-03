@@ -17,7 +17,7 @@
   --oc-paper: #fbfcf8;
   --oc-teal: #08786e;
   --oc-teal-dark: #075e57;
-  direction: rtl;
+  direction: inherit;
   width: min(760px, 100%);
   max-height: min(92dvh, 860px);
   overflow: auto;
@@ -188,18 +188,18 @@
   letter-spacing: .025em;
 }
 .order-number-readonly:not([dir="ltr"]) {
-  direction: rtl;
+  direction: inherit;
   font-family: inherit;
   letter-spacing: 0;
 }
-.order-delivery-days-field input { direction: ltr; text-align: right; font-variant-numeric: tabular-nums; }
+.order-delivery-days-field input { direction: ltr; text-align: start; font-variant-numeric: tabular-nums; }
 .order-delivery-days-field .order-create-hint { white-space: nowrap; }
 .order-customer-picker { position: relative; min-width: 0; }
 .order-customer-input-wrap { position: relative; }
-.order-create-field .order-customer-input-wrap input { padding-left: 38px; }
+.order-create-field .order-customer-input-wrap input { padding-inline-end: 38px; }
 .order-customer-clear {
   position: absolute;
-  left: 7px;
+  inset-inline-end: 7px;
   top: 50%;
   display: grid;
   width: 27px;
@@ -234,7 +234,7 @@
   min-height: 37px;
   padding: 7px 9px;
   color: #31574e;
-  text-align: right;
+  text-align: start;
   background: transparent;
   border: 0;
   border-radius: 4px;
@@ -260,7 +260,7 @@
 
 .order-create-number input {
   direction: ltr;
-  text-align: right;
+  text-align: start;
   font-family: ui-monospace, "SFMono-Regular", monospace;
   letter-spacing: .035em;
 }
@@ -367,10 +367,10 @@
 }
 
 .order-quantity-wrap { position: relative; }
-.order-quantity-wrap input { padding-left: 30px; direction: ltr; text-align: right; font-variant-numeric: tabular-nums; }
+.order-quantity-wrap input { padding-inline-end: 30px; direction: ltr; text-align: start; font-variant-numeric: tabular-nums; }
 .order-quantity-unit {
   position: absolute;
-  left: 7px;
+  inset-inline-end: 7px;
   top: 50%;
   transform: translateY(-50%);
   color: #7b8c84;
@@ -420,7 +420,7 @@
 .order-create-alert svg { flex: 0 0 auto; margin-top: 2px; }
 .order-create-alert.info { color: #526e63; background: #edf4ef; border-color: #d7e5da; }
 .order-create-alert button {
-  margin-right: 7px;
+  margin-inline-start: 7px;
   padding: 0;
   color: #176d62;
   background: none;
@@ -441,7 +441,7 @@
   line-height: 1.65;
 }
 .order-options-state button {
-  margin-right: 8px;
+  margin-inline-start: 8px;
   padding: 0;
   color: #116c60;
   background: none;

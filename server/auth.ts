@@ -14,6 +14,7 @@ export type AuthenticatedUser = {
   role_name: string | null;
   role_name_ar: string | null;
   section_id: string | null;
+  preferred_language: "ar" | "en" | null;
   permissions: string[];
   must_change_password: boolean;
 };
@@ -50,6 +51,9 @@ export async function resolveUser(userId: number): Promise<AuthenticatedUser | n
     role_name: row.role?.name ?? null,
     role_name_ar: row.role?.name_ar ?? null,
     section_id: row.user.section_id,
+    preferred_language: row.user.preferred_language === "ar" || row.user.preferred_language === "en"
+      ? row.user.preferred_language
+      : null,
     permissions: Array.isArray(row.role?.permissions) ? row.role.permissions : [],
     must_change_password: Boolean(row.user.must_change_password),
   };

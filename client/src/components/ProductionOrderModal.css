@@ -35,7 +35,7 @@
 }
 .production-order-detail dt { margin-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .production-order-detail dd { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; word-break: break-word; }
-.production-order-detail:first-child dd { color: var(--teal-deep); direction: ltr; text-align: right; unicode-bidi: plaintext; }
+.production-order-detail:first-child dd { color: var(--teal-deep); direction: ltr; text-align: start; unicode-bidi: plaintext; }
 .production-order-modal-footer {
   border-top: 1px solid var(--line);
   padding: 14px 24px;
@@ -49,10 +49,10 @@
 .production-order-quantity-field .field label,
 .production-order-quantity-field label { color: var(--teal-deep); }
 .production-order-input-wrap { position: relative; }
-.production-order-input-wrap input { padding-left: 58px; min-height: 47px; text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 16px; }
+.production-order-input-wrap input { padding-inline-end: 58px; min-height: 47px; text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 16px; }
 .production-order-input-wrap > span {
   position: absolute;
-  left: 11px;
+  inset-inline-end: 11px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted);

@@ -132,7 +132,7 @@ const roleAdminSchema = insertRoleSchema.strict().extend({
   name_ar: optionalAdminText(100),
   permissions: adminPermissions,
 });
-const userAdminSchema = insertUserSchema.strict().extend({
+const userAdminSchema = insertUserSchema.omit({ preferred_language: true }).strict().extend({
   username: z.string().trim().min(1).max(50).optional(),
   password: z.string().refine((value) => value.trim().length >= 8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل").optional(),
   display_name: optionalAdminText(100),
@@ -637,6 +637,7 @@ router.get("/public-branding", async (_req, res, next) => {
       companyNameAr: profile?.name_ar || profile?.name || "MPBF",
       companyNameEn: profile?.name || profile?.name_ar || "PLASTIC MANUFACTURING",
       logoSrc,
+      defaultLanguage: profile?.default_language === "en" ? "en" : "ar",
     });
   } catch (error) {
     next(error);
@@ -645,6 +646,19 @@ router.get("/public-branding", async (_req, res, next) => {
 router.get("/me", (req, res) => {
   if (!req.user) return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
   return res.json({ success: true, user: req.user });
+});
+router.put("/me/language", requireAuth, async (req, res, next) => {
+  try {
+    const { preferred_language } = z.object({ preferred_language: z.enum(["ar", "en"]).nullable() }).strict().parse(req.body);
+    const [user] = await db.update(users)
+      .set({ preferred_language })
+      .where(eq(users.id, req.user!.id))
+      .returning({ preferred_language: users.preferred_language });
+    if (!user) return res.status(401).json({ success: false, message: "تسجيل الدخول مطلوب" });
+    return res.json({ preferred_language: user.preferred_language });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();

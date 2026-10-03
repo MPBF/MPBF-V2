@@ -1,3 +1,4 @@
+import { translate, translateError } from "../i18n";
 import { LoaderCircle, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
@@ -10,9 +11,9 @@ async function responseMessage(response: Response) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 409) {
-      throw new Error(body.message || "تعذر تعديل الكمية؛ تغيّرت حالة أمر الإنتاج وأصبح محمياً. أغلق النافذة وحدّث قائمة الإنتاج.");
+      throw new Error(translateError(body.message || "تعذر تعديل الكمية؛ تغيّرت حالة أمر الإنتاج وأصبح محمياً. أغلق النافذة وحدّث قائمة الإنتاج."));
     }
-    throw new Error(body.message || "تعذر حفظ كمية الإنتاج. تحقق من البيانات وحاول مجدداً.");
+    throw new Error(translateError(body.message || "تعذر حفظ كمية الإنتاج. تحقق من البيانات وحاول مجدداً."));
   }
   return body;
 }
@@ -146,14 +147,14 @@ export default function ProductionOrderModal({
     >
       <header className="production-order-modal-head">
         <div className="production-order-modal-heading">
-          <span className="production-order-modal-kicker">{mode === "view" ? "سجل الإنتاج" : "تحديث أمر الإنتاج"}</span>
-          <h3 id={titleId}>{mode === "view" ? "تفاصيل أمر الإنتاج" : "تعديل الكمية المطلوبة"}</h3>
+          <span className="production-order-modal-kicker">{mode === "view" ? translate("سجل الإنتاج") : translate("تحديث أمر الإنتاج")}</span>
+          <h3 id={titleId}>{mode === "view" ? translate("تفاصيل أمر الإنتاج") : translate("تعديل الكمية المطلوبة")}</h3>
           {mode === "edit" && <p className="production-order-context">
-            <span>رقم أمر الإنتاج</span>
+            <span>{translate("رقم أمر الإنتاج")}</span>
             <strong dir="ltr">{orderNumber}</strong>
           </p>}
         </div>
-        <button className="btn btn-muted production-order-modal-close" type="button" aria-label="إغلاق النافذة" onClick={close} disabled={saving}>
+        <button className="btn btn-muted production-order-modal-close" type="button" aria-label={translate("إغلاق النافذة")} onClick={close} disabled={saving}>
           <X size={18} />
         </button>
       </header>
@@ -161,23 +162,23 @@ export default function ProductionOrderModal({
       {mode === "view" ? <>
         <dl className="production-order-details">
           {details.map((detail, index) => <div className="production-order-detail" key={`${detail.label}-${index}`}>
-            <dt>{detail.label}</dt>
+            <dt>{translate(detail.label)}</dt>
             <dd dir="auto">{detail.value}</dd>
           </div>)}
         </dl>
         <footer className="production-order-modal-footer">
-          <button type="button" className="btn btn-muted" onClick={close}>إغلاق</button>
+          <button type="button" className="btn btn-muted" onClick={close}>{translate("إغلاق")}</button>
         </footer>
       </> : <>
         {locked && <div className="production-order-protection" role="status">
-          <strong>الكمية محمية</strong>
-          <span>لا يمكن تعديل الكمية بعد بدء الإنتاج أو إكماله أو ربط الأمر بتشغيلة.</span>
+          <strong>{translate("الكمية محمية")}</strong>
+          <span>{translate("لا يمكن تعديل الكمية بعد بدء الإنتاج أو إكماله أو ربط الأمر بتشغيلة.")}</span>
         </div>}
         {error && <div className="error production-order-error" role="alert" aria-live="assertive">{error}</div>}
         <form onSubmit={submit} noValidate>
           <div className="production-order-form-body">
             <div className="field production-order-quantity-field">
-              <label htmlFor="production-order-quantity">الكمية المطلوبة (كجم)</label>
+              <label htmlFor="production-order-quantity">{translate("الكمية المطلوبة (كجم)")}</label>
               <div className="production-order-input-wrap">
                 <input
                   id="production-order-quantity"
@@ -194,18 +195,18 @@ export default function ProductionOrderModal({
                   disabled={locked || saving}
                   aria-describedby={locked ? "production-order-lock-note" : "production-order-quantity-hint"}
                 />
-                <span aria-hidden="true">كجم</span>
+                <span aria-hidden="true">{translate("كجم")}</span>
               </div>
               <small id={locked ? "production-order-lock-note" : "production-order-quantity-hint"}>
-                {locked ? "الكمية غير قابلة للتغيير لهذا الأمر." : "أدخل رقماً موجباً حتى ٨ أرقام ومنزلتين عشريتين."}
+                {locked ? translate("الكمية غير قابلة للتغيير لهذا الأمر.") : translate("أدخل رقماً موجباً حتى ٨ أرقام ومنزلتين عشريتين.")}
               </small>
             </div>
           </div>
           <footer className="production-order-modal-footer">
-            <button type="button" className="btn btn-muted" onClick={close} disabled={saving}>إلغاء</button>
+            <button type="button" className="btn btn-muted" onClick={close} disabled={saving}>{translate("إلغاء")}</button>
             <button type="submit" className="btn btn-primary production-order-submit" disabled={saving || locked}>
               {saving && <LoaderCircle size={16} className="production-order-spinner" aria-hidden="true" />}
-              {saving ? "جارٍ الحفظ…" : "حفظ الكمية"}
+              {saving ? translate("جارٍ الحفظ…") : translate("حفظ الكمية")}
             </button>
           </footer>
         </form>

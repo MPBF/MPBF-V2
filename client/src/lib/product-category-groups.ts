@@ -1,3 +1,5 @@
+import { localizedName, translate } from "../i18n";
+
 export type CatalogRow = Record<string, any>;
 
 export interface ProductCategoryGroup {
@@ -185,7 +187,7 @@ export function groupProductsByRootCategory(
     if (categoryId === null) {
       groupKey = `uncategorized:${UNCATEGORIZED_ID}`;
       id = UNCATEGORIZED_ID;
-      label = UNCATEGORIZED_LABEL;
+      label = translate(UNCATEGORIZED_LABEL);
       color = UNKNOWN_CATEGORY_COLOR;
     } else {
       const category = categoriesById.get(categoryId);
@@ -194,14 +196,12 @@ export function groupProductsByRootCategory(
         const rootCategory = categoriesById.get(rootId);
         groupKey = `category:${rootId}`;
         id = rootId;
-        label = firstLabel(rootCategory?.name_ar, rootCategory?.name, rootCategory?.id) ?? rootId;
+        label = localizedName(rootCategory?.name_ar, rootCategory?.name, rootCategory?.id ?? rootId);
         color = rootColors.get(rootId) ?? UNKNOWN_CATEGORY_COLOR;
       } else {
         groupKey = `unknown:${categoryId}`;
         id = categoryId;
-        label =
-          firstLabel(product.category_name_ar, product.category_name) ??
-          categoryId;
+        label = localizedName(product.category_name_ar, product.category_name, categoryId);
         color = UNKNOWN_CATEGORY_COLOR;
       }
     }
