@@ -42,6 +42,7 @@ import { nextAdminIdNumber } from "./admin-id-sequence";
 import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, validateCustomerSalesRepresentative } from "./customer-form";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
+import { getOrderDetails } from "./order-details";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import { canGrantPermissions, isProtectedProductionOrder, plannedFinalQuantity } from "./audit-rules";
@@ -1045,6 +1046,15 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
     }
     next(error);
   }
+});
+
+router.get("/orders/:id/details", ordersRead, async (req, res, next) => {
+  try {
+    const id = entityId("orders", req.params.id) as number;
+    const details = await getOrderDetails(id);
+    if (!details) return res.status(404).json({ message: "الطلب غير موجود" });
+    res.json(details);
+  } catch (error) { next(error); }
 });
 
 router.get("/orders/:id/with-items", ordersRead, async (req, res, next) => {

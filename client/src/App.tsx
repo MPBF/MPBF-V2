@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, Boxes, Copy, Eye, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
+import { ArrowRight, Boxes, Copy, Eye, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Printer, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import { availableOrderTabs, selectedOrderTab, type OrderPageTab } from "./lib/order-tabs";
 import UserDashboard from "./pages/UserDashboard";
@@ -10,6 +10,8 @@ import OrderCreateModal from "./components/OrderCreateModal";
 import CustomerProductModal from "./components/CustomerProductModal";
 import CustomerModal from "./components/CustomerModal";
 import ProductionOrderModal from "./components/ProductionOrderModal";
+import OrderDetailsModal from "./components/OrderDetailsModal";
+import OrderPrintPage from "./components/OrderPrintPage";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
 
@@ -214,10 +216,18 @@ function Dashboard({ user }: { user: Row }) {
 
 function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: string; user: Row; refreshToken?: number; showHero?: boolean }) {
   const [, setLocation] = useLocation();
+  const [params, setParams] = useSearchParams();
   const [viewingProduction, setViewingProduction] = useState<Row | null>(null);
+  const [viewingOrder, setViewingOrder] = useState<number | null>(null);
+  const viewOrderQuery = params.get("viewOrder");
+  useEffect(() => {
+    if (kind !== "orders") return;
+    const id = Number(viewOrderQuery);
+    setViewingOrder(viewOrderQuery && /^\d+$/.test(viewOrderQuery) && Number.isSafeInteger(id) && id > 0 ? id : null);
+  }, [kind, viewOrderQuery]);
   const cfg = configs[kind]; const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
   const readable = can(user, cfg.read); const writable = can(user, cfg.write); const deletable = can(user, cfg.del || ["admin"]); const clonable = Boolean(cfg.clone && writable);
-  const viewable = kind === "production";
+  const viewable = kind === "production" || kind === "orders";
   const showActions = viewable || writable || deletable || clonable;
   const requestGate = useRef(createLatestRequestGate());
   const activeKey = `${cfg.path}|${search}|${page}|${refreshToken}`;
@@ -252,8 +262,18 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   if (!readable) return <div className="empty"><strong>لا تملك صلاحية العرض</strong>تواصل مع مدير النظام.</div>;
   const remove = async (id: any) => { if (!deletable || !confirm("تأكيد حذف السجل؟")) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
+  const printOrder = (id: number) => window.open(`/orders/${encodeURIComponent(String(id))}/print`, "_blank", "noopener,noreferrer");
+  const closeOrder = () => {
+    setViewingOrder(null);
+    if (viewOrderQuery) {
+      const next = new URLSearchParams(params);
+      next.delete("viewOrder");
+      setParams(next, { replace: true });
+    }
+  };
   const rowActions = (row: Row, mobile = false) => <div className="actions">
-    {viewable && <button aria-label="عرض أمر الإنتاج" title="عرض" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
+    {viewable && <button aria-label={kind === "orders" ? "عرض الطلب" : "عرض أمر الإنتاج"} title="عرض" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
+    {kind === "orders" && <a aria-label="طباعة الطلب" title="طباعة" className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && " طباعة"}</a>}
     {writable && <button aria-label={`تعديل ${cfg.singular}`} title="تعديل" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && " تعديل"}</button>}
     {clonable && <button aria-label={`استنساخ ${cfg.singular}`} title="استنساخ" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => clone(row)}><Copy size={16} />{mobile && " استنساخ"}</button>}
     {deletable && <button aria-label={`حذف ${cfg.singular}`} title="حذف" className={mobile ? "btn btn-danger" : "btn btn-plain"} onClick={() => remove(row.id)}><Trash2 size={16} />{mobile && " حذف"}</button>}
@@ -293,6 +313,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       </nav>}
     </section>
     {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}
+    {viewingOrder && <OrderDetailsModal id={viewingOrder} onClose={closeOrder} onPrint={() => printOrder(viewingOrder)} />}
     {edit && (kind === "customers" ? <CustomerModal row={edit} onClose={() => setEdit(null)} onSaved={(saved) => { const created = !edit.id; setEdit(null); if (created) setLocation(`/customers/${encodeURIComponent(String(saved.id))}`); else latestLoad.current(); }} /> : kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />)}
   </>;
 }
@@ -1045,9 +1066,15 @@ function CustomerDetail({ user }: { user: Row }) {
 function App() {
   const auth = useAuth();
   const branding = useBranding();
+  const [printMatch, printParams] = useRoute("/orders/:id/print");
   if (auth.loading) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
   if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} />;
+  if (printMatch && printParams) {
+    return can(auth.user, configs.orders.read)
+      ? <OrderPrintPage id={printParams.id} branding={branding} />
+      : <div className="empty" role="alert"><strong>لا تملك صلاحية عرض أو طباعة الطلب</strong><Link className="btn btn-muted" href="/">العودة للرئيسية</Link></div>;
+  }
   const isAdmin = can(auth.user, ["admin"]);
   return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><CustomersPage user={auth.user} /></Route><Route path="/products"><Redirect to="/customers?tab=products" replace /></Route><Route path="/orders"><OrdersPage user={auth.user} /></Route><Route path="/production"><Redirect to="/orders?tab=production" replace /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
 }

@@ -67,3 +67,4 @@
 - [File read consistency](file-read-consistency.md) — when file-reader and shell output disagree, verify current source in the shell before citing lines or editing.
 - [Skill/runtime capability drift](runtime-skill-drift.md) — installed skill documentation may describe an unsupported worker kind; use verified runtime capabilities.
 - [Production editor scope](production-editor-scope.md) — quantity-only is the Production Orders tab form restriction; keep existing transition APIs and started-order protections.
+- [Order printing scope](order-printing-scope.md) — user chose a standalone A4 landscape preview; the reference layout does not authorize public order sharing.
