@@ -1329,7 +1329,7 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         }).from(production_orders)
           .leftJoin(orders, eq(production_orders.order_id, orders.id))
           .leftJoin(customer_products, eq(production_orders.customer_product_id, customer_products.id))
-          .leftJoin(customers, eq(customer_products.customer_id, customers.id))
+          .leftJoin(customers, eq(orders.customer_id, customers.id))
           .where(search ? or(...conditions) : undefined)
           .orderBy(desc(production_orders.id)).limit(limit).offset(offset);
       } else if (path === "machines") {

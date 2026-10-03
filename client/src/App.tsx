@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowRight, Boxes, Copy, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
+import { ArrowRight, Boxes, Copy, Eye, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import { availableOrderTabs, selectedOrderTab, type OrderPageTab } from "./lib/order-tabs";
 import UserDashboard from "./pages/UserDashboard";
@@ -9,6 +9,7 @@ import PageHero from "./components/PageHero";
 import OrderCreateModal from "./components/OrderCreateModal";
 import CustomerProductModal from "./components/CustomerProductModal";
 import CustomerModal from "./components/CustomerModal";
+import ProductionOrderModal from "./components/ProductionOrderModal";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
 
@@ -213,8 +214,11 @@ function Dashboard({ user }: { user: Row }) {
 
 function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: string; user: Row; refreshToken?: number; showHero?: boolean }) {
   const [, setLocation] = useLocation();
+  const [viewingProduction, setViewingProduction] = useState<Row | null>(null);
   const cfg = configs[kind]; const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
   const readable = can(user, cfg.read); const writable = can(user, cfg.write); const deletable = can(user, cfg.del || ["admin"]); const clonable = Boolean(cfg.clone && writable);
+  const viewable = kind === "production";
+  const showActions = viewable || writable || deletable || clonable;
   const requestGate = useRef(createLatestRequestGate());
   const activeKey = `${cfg.path}|${search}|${page}|${refreshToken}`;
   const rows = resultKey === activeKey ? loadedRows : [];
@@ -248,6 +252,12 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   if (!readable) return <div className="empty"><strong>لا تملك صلاحية العرض</strong>تواصل مع مدير النظام.</div>;
   const remove = async (id: any) => { if (!deletable || !confirm("تأكيد حذف السجل؟")) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
+  const rowActions = (row: Row, mobile = false) => <div className="actions">
+    {viewable && <button aria-label="عرض أمر الإنتاج" title="عرض" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
+    {writable && <button aria-label={`تعديل ${cfg.singular}`} title="تعديل" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && " تعديل"}</button>}
+    {clonable && <button aria-label={`استنساخ ${cfg.singular}`} title="استنساخ" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => clone(row)}><Copy size={16} />{mobile && " استنساخ"}</button>}
+    {deletable && <button aria-label={`حذف ${cfg.singular}`} title="حذف" className={mobile ? "btn btn-danger" : "btn btn-plain"} onClick={() => remove(row.id)}><Trash2 size={16} />{mobile && " حذف"}</button>}
+  </div>;
   const cols = cfg.columns || cfg.fields.slice(0, 5).map((field) => ({ key: field.key, label: field.label, kind: field.type === "date" ? "date" : field.type === "decimal" || field.type === "integer" ? "number" : field.key === "status" ? "status" : "text" } as Column));
   const columnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : "", kind === "orders" && field.key === "order_number" ? "order-number-column" : ""].filter(Boolean).join(" ");
   const isTransparentColor = (row: Row, field: Column) => field.colorKey && /شفاف|transparent/i.test(`${row[`${field.key}_name_ar`] || ""} ${row[`${field.key}_name`] || ""}`);
@@ -271,10 +281,10 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       </div>
       {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>لا توجد سجلات مطابقة</strong>ابدأ بإضافة أول سجل لهذا القسم.</div> : <div className="table-wrap">
         <table>
-          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{(writable || deletable || clonable) && <th>إجراء</th>}</tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{(writable || deletable || clonable) && <td><div className="actions">{writable && <button aria-label={`تعديل ${cfg.singular}`} title="تعديل" className="btn btn-plain" onClick={() => setEdit(row)}><Pencil size={16} /></button>}{clonable && <button aria-label={`استنساخ ${cfg.singular}`} title="استنساخ" className="btn btn-plain" onClick={() => clone(row)}><Copy size={16} /></button>}{deletable && <button aria-label={`حذف ${cfg.singular}`} title="حذف" className="btn btn-plain" onClick={() => remove(row.id)}><Trash2 size={16} /></button>}</div></td>}</tr>)}</tbody>
+          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>إجراء</th>}</tr></thead>
+          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
         </table>
-        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{(writable || deletable || clonable) && <div className="actions">{writable && <button className="btn btn-muted" onClick={() => setEdit(row)}><Pencil size={15} /> تعديل</button>}{clonable && <button className="btn btn-muted" onClick={() => clone(row)}><Copy size={15} /> استنساخ</button>}{deletable && <button aria-label="حذف السجل" className="btn btn-danger" onClick={() => remove(row.id)}><Trash2 size={15} /> حذف</button>}</div>}</article>; })}</div>
+        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
       </div>}
       {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`صفحات ${cfg.title}`}>
         <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>السابق</button>
@@ -282,6 +292,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>التالي</button>
       </nav>}
     </section>
+    {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}
     {edit && (kind === "customers" ? <CustomerModal row={edit} onClose={() => setEdit(null)} onSaved={(saved) => { const created = !edit.id; setEdit(null); if (created) setLocation(`/customers/${encodeURIComponent(String(saved.id))}`); else latestLoad.current(); }} /> : kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />)}
   </>;
 }
@@ -289,6 +300,8 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
 function EntityModal(props: { cfg: Config; row: Row; onClose: () => void; onSaved: () => void }) {
   return props.cfg.path === "/orders"
     ? <OrderCreateModal editId={props.row.id} onClose={props.onClose} onSaved={props.onSaved} />
+    : props.cfg.path === "/production-orders" && props.row.id
+      ? <ProductionOrderModal row={props.row} mode="edit" onClose={props.onClose} onSaved={props.onSaved} />
     : props.cfg.path === "/customer-products"
       ? <CustomerProductModal row={props.row} onClose={props.onClose} onSaved={props.onSaved} />
     : <EntityFormModal {...props} />;

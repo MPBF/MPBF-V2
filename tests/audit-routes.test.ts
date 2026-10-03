@@ -224,6 +224,17 @@ describe("privilege escalation routes", () => {
     }));
   });
 
+  it("updates only requested production quantity and recomputes the final quantity", async () => {
+    productionOrderCurrent.overrun_percentage = "5.00";
+    const response = await request("/production-orders/8", "PUT", {
+      quantity_kg: "120.50",
+    }, "manage_production");
+    expect(response.status).toBe(200);
+    expect(transactionUpdate).toHaveBeenCalledWith({
+      quantity_kg: "120.50", final_quantity_kg: "126.53",
+    });
+  });
+
   it("rejects production quantities over the 50% overrun limit and mismatched customer products", async () => {
     const overrun = await request("/production-orders", "POST", {
       production_order_number: "PO-10",
