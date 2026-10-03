@@ -1,13 +1,13 @@
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import {
-  categories, items, machines, sections, users,
+  categories, customers, items, machines, sections, users,
 } from "../shared/schema";
 import router from "../server/routes";
 import { db } from "../server/db";
 
 jest.mock("../server/db", () => ({
-  db: { transaction: jest.fn(), insert: jest.fn(), update: jest.fn() },
+  db: { transaction: jest.fn(), insert: jest.fn(), update: jest.fn(), select: jest.fn() },
 }));
 jest.mock("../server/hr", () => ({ __esModule: true, default: express.Router() }));
 jest.mock("../server/self-service", () => ({ __esModule: true, default: express.Router() }));
@@ -76,7 +76,9 @@ describe("administration form routes", () => {
         let locked = false;
         const query: any = {
           from(value: unknown) { table = value; return query; },
+          innerJoin() { return query; },
           where() { return query; },
+          orderBy: async () => txSelectRows.get(table) ?? [],
           for(strength: string) { locked = true; txLocks.push({ table, strength }); return query; },
           limit: async () => {
             const queued = txLimitResponses.get(table);
@@ -117,6 +119,7 @@ describe("administration form routes", () => {
       }),
     };
     jest.mocked(db.transaction).mockImplementation(async (callback: any) => callback(tx) as any);
+    jest.mocked(db.select).mockImplementation(() => tx.select());
     jest.mocked(db.insert).mockImplementation(() => ({
       values: (values: Record<string, any>) => ({
         returning: async () => {
@@ -166,6 +169,68 @@ describe("administration form routes", () => {
       table: sections,
       values: { name: "Printing", id: "SEC09" },
     });
+  });
+
+  it("allocates customer IDs on the server and saves a valid sales representative", async () => {
+    executeRows = [[], [{ max_number: "332", suffix_width: 3 }]];
+    txSelectRows.set(users, [{ id: 7 }]);
+    const response = await request("/customers", "POST", {
+      id: "MANUAL", name: "  Customer  ", name_ar: "  عميل  ", sales_rep_id: 7,
+    }, "manage_customers");
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ id: "CID333" });
+    expect(inserted[0]).toEqual({
+      table: customers, values: { name: "Customer", name_ar: "عميل", sales_rep_id: 7, id: "CID333" },
+    });
+    expect(tx.execute).toHaveBeenCalledTimes(2);
+    expect(txLocks).toContainEqual({ table: users, strength: "share" });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("allows creating customers without a representative but rejects invalid choices", async () => {
+    executeRows = [[], [{ max_number: null, suffix_width: null }]];
+    const created = await request("/customers", "POST", { name: "Customer", sales_rep_id: null }, "manage_orders");
+    expect(created.status).toBe(201);
+    expect(inserted[0].values.id).toBe("CID001");
+    const rejected = await request("/customers", "POST", { name: "Another", sales_rep_id: 8 }, "manage_customers");
+    expect(rejected.status).toBe(400);
+    expect(inserted).toHaveLength(1);
+  });
+
+  it("exposes the representative lookup to business users, not just user administrators", async () => {
+    const representatives = [{ id: 7, display_name: "Representative", display_name_ar: "مندوب" }];
+    txSelectRows.set(users, representatives);
+    for (const permission of ["manage_customers", "manage_orders", "view_orders", "admin"]) {
+      const response = await request("/customers/sales-representatives", "GET", undefined, permission);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(representatives);
+    }
+    expect(jest.mocked(db.select).mock.calls[0][0]).toEqual({
+      id: users.id, display_name: users.display_name, display_name_ar: users.display_name_ar,
+    });
+    expect((await request("/customers/sales-representatives", "GET", undefined, "manage_users")).status).toBe(403);
+    expect((await request("/customers", "POST", { name: "Customer" }, "view_orders")).status).toBe(403);
+  });
+
+  it("preserves a legacy representative during unrelated edits but validates changed assignments", async () => {
+    txSelectRows.set(customers, [{ id: "CID001", sales_rep_id: 9 }]);
+    const changedPhone = await request("/customers/CID001", "PUT", { phone: "0501234567" }, "manage_customers");
+    expect(changedPhone.status).toBe(200);
+    expect(updated[0]).toEqual({ table: customers, values: { phone: "0501234567" } });
+    const invalidRep = await request("/customers/CID001", "PUT", { sales_rep_id: 8 }, "manage_customers");
+    expect(invalidRep.status).toBe(400);
+    expect(updated).toHaveLength(1);
+    const clearedRep = await request("/customers/CID001", "PUT", { sales_rep_id: null }, "manage_customers");
+    expect(clearedRep.status).toBe(200);
+    expect(updated[1].values).toEqual({ sales_rep_id: null });
+  });
+
+  it("keeps customer identifiers immutable and returns 404 for missing customers", async () => {
+    expect((await request("/customers/CID001", "PUT", { id: "CID002", name: "Changed" }, "manage_customers")).status).toBe(400);
+    expect((await request("/customers/CID001", "PUT", { name: "Changed" }, "manage_customers")).status).toBe(404);
+    expect((await request("/customers", "POST", { name: " " }, "manage_customers")).status).toBe(400);
+    expect(updated).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
   });
 
   it("rejects blank or null usernames and uses the same trimmed password minimum on create and edit", async () => {

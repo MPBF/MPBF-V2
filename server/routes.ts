@@ -39,6 +39,7 @@ import { nextSectionId } from "./section-id";
 import { nextMachineId } from "./machine-id";
 import { nextMasterBatchColorId } from "./master-batch-id";
 import { nextAdminIdNumber } from "./admin-id-sequence";
+import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, validateCustomerSalesRepresentative } from "./customer-form";
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
@@ -1207,6 +1208,19 @@ const categoryParent = aliasedTable(categories, "category_parent");
 const itemCategory = aliasedTable(categories, "item_category");
 const customerSalesRep = aliasedTable(users, "customer_sales_rep");
 
+router.get("/customers/sales-representatives", businessRead, async (_req, res, next) => {
+  try {
+    const representatives = await db.select({
+      id: users.id,
+      display_name: users.display_name,
+      display_name_ar: users.display_name_ar,
+    }).from(users).innerJoin(roles, eq(users.role_id, roles.id))
+      .where(salesRepresentativeRoleCondition)
+      .orderBy(asc(users.display_name_ar), asc(users.display_name), asc(users.id));
+    res.json(representatives);
+  } catch (error) { next(error); }
+});
+
 router.get("/customer-products/form-options", customerProductsRead, async (_req, res, next) => {
   try {
     const rows = await db.selectDistinct({ printing_cylinder: customer_products.printing_cylinder })
@@ -1368,6 +1382,23 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   router.post(`/${path}`, mutationGuard, async (req, res, next) => {
     try {
       const input = { ...(req.body ?? {}) };
+      if (path === "customers") {
+        delete input.id;
+        const body = parsed(customerFormSchema, input);
+        const [customer] = await db.transaction(async (tx) => {
+          // Keep allocation and insertion on one connection under one lock.
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${6})`);
+          await validateCustomerSalesRepresentative(tx, body.sales_rep_id);
+          const sequence = await tx.execute<{ max_number: string | null; suffix_width: number | null }>(sql`
+            SELECT MAX(substring(id from 4)::numeric)::text AS max_number,
+                   MAX(length(substring(id from 4)))::int AS suffix_width
+            FROM customers WHERE id ~ '^CID[0-9]+$'
+          `);
+          const id = nextCustomerId(sequence.rows[0]?.max_number ?? null, sequence.rows[0]?.suffix_width ?? null);
+          return tx.insert(customers).values({ ...body, id }).returning();
+        });
+        return res.status(201).json(customer);
+      }
       if (path === "customer-products") {
         const cloneSourceId = z.number().int().positive().optional().parse(input.clone_source_id);
         const { clone_source_id: _cloneSourceMetadata, ...productInput } = input;
@@ -1507,6 +1538,23 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   router.put(`/${path}/:id`, mutationGuard, async (req, res, next) => {
     try {
       const key = entityId(path, req.params.id);
+      if (path === "customers") {
+        const input = { ...(req.body ?? {}) };
+        assertPutIdIsImmutable(input, key as string);
+        const body = parsed(customerFormSchema.partial(), input);
+        if (!Object.keys(body).length) throw adminValidationError("لا توجد بيانات للتعديل");
+        const result = await db.transaction(async (tx) => {
+          const [current] = await tx.select().from(customers)
+            .where(eq(customers.id, key as string)).for("update").limit(1);
+          if (!current) return null;
+          if (body.sales_rep_id !== undefined && body.sales_rep_id !== current.sales_rep_id) {
+            await validateCustomerSalesRepresentative(tx, body.sales_rep_id);
+          }
+          return tx.update(customers).set(body).where(eq(customers.id, key as string)).returning();
+        });
+        if (!result?.[0]) return res.status(404).json({ message: "العميل غير موجود" });
+        return res.json(result[0]);
+      }
       if (path === "system-settings") {
         const input = req.body ?? {};
         if (Object.keys(input).some((field) => field !== "setting_value")) {
