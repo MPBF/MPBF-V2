@@ -6,6 +6,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const WebSocket = require("ws");
+const outputDir = path.join("screenshots", "order-signatures");
 
 (async () => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "order-actions-browser-"));
@@ -132,14 +133,46 @@ const WebSocket = require("ws");
     const click = (selector) => evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.offsetParent!==null);if(!e)throw Error('No visible control: '+${JSON.stringify(selector)});e.click();})()`);
     const capture = async (name) => {
       await evaluate("Promise.allSettled(document.getAnimations().filter(a=>a.effect?.target instanceof Element&&a.effect.target.closest('[role=dialog]')).map(a=>a.finished))");
-      await fs.mkdir("screenshots", { recursive: true });
+      await fs.mkdir(outputDir, { recursive: true });
       const shot = await send("Page.captureScreenshot", { format: "png" });
-      await fs.writeFile(`screenshots/${name}.png`, Buffer.from(shot.data, "base64"));
+      await fs.writeFile(path.join(outputDir, `${name}.png`), Buffer.from(shot.data, "base64"));
     };
     const pdf = async (name) => {
       const result = await send("Page.printToPDF", { preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
-      await fs.mkdir("screenshots", { recursive: true });
-      await fs.writeFile(`screenshots/${name}.pdf`, Buffer.from(result.data, "base64"));
+      await fs.mkdir(outputDir, { recursive: true });
+      await fs.writeFile(path.join(outputDir, `${name}.pdf`), Buffer.from(result.data, "base64"));
+    };
+    const checkSignatures = async (context) => {
+      check(`${context}: complete localized signature titles`, await evaluate(
+        "[...document.querySelectorAll('.opp-signatures > div > strong')].map(e=>e.textContent.trim())"
+      ), language === "en" ? ["Manager", "Approved By", "Created By"] : ["المدير", "تم الاعتماد بواسطة", "تم الإنشاء بواسطة"]);
+      check(`${context}: titles have no line background or clipping`, await evaluate(`(()=>{
+        const titles=[...document.querySelectorAll('.opp-signatures .opp-bilingual')];
+        return titles.length===3&&titles.every(e=>{
+          const style=getComputedStyle(e), rect=e.getBoundingClientRect();
+          return style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.marginTop==='0px'
+            &&rect.height>=27&&e.scrollHeight<=e.clientHeight&&e.scrollWidth<=e.clientWidth;
+        });
+      })()`));
+      check(`${context}: three signature lines retain width, color and bottom position`, await evaluate(`(()=>{
+        const lines=[...document.querySelectorAll('.opp-signatures > div > span')];
+        return lines.length===3&&lines.every(e=>{
+          const style=getComputedStyle(e), rect=e.getBoundingClientRect(), parent=e.parentElement.getBoundingClientRect();
+          return style.backgroundColor==='rgb(64, 75, 70)'&&rect.height===1
+            &&Math.abs(rect.width-parent.width*.68)<1&&Math.abs(rect.bottom-parent.bottom)<1
+            &&rect.top>=e.parentElement.querySelector('strong').getBoundingClientRect().bottom;
+        });
+      })()`));
+      check(`${context}: creator name remains above its signature line`, await evaluate(`(()=>{
+        const name=document.querySelector('.opp-signatures b'), line=name.nextElementSibling;
+        return name.textContent.trim()==='منشئ تجريبي'
+          &&name.getBoundingClientRect().bottom<=line.getBoundingClientRect().top;
+      })()`));
+    };
+    const checkPrintSignatures = async (context) => {
+      await send("Emulation.setEmulatedMedia", { media: "print" });
+      try { await checkSignatures(`${context} A4 landscape`); }
+      finally { await send("Emulation.setEmulatedMedia", { media: "" }); }
     };
 
     for (const width of (process.argv.includes("--print-only") ? [1280] : [390, 768, 1280])) {
@@ -168,6 +201,7 @@ const WebSocket = require("ws");
       check(`${width}: item cell contains only Arabic and English names`, await evaluate("[...document.querySelector('.opp-item-cell').children].map(e=>e.textContent.trim())"), ["بنانة - S", "Banana S"]);
       check(`${width}: missing product does not substitute order/category metadata`, await evaluate("document.querySelectorAll('.opp-item-cell')[1].textContent"), "——");
       check(`${width}: independent product and order notes are preserved`, await evaluate("document.querySelector('.opp-notes').textContent==='تعليمات المنتج التجريبي'&&document.querySelector('.opp-order-notes').textContent.includes('تعليمات الطلب التجريبي')"));
+      await checkSignatures(`Arabic ${width} preview`);
       check(`${width}: horizontal scrolling stays inside paper preview`, await evaluate("document.documentElement.scrollWidth<=innerWidth"));
       if (width === 1280) {
         await evaluate("window.__prints=0;window.print=()=>{window.__prints++;window.dispatchEvent(new Event('afterprint'))}");
@@ -185,6 +219,7 @@ const WebSocket = require("ws");
         await evaluate("window.print=()=>{window.__prints++;window.dispatchEvent(new Event('afterprint'))}");
         await click(".opp-print-action");
         await wait("window.__prints===2&&!document.querySelector('.opp-print-error')");
+        await checkPrintSignatures("Arabic");
         await pdf("order-print-a4");
       }
     }
@@ -220,7 +255,10 @@ const WebSocket = require("ws");
     check("English preview retains both item names", await evaluate("[...document.querySelector('.opp-item-cell').children].map(e=>e.textContent.trim())"), ["بنانة - S", "Banana S"]);
     check("English preview has one planned total", await evaluate("document.querySelector('.opp-total-cell').textContent.trim()"), "435.53 kg");
     check("English preview quantity remains planned-only", await evaluate("[...document.querySelectorAll('.opp-spec-row')].map(r=>r.cells[10].textContent.trim())"), ["330 kg", "105.53 kg"]);
+    await checkSignatures("English preview");
+    await checkPrintSignatures("English");
     await capture("order-print-en");
+    await pdf("order-print-a4-en");
     language = "ar";
     const originalItem = product.item;
     product.item = { ...originalItem, name: "" };
@@ -255,9 +293,23 @@ const WebSocket = require("ws");
     large = true;
     await navigate("/orders/7/print");
     await wait("document.querySelectorAll('.opp-spec-row').length===38");
+    await checkSignatures("Arabic multipage preview");
+    await checkPrintSignatures("Arabic multipage");
     await pdf("order-print-a4-multipage");
     check("large orders render all linked production lines", await evaluate("document.querySelectorAll('.opp-spec-row').length"), 38);
     check("large order planned total includes every line and groups thousands", await evaluate("document.querySelector('.opp-total-cell').textContent.trim()"), "12,540 كجم");
+    language = "en";
+    await navigate("/orders/7/print");
+    await wait("document.querySelectorAll('.opp-spec-row').length===38&&document.documentElement.lang==='en'");
+    await checkSignatures("English multipage preview");
+    await checkPrintSignatures("English multipage");
+    check("English multipage quantities and item names remain correct", await evaluate(`({
+      total:document.querySelector('.opp-total-cell').textContent.trim(),
+      rows:[...document.querySelectorAll('.opp-spec-row')].every(r=>r.cells[10].textContent.trim()==='330 kg'),
+      items:[...document.querySelectorAll('.opp-item-cell')].every(e=>e.textContent==='بنانة - SBanana S')
+    })`), { total: "12,540 kg", rows: true, items: true });
+    await pdf("order-print-a4-multipage-en");
+    language = "ar";
     permissions = ["manage_customers"];
     const priorDetails = requests.filter((r) => r.route.endsWith("/details")).length;
     await navigate("/orders/7/print");

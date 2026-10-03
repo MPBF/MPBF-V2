@@ -82,7 +82,7 @@
 .opp-signatures > div { display: flex; width: 29%; min-height: 65px; flex-direction: column; align-items: center; text-align: center; }
 .opp-signatures strong { font-size: 14px; }
 .opp-signatures b { margin-top: 5px; font-size: 13px; }
-.opp-signatures span { width: 68%; height: 1px; margin-top: auto; background: #404b46; }
+.opp-signatures > div > span { width: 68%; height: 1px; margin-top: auto; background: #404b46; }
 .opp-generated { display: block; min-height: 0; margin: 9px 0 0; padding: 0; border: 0; background: transparent; color: #849089; font: 8px system-ui, sans-serif; text-align: center; }
 .opp-generated span { padding: 0 4px; }
 .opp-page-state { display: flex; min-height: min(70dvh, 620px); flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #56746b; font-family: system-ui, sans-serif; text-align: center; }
