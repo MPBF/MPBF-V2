@@ -1,5 +1,6 @@
 // Runs against the real frontend, intercepting every /api request with fixtures.
 // Never authenticates as a real user or writes to the database.
+// Requires Chromium and Poppler's pdftotext to verify the generated PDF pages.
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs/promises");
@@ -40,6 +41,7 @@ const outputDir = path.join("screenshots", "order-signatures");
     let permissions = ["view_orders"];
     let detailStatus = 200;
     let large = false;
+    let largeRowCount = 38;
     let noLines = false;
     let language = "ar";
     const requests = [];
@@ -62,7 +64,7 @@ const outputDir = path.join("screenshots", "order-signatures");
       quantity_kg: "300.00", final_quantity_kg: "330.00", overrun_percentage: "10.00", status: "active",
       previous_status: "pending", batch_number: "BATCH01", created_at: "2026-10-03T06:00:00.000Z", product };
     const detail = () => {
-      const lines = noLines ? [] : large ? Array.from({ length: 38 }, (_, i) => ({
+      const lines = noLines ? [] : large ? Array.from({ length: largeRowCount }, (_, i) => ({
         ...first, id: 100 + i, production_order_number: `ORD123-${i + 1}`,
         product: { ...product, notes: `تعليمات المنتج ${i + 1}: بيانات اختبار لتأكيد تكرار رأس الجدول وعدم قص الصفوف عند الطباعة` },
       })) : [first, { ...first, id: 10, product: null, customer_product_id: null, production_order_number: "ORD123-02",
@@ -75,9 +77,9 @@ const outputDir = path.join("screenshots", "order-signatures");
         creator: { id: 42, display_name_ar: "منشئ تجريبي", display_name: "Creator", full_name: null, username: "creator" },
         sales_representative: { id: 8, display_name_ar: "مندوب تجريبي", display_name: "Representative", full_name: null, username: "rep" },
         production_orders: lines,
-        totals: { requested_kg: noLines ? "0.00" : large ? "11400.00" : "400.50",
-          planned_kg: noLines ? "0.00" : large ? "12540.00" : "435.53", production_order_count: lines.length,
-          by_status: large ? { active: 38 } : { active: 1, pending: 1 } },
+        totals: { requested_kg: noLines ? "0.00" : large ? String(largeRowCount * 300) : "400.50",
+          planned_kg: noLines ? "0.00" : large ? String(largeRowCount * 330) : "435.53", production_order_count: lines.length,
+          by_status: large ? { active: largeRowCount } : { active: 1, pending: 1 } },
         actual_production: { available: false, message: "لا توجد سجلات إنتاج فعلي. الكميات المعروضة مخططة." } };
     };
     const intercept = async (event) => {
@@ -138,9 +140,57 @@ const outputDir = path.join("screenshots", "order-signatures");
       await fs.writeFile(path.join(outputDir, `${name}.png`), Buffer.from(shot.data, "base64"));
     };
     const pdf = async (name) => {
+      await evaluate(`(async()=>{
+        await document.fonts.ready;
+        await Promise.all([...document.querySelectorAll('.opp-sheet img')].map(img=>img.decode()));
+      })()`);
       const result = await send("Page.printToPDF", { preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
       await fs.mkdir(outputDir, { recursive: true });
-      await fs.writeFile(path.join(outputDir, `${name}.pdf`), Buffer.from(result.data, "base64"));
+      const file = path.join(outputDir, `${name}.pdf`);
+      await fs.writeFile(file, Buffer.from(result.data, "base64"));
+      // Inspect the actual paginated PDF, not just the continuous print-media DOM.
+      // Poppler's bbox output reverses Arabic words into their visual order.
+      const xml = execFileSync("pdftotext", ["-bbox", file, "-"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+      const pages = [...xml.matchAll(/<page width="([^"]+)" height="([^"]+)">([\s\S]*?)<\/page>/g)].map((match) => ({
+        width: Number(match[1]), height: Number(match[2]),
+        words: [...match[3].matchAll(/<word xMin="([^"]+)" yMin="([^"]+)" xMax="([^"]+)" yMax="([^"]+)">([^<]*)<\/word>/g)]
+          .map((word) => ({ x: (Number(word[1]) + Number(word[3])) / 2, y: Number(word[2]), bottom: Number(word[4]), text: word[5] })),
+      }));
+      check(`${name}: all pages are A4 landscape and nonempty`, pages.length > 0 && pages.every(
+        (page) => Math.abs(page.width - 841.89) < 1 && Math.abs(page.height - 595.28) < 1 && page.words.length > 0
+      ));
+      const signatureMarkers = language === "en" ? ["Manager", "Approved", "Created"] : ["ريدملا", "دامتعلاا", "ءاشنلإا"];
+      const signaturePages = signatureMarkers.map((marker) => pages.findIndex((page) => page.words.some((word) => word.text === marker)));
+      const stampPages = pages.flatMap((page, index) => page.words.some(
+        (word) => word.text === (language === "en" ? "SYSTEM" : "دنتسم")
+      ) ? [index] : []);
+      check(`${name}: all signatures and the sole generation stamp share the last page`,
+        signaturePages.every((index) => index === pages.length - 1) && stampPages.length === 1 && stampPages[0] === pages.length - 1);
+      check(`${name}: generation time follows signatures without clipping`, pages.at(-1).words.some(
+        (word) => /\d+:\d{2}:\d{2}/.test(word.text) && word.y > Math.max(...pages.at(-1).words.filter(
+          (word) => signatureMarkers.includes(word.text)
+        ).map((word) => word.bottom)) && word.bottom < pages.at(-1).height - 19
+      ));
+      const rowNumbers = [];
+      for (const [index, page] of pages.entries()) {
+        const header = page.words.find((word) => word.text === "#");
+        const quantities = page.words.filter((word) => word.text === "kg");
+        if (!header) {
+          check(`${name} page ${index + 1}: no production rows without a repeated header`, quantities.length === 0);
+          continue;
+        }
+        const rows = page.words.filter((word) => /^\d+$/.test(word.text) && word.y > header.bottom && Math.abs(word.x - header.x) < 7);
+        rowNumbers.push(...rows.map((word) => Number(word.text)));
+        if (rows.length) {
+          check(`${name} page ${index + 1}: header and complete quantity cells accompany every row`,
+            page.words.some((word) => word.text === (language === "en" ? "Item" : "فنصلا")) &&
+            quantities.filter((word) => word.y > header.bottom).length === rows.length);
+        }
+      }
+      const expectedCount = noLines ? 0 : large ? largeRowCount : 2;
+      check(`${name}: every row prints exactly once, in order`, rowNumbers, Array.from({ length: expectedCount }, (_, i) => i + 1));
+      if (large && largeRowCount === 38) check(`${name}: no seventh footer-only page`, pages.length <= 6);
+      console.log(`PDF ${name}: ${expectedCount} rows, ${pages.length} pages`);
     };
     const checkSignatures = async (context) => {
       check(`${context}: complete localized signature titles`, await evaluate(
@@ -171,7 +221,16 @@ const outputDir = path.join("screenshots", "order-signatures");
     };
     const checkPrintSignatures = async (context) => {
       await send("Emulation.setEmulatedMedia", { media: "print" });
-      try { await checkSignatures(`${context} A4 landscape`); }
+      try {
+        await checkSignatures(`${context} A4 landscape`);
+        check(`${context}: signatures and footer form one unbreakable closing block`, await evaluate(`(()=>{
+          const closing=document.querySelector('.opp-closing'), style=getComputedStyle(closing);
+          return closing.contains(document.querySelector('.opp-signatures'))
+            &&closing.contains(document.querySelector('.opp-generated'))
+            &&style.breakInside==='avoid'&&style.pageBreakInside==='avoid'
+            &&!!document.querySelector('.opp-generated time');
+        })()`));
+      }
       finally { await send("Emulation.setEmulatedMedia", { media: "" }); }
     };
 
@@ -309,6 +368,17 @@ const outputDir = path.join("screenshots", "order-signatures");
       items:[...document.querySelectorAll('.opp-item-cell')].every(e=>e.textContent==='بنانة - SBanana S')
     })`), { total: "12,540 kg", rows: true, items: true });
     await pdf("order-print-a4-multipage-en");
+    // Include empty/small orders and row counts near page boundaries in both directions.
+    for (const selectedLanguage of ["ar", "en"]) {
+      language = selectedLanguage;
+      for (const count of [0, 1, 5, 6, 7, 8, 9, 12, 20, 37, 39]) {
+        largeRowCount = count;
+        await navigate("/orders/7/print");
+        await wait(`document.querySelectorAll('.opp-spec-row').length===${count}&&!!document.querySelector('.opp-sheet')&&document.documentElement.lang==='${language}'`);
+        await checkPrintSignatures(`${language} ${count} rows`);
+        await pdf(`order-print-a4-${count}-rows-${language}`);
+      }
+    }
     language = "ar";
     permissions = ["manage_customers"];
     const priorDetails = requests.filter((r) => r.route.endsWith("/details")).length;

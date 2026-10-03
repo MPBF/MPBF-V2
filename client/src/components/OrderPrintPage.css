@@ -78,7 +78,9 @@
 .opp-qty-value .opp-quantity-warning { color: #8d553e; }
 .opp-notes { white-space: pre-wrap; text-align: start !important; }
 .opp-no-rows { height: 60px; color: #6c7d75; }
-.opp-signatures { display: flex; justify-content: space-between; gap: 6%; margin-top: 18px; padding-top: 10px; border-top: 1.5px solid #bbc5bf; break-inside: avoid; page-break-inside: avoid; }
+.opp-closing { padding-top: 18px; }
+.opp-sheet .opp-spec-table { margin-bottom: 0; }
+.opp-signatures { display: flex; justify-content: space-between; gap: 6%; margin-top: 0; padding-top: 10px; border-top: 1.5px solid #bbc5bf; break-inside: avoid; page-break-inside: avoid; }
 .opp-signatures > div { display: flex; width: 29%; min-height: 65px; flex-direction: column; align-items: center; text-align: center; }
 .opp-signatures strong { font-size: 14px; }
 .opp-signatures b { margin-top: 5px; font-size: 13px; }
@@ -96,16 +98,19 @@
 @keyframes opp-shimmer { to { background-position: -200% 0; } }
 @page opp-page { size: A4 landscape; margin: 7mm; }
 @media print {
-  html:has(.opp-page),body:has(.opp-page) { min-height: 0; background: white; }
+  html:has(.opp-page),body:has(.opp-page),#root:has(.opp-page) { min-height: 0; background: white; }
   .opp-page { min-height: 0; overflow: visible; color: var(--opp-ink); background: white; }
   .opp-toolbar,.opp-page-state,.opp-print-error { display: none !important; }
-  .opp-preview-scroll { display: block; width: auto; overflow: visible; padding: 0; }
+  /* The screen scroll wrapper must not create an extra fragment after the sheet. */
+  .opp-preview-scroll { display: contents; }
   .opp-sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; font-size: 9pt; }
   .opp-sheet-header { break-inside: avoid; page-break-inside: avoid; }
   .opp-sheet table { break-inside: auto; page-break-inside: auto; }
   .opp-spec-table tr { break-inside: avoid; page-break-inside: avoid; }
   .opp-spec-table th,.opp-spec-table td { border-color: #343d39; }
   .opp-spec-table th,.opp-total-head,.opp-total-cell,.opp-color-swatch { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  /* Keep the generation stamp with all three signatures, never on a page alone. */
+  .opp-closing { break-inside: avoid; page-break-inside: avoid; }
   .opp-signatures { break-inside: avoid; page-break-inside: avoid; }
   .opp-generated { break-inside: avoid; page-break-inside: avoid; }
 }

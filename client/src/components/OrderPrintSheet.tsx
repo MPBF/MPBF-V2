@@ -122,11 +122,17 @@ export default function OrderPrintSheet({ data, branding }: { data: OrderDetails
       </tbody>
     </table>
 
-    <section className="opp-signatures" aria-label={translate("التوقيعات")}>
-      <div><strong>{bilingual("المدير", "Manager")}</strong><span /></div>
-      <div><strong>{bilingual("تم الاعتماد بواسطة", "Approved By")}</strong><span /></div>
-      <div><strong>{bilingual("تم الإنشاء بواسطة", "Created By")}</strong><b>{personName(creator)}</b><span /></div>
-    </section>
-    <footer className="opp-generated">{bilingual("مستند مولّد آليًا", "SYSTEM GENERATED")} <span>·</span> {new Intl.DateTimeFormat(intlLocale(), { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date())}</footer>
+    <div className="opp-closing">
+      <section className="opp-signatures" aria-label={translate("التوقيعات")}>
+        <div><strong>{bilingual("المدير", "Manager")}</strong><span /></div>
+        <div><strong>{bilingual("تم الاعتماد بواسطة", "Approved By")}</strong><span /></div>
+        <div><strong>{bilingual("تم الإنشاء بواسطة", "Created By")}</strong><b>{personName(creator)}</b><span /></div>
+      </section>
+      <footer className="opp-generated">
+        <span>{i18n.language === "en" ? "SYSTEM GENERATED" : "مستند مولّد آليًا"}</span>
+        <span>·</span>
+        <time>{new Intl.DateTimeFormat(intlLocale(), { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date())}</time>
+      </footer>
+    </div>
   </article>;
 }
