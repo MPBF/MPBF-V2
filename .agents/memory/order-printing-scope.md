@@ -19,4 +19,4 @@ For order printing, show one total of all linked production orders' planned quan
 
 **Why:** The user requested these three display restrictions and explicitly chose the sum of planned quantities rather than requested quantities.
 
-**How to apply:** Keep this scoped to the order print sheet; it does not authorize changes to saved quantities or the order-details screen.
+**How to apply:** Keep this scoped to the order print sheet; it does not authorize changes to saved quantities or the order-details screen. The approved scope preserves the separate notes column and other print content.

@@ -2,7 +2,7 @@ import i18n, { intlLocale, localizedName, translate } from "../i18n";
 import QRCode from "react-qr-code";
 
 import type { BrandingSnapshot } from "../lib/branding";
-import { displayValue, formatOrderDate, numberText, orderStatusLabel, personName, productionStatusLabel } from "../lib/order-details";
+import { displayValue, formatOrderDate, numberText, orderStatusLabel, personName } from "../lib/order-details";
 import type { OrderDetails, OrderDetailProduction } from "../../../shared/order-details";
 
 const bilingual = (ar: string, en: string) => <span className="opp-bilingual">{i18n.language === "en" ? en : ar}</span>;
@@ -32,31 +32,24 @@ function sizeText(product: NonNullable<OrderDetailProduction["product"]>) {
   return size || "—";
 }
 
-function productionQuantity(row: OrderDetailProduction, product: NonNullable<OrderDetailProduction["product"]>) {
-  const overrun = Number(row.overrun_percentage);
+function productionQuantity(row: OrderDetailProduction) {
   return <div className="opp-qty-value">
-    <strong dir="ltr">{numberText(row.quantity_kg)} kg</strong>
-    <span>{bilingual("مطلوب", "Requested")}</span>
     <strong dir="ltr">{numberText(row.final_quantity_kg)} kg</strong>
-    <span>{bilingual("مخطط · +", "Planned · +")}{Number.isFinite(overrun) ? overrun : "—"}%</span>
-    {(product.unit_quantity != null || product.package_weight_kg != null) &&
-      <small dir="auto">{product.unit_quantity != null ? `${numberText(product.unit_quantity)} ${bilingual("وحدة", "units")}` : ""}{product.unit_quantity != null && product.package_weight_kg != null ? " · " : ""}{product.package_weight_kg != null ? `${numberText(product.package_weight_kg)} ${bilingual("كجم/عبوة", "kg/package")}` : ""}</small>}
   </div>;
 }
 
 function SpecificationRow({ row, index }: { row: OrderDetailProduction; index: number }) {
   const product = row.product;
-  const itemName = localizedName(product?.item?.name_ar || product?.category?.name_ar, product?.item?.name || product?.category?.name);
+  const englishItemName = product?.item?.name;
+  const validEnglishItemName = englishItemName && !/[\u0600-\u06ff]/.test(englishItemName) ? englishItemName : null;
   const color = product?.color;
   const printColors = [...(product?.front_print_colors ?? []), ...(product?.back_print_colors ?? [])].filter(Boolean);
   const notes = [product?.notes, product?.cliche_front_design ? `${translate("تصميم أمامي:")} ${product.cliche_front_design}` : "", product?.cliche_back_design ? `${translate("تصميم خلفي:")} ${product.cliche_back_design}` : ""].filter(Boolean);
   return <tr className="opp-spec-row">
     <td className="opp-row-number">{index + 1}</td>
     <td className="opp-item-cell">
-      <strong>{itemName}</strong>
-      <small>{product?.item?.code || product?.category?.code || safeText(row.production_order_number)}</small>
-      <small>{translate("الحالة:")}{" "}{productionStatusLabel(row.status)}{" "}{translate("· السابقة:")}{" "}{productionStatusLabel(row.previous_status)}</small>
-      <small>{translate("تشغيلة:")}{" "}{safeText(row.batch_number)} · {formatOrderDate(row.created_at)}</small>
+      <strong lang="ar" dir="rtl">{safeText(product?.item?.name_ar)}</strong>
+      <small lang="en" dir="ltr">{safeText(validEnglishItemName)}</small>
     </td>
     <td dir="ltr">{product ? sizeText(product) : "—"}</td>
     <td dir="ltr">{product?.cutting_length_cm == null ? "—" : `${numberText(product.cutting_length_cm)} cm`}</td>
@@ -74,7 +67,7 @@ function SpecificationRow({ row, index }: { row: OrderDetailProduction; index: n
     <td>{product?.is_printed == null ? "—" : product.is_printed ? translate("نعم / Yes") : translate("لا / No")}</td>
     <td dir="ltr">{product?.printing_cylinder ? `${product.printing_cylinder.replace(/["″]+$/, "")}″` : "—"}</td>
     <td>{product?.punching ? <PunchingIcon type={product.punching} /> : "—"}</td>
-    <td>{product ? productionQuantity(row, product) : <span>{numberText(row.quantity_kg)} kg<br />{translate("مطلوب")}<br />{numberText(row.final_quantity_kg)} kg<br />{translate("مخطط")}</span>}</td>
+    <td>{productionQuantity(row)}</td>
     <td className="opp-notes">{notes.length ? notes.join(" · ") : "—"}</td>
   </tr>;
 }
@@ -108,12 +101,12 @@ export default function OrderPrintSheet({ data, branding }: { data: OrderDetails
       <th>{bilingual("المندوب", "Sales Rep")}</th><td>{rep}</td>
       <th>{bilingual("الحالة", "Status")}</th><td>{orderStatusLabel(order.status)}</td>
       <th className="opp-total-head">{bilingual("الإجمالي", "Total")}</th>
-      <td className="opp-total-cell"><strong>{numberText(totals.requested_kg)}{" "}{bilingual("كجم", "kg")}</strong><small>{bilingual("مطلوب", "Requested")}</small><strong>{numberText(totals.planned_kg)}{" "}{bilingual("كجم", "kg")}</strong><small>{bilingual("مخطط", "Planned")}</small></td>
+      <td className="opp-total-cell"><strong>{numberText(totals.planned_kg)}{" "}{bilingual("كجم", "kg")}</strong></td>
     </tr></tbody></table>
 
     {order.previous_status && <p className="opp-previous-status">{translate("الحالة السابقة للطلب:")}{" "}<strong>{orderStatusLabel(order.previous_status)}</strong></p>}
     {order.notes && <div className="opp-order-notes"><strong>{translate("ملاحظات الطلب:")}</strong> {order.notes}</div>}
-    {data.actual_production.available === false && <div className="opp-production-disclaimer">{data.actual_production.message}{" "}{translate("الكميات أدناه مطلوبة ومخططة وليست سجلاً للإنتاج المنفذ.")}</div>}
+    {data.actual_production.available === false && <div className="opp-production-disclaimer">{data.actual_production.message}{" "}{translate("الكميات أدناه مخططة وليست سجلاً للإنتاج المنفذ.")}</div>}
 
     <table className="opp-spec-table" aria-label={translate("مواصفات أوامر الإنتاج")}>
       <colgroup><col style={{ width: "2.5%" }} /><col style={{ width: "13.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "9%" }} /><col style={{ width: "5%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "12%" }} /><col style={{ width: "20%" }} /></colgroup>

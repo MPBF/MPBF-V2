@@ -107,6 +107,7 @@ const reviewed: Record<string, string> = {
   "حجم بيانات وتصاميم الطلب مجتمعة يتجاوز 16 ميغابايت. قلّل حجم الصور أو استخدم منتجات مسجلة.": "The combined order data and designs exceed 16 MB. Reduce image sizes or use existing products.",
   "تعذر حفظ الطلب.": "The order could not be saved.",
   "بند المنتج": "Product line",
+  "الكميات أدناه مخططة وليست سجلاً للإنتاج المنفذ.": "The quantities below are planned, not a record of actual production.",
   "معرّف المنتج": "Product ID",
   "تعذر تحميل تفاصيل الطلب.": "Order details could not be loaded.",
   "رقم العميل": "Customer number",

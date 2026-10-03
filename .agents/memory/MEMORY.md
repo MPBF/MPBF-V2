@@ -68,6 +68,7 @@
 - [Skill/runtime capability drift](runtime-skill-drift.md) — installed skill documentation may describe an unsupported worker kind; use verified runtime capabilities.
 - [Production editor scope](production-editor-scope.md) — quantity-only is the Production Orders tab form restriction; keep existing transition APIs and started-order protections.
 - [Order printing scope](order-printing-scope.md) — user chose a standalone A4 landscape preview; the reference layout does not authorize public order sharing.
+- [Intl calendar defaults](intl-calendar-defaults.md) — Saudi locale with Latin digits still defaults to Hijri; date tests must account for the intended calendar.
 - [Category overrun scope](category-overrun-scope.md) — user approved category-based planning for new production orders only; preserve saved percentages on existing orders.
 - [Customer profile product order](customer-profile-product-order.md) — user chose alphabetical category names, not codes; this preference is scoped to the customer profile.
 - [Language selector preference](language-selector-preference.md) — user chose a compact current-language flag dropdown, not adjacent flag buttons.
