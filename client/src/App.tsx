@@ -13,6 +13,7 @@ import ProductionOrderModal from "./components/ProductionOrderModal";
 import OrderDetailsModal from "./components/OrderDetailsModal";
 import OrderPrintPage from "./components/OrderPrintPage";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
+import { sortCustomerProductsByCategory } from "./lib/customer-product-sort";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
 
 type Row = Record<string, any>;
@@ -1036,7 +1037,7 @@ function CustomerDetail({ user }: { user: Row }) {
     api(`/customers/${encodeURIComponent(requestedCustomerId)}/detail`).then((data) => {
       if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
       setCustomer(data.customer || null);
-      setProducts(Array.isArray(data.products) ? data.products.map((product: Row, index: number) => ({ ...product, __sequence: index + 1 })) : []);
+      setProducts(Array.isArray(data.products) ? sortCustomerProductsByCategory<Row>(data.products).map((product, index) => ({ ...product, __sequence: index + 1 })) : []);
       setLoadedCustomerId(requestedCustomerId);
     }).catch((err) => {
       if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
