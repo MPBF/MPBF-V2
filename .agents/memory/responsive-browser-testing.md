@@ -20,3 +20,12 @@ Locate equivalent responsive actions by their accessible name and visibility, no
 **Why:** Desktop icon actions can use an accessible label/title while mobile actions use visible text. Attribute-only selectors falsely report missing mobile edit actions.
 
 **How to apply:** Use accessible-name locators where available; otherwise account for visible text as well as accessible labels and titles.
+
+Wait for the new document and its page-specific content after full navigation.
+Do not treat an unchanged shared container selector as proof of navigation.
+
+**Why:** navigation can return while the previous page still has matching
+containers. Tests can falsely pass layout checks or inspect stale permissions.
+
+**How to apply:** synchronize navigation before assertions; expand collapsed
+details before asserting that their contents are visibly displayed.

@@ -181,7 +181,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
               <div><span>{translate("إجمالي المخطط (مع الزيادة)")}</span><strong dir="ltr">{numberText(data.totals.planned_kg)} <small>{translate("كجم")}</small></strong></div>
               <p>{translate("الكميات المعروضة تخص الطلبات وخطة الإنتاج؛ لا تمثل كمية منفذة فعلياً.")}</p>
             </div>
-            {data.actual_production.available === false && <div className="odm-actual-note" role="note">{data.actual_production.message || "لا تتوفر سجلات إنتاج فعلي."}{" "}{translate("لا تُعرض كمية الإنتاج الفعلي كصفر.")}</div>}
+            {data.actual_production.available === false && <div className="odm-actual-note" role="note">{translate("تفاصيل الطلب تعرض الكميات المطلوبة والمخططة فقط. سجلات التنفيذ الفعلي متاحة في وحدة الإنتاج بحسب الصلاحيات.")}{" "}{translate("لا تُعرض كمية الإنتاج الفعلي كصفر.")}</div>}
             {data.production_orders.length === 0 ? <div className="odm-empty-production">{translate("لا توجد أوامر إنتاج مرتبطة بهذا الطلب.")}</div> :
               <div className="odm-production-list">{data.production_orders.map((production, index) => {
                 const product = production.product;

@@ -5,6 +5,9 @@ import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams }
 import { availableOrderTabs, selectedOrderTab, type OrderPageTab } from "./lib/order-tabs";
 import UserDashboard from "./pages/UserDashboard";
 import HumanResources from "./pages/HumanResources";
+import ProductionPage from "./pages/production/ProductionPage";
+import { productionPermissions } from "../../shared/production";
+import { initialProductionPath } from "./lib/production-navigation";
 import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
 import PageHero from "./components/PageHero";
 import OrderCreateModal from "./components/OrderCreateModal";
@@ -191,6 +194,7 @@ const localizeConfig = (config: Config): Config => ({
 const nav = [
   ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read],
   ["/orders", "الطلبات", FileText, [...configs.orders.read, ...configs.production.read]],
+  ["/production", "الإنتاج والتشغيل", Factory, ["admin", ...productionPermissions]],
   ["/hr", "الموارد البشرية", UsersRound, ["manage_hr", "manage_attendance", "admin"]],
   ["/admin", "الإدارة", Shield, ["manage_users", "manage_roles", "manage_sections", "manage_settings", "manage_machines", "manage_maintenance", "manage_categories", "manage_items", "manage_master_batch", "manage_definitions", "view_orders", "manage_customers", "manage_orders", "admin"]],
 ] as const;
@@ -274,7 +278,7 @@ function LanguageSwitcher({ user, setUser, defaultLanguage }: { user: Row; setUs
 
 function Layout({ children, user, setUser, branding }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void; branding: BrandingSnapshot }) {
   const displayName = localizedName(user.display_name_ar, user.display_name, user.username || "—");
-  const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
+  const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([href, , , permissions]) => href === "/production" ? !!initialProductionPath({ id: user.id, permissions: user.permissions ?? [] }) : !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
   const logout = async () => { try { await api("/logout", { method: "POST" }); } finally { setUser(null); setLoc("/"); } };
   return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav><div className="side-foot">{translate("نظام تشغيل المصنع")}<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{translate(title)}</h1><p>{translate("مركز التحكم التشغيلي · بيانات مباشرة")}</p></div><div className="top-actions"><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={branding.defaultLanguage} /><div className="user-chip"><div className="avatar">{String(displayName).slice(0, 1)}</div><span>{displayName}</span></div><button aria-label={translate("تسجيل الخروج")} className="btn btn-plain" onClick={logout} title={translate("تسجيل الخروج")}><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav></main></div>;
 }
@@ -284,7 +288,7 @@ function Dashboard({ user }: { user: Row }) {
   const load = () => { setRefreshing(true); setError(""); api("/dashboard").then(setData).catch((e) => setError(e.message)).finally(() => setRefreshing(false)); };
   useEffect(load, []);
   const cards = [["customers", "العملاء", "عملاء مسجلون"], ["orders", "الطلبات", "إجمالي الطلبات"], ["production_orders", "أوامر الإنتاج", "قيد المتابعة"], ["machines", "الماكينات", "أصول المصنع"], ["users", "المستخدمون", "حسابات النظام"]];
-  const shortcuts = nav.filter(([href, , , permissions]) => !["/", "/my-dashboard", "/admin"].includes(href) && can(user, permissions));
+  const shortcuts = nav.filter(([href, , , permissions]) => !["/", "/my-dashboard", "/admin"].includes(href) && (href === "/production" ? !!initialProductionPath({ id: user.id, permissions: user.permissions ?? [] }) : can(user, permissions)));
   return <><PageHero kicker="نظرة تشغيلية · اليوم" title={translate("لوحة الإدارة")} description="ملخص مباشر لأداء المصنع ومحطات العمل." onRefresh={load} refreshing={refreshing} actions={<span className="tag">{translate("اتصال مباشر بالبيانات")}</span>} />{error && <div className="error">{error}</div>}<div className="stats">{cards.map(([key, label, sub]) => <div className="stat" key={key}><label>{translate(label)}</label><strong>{data ? data[key] ?? 0 : <span className="skeleton" style={{ display: "inline-block", width: 55 }} />}</strong><small>{translate(sub)}</small></div>)}</div><div className="panel"><div className="panel-head"><h3>{translate("محطات العمل")}</h3><span className="eyebrow">{translate("اختصارات سريعة")}</span></div><div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>{shortcuts.map(([href, label, Icon]) => <Link className="btn btn-muted" href={href} key={href}><Icon size={17} />{translate(label)}</Link>)}</div></div></>;
 }
 
@@ -541,8 +545,8 @@ function CompanyProfile({ user }: { user: Row }) {
 const permissionGroups = [
   { label: "النظام والإدارة", items: [["admin","مدير النظام"],["manage_users","إدارة المستخدمين"],["manage_roles","إدارة الأدوار والصلاحيات"],["manage_sections","إدارة الأقسام"],["manage_settings","إدارة الإعدادات"],["manage_definitions","إدارة التعريفات"],["view_system_health","صحة النظام"],["view_system_monitoring","مراقبة النظام"]] },
   { label: "الصيانة والآلات", items: [["manage_machines","إدارة الماكينات"],["manage_maintenance","إدارة الصيانة"],["manage_maintenance_actions","إجراءات الصيانة"],["create_maintenance_requests","إنشاء طلبات الصيانة"],["view_maintenance","عرض الصيانة"],["view_maintenance_reports","تقارير الصيانة"],["view_maintenance_requests","طلبات الصيانة"],["view_maintenance_stats_reports","إحصاءات الصيانة"]] },
-  { label: "الإنتاج والتشغيل", items: [["manage_production","إدارة الإنتاج"],["delete_production","حذف سجلات الإنتاج"],["manage_production_hall","إدارة صالة الإنتاج"],["view_production","عرض الإنتاج"],["view_production_monitoring","مراقبة الإنتاج"],["view_production_reports","تقارير الإنتاج"],["view_today_production","إنتاج اليوم"],["view_cutting_dashboard","لوحة القص"],["view_film_dashboard","لوحة الفيلم"],["view_printing_dashboard","لوحة الطباعة"],["manage_mixing","إدارة الخلط"],["view_mixing","عرض الخلط"]] },
-  { label: "المخزون والمستودع", items: [["manage_inventory","إدارة المخزون"],["view_inventory","عرض المخزون"],["manage_warehouse","إدارة المستودع"],["view_warehouse","عرض المستودع"],["manage_warehouse_vouchers","إدارة سندات المستودع"],["view_warehouse_vouchers","عرض سندات المستودع"],["view_warehouse_reports","تقارير المستودع"],["manage_spare_parts","قطع الغيار"],["manage_consumable_parts","المواد المستهلكة"],["manage_items","إدارة الأصناف"],["manage_categories","إدارة التصنيفات"]] },
+  { label: "الإنتاج والتشغيل", items: [["manage_production","إدارة الإنتاج"],["operate_film","تشغيل الفيلم"],["operate_printing","تشغيل الطباعة"],["operate_cutting","تشغيل القص"],["view_production_hall","عرض صالة الإنتاج"],["delete_production","حذف سجلات الإنتاج"],["manage_production_hall","إدارة صالة الإنتاج"],["view_production","عرض الإنتاج"],["view_production_monitoring","مراقبة الإنتاج"],["view_production_reports","تقارير الإنتاج"],["view_today_production","إنتاج اليوم"],["view_cutting_dashboard","لوحة القص"],["view_film_dashboard","لوحة الفيلم"],["view_printing_dashboard","لوحة الطباعة"],["manage_mixing","إدارة الخلط"],["view_mixing","عرض الخلط"]] },
+  { label: "المخزون والمستودع", items: [["receive_production","استلام الإنتاج التام"],["view_finished_inventory","عرض مخزون الإنتاج التام"],["manage_finished_warehouse","إدارة مواقع الإنتاج التام"],["manage_inventory","إدارة المخزون"],["view_inventory","عرض المخزون"],["manage_warehouse","إدارة المستودع"],["view_warehouse","عرض المستودع"],["manage_warehouse_vouchers","إدارة سندات المستودع"],["view_warehouse_vouchers","عرض سندات المستودع"],["view_warehouse_reports","تقارير المستودع"],["manage_spare_parts","قطع الغيار"],["manage_consumable_parts","المواد المستهلكة"],["manage_items","إدارة الأصناف"],["manage_categories","إدارة التصنيفات"]] },
   { label: "الجودة والطلبات والعملاء", items: [["manage_quality","إدارة الجودة"],["manage_quality_settings","إعدادات الجودة"],["create_quality_inspections","إنشاء فحوص الجودة"],["view_quality","عرض الجودة"],["view_quality_reports","تقارير الجودة"],["view_quality_control_reports","تقارير ضبط الجودة"],["manage_orders","إدارة الطلبات"],["view_orders","عرض الطلبات"],["view_my_orders","طلباتي"],["update_order_status","تحديث حالة الطلب"],["manage_customers","إدارة العملاء"]] },
   { label: "الموارد البشرية والحضور", items: [["manage_hr","إدارة الموارد البشرية"],["view_hr","عرض الموارد البشرية"],["view_hr_reports","تقارير الموارد البشرية"],["manage_attendance","إدارة الحضور"],["view_attendance","عرض الحضور"],["view_attendance_reports","تقارير الحضور"],["manage_leaves","إدارة الإجازات"],["manage_training","إدارة التدريب"],["view_training","عرض التدريب"],["manage_negligence","إدارة الإهمال"],["manage_work_violations","إدارة مخالفات العمل"],["record_work_violations","تسجيل مخالفات العمل"],["view_work_violations","عرض مخالفات العمل"]] },
   { label: "التحليلات والعرض", items: [["view_dashboard","لوحة المتابعة"],["view_user_dashboard","لوحة المستخدم"],["view_home","الرئيسية"],["view_reports","التقارير"],["manage_analytics","التحليلات"],["view_financial_reports","التقارير المالية"],["manage_alerts","إدارة التنبيهات"],["view_alerts","عرض التنبيهات"],["view_notifications","الإشعارات"],["manage_display_screen","إدارة شاشة العرض"],["view_display_screen","عرض الشاشة"]] },
@@ -1171,7 +1175,26 @@ function App() {
       : <div className="empty" role="alert"><strong>{translate("لا تملك صلاحية عرض أو طباعة الطلب")}</strong><Link className="btn btn-muted" href="/">{translate("العودة للرئيسية")}</Link></div>;
   }
   const isAdmin = can(auth.user, ["admin"]);
-  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><CustomersPage user={auth.user} /></Route><Route path="/products"><Redirect to="/customers?tab=products" replace /></Route><Route path="/orders"><OrdersPage user={auth.user} /></Route><Route path="/production"><Redirect to="/orders?tab=production" replace /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
+  const productionUser = { id: Number(auth.user.id), permissions: auth.user.permissions ?? [] };
+  const productionHome = initialProductionPath(productionUser);
+  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch>
+    <Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route>
+    <Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route>
+    <Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route>
+    <Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route>
+    <Route path="/customers"><CustomersPage user={auth.user} /></Route>
+    <Route path="/products"><Redirect to="/customers?tab=products" replace /></Route>
+    <Route path="/orders"><OrdersPage user={auth.user} /></Route>
+    <Route path="/production/rolls/:id">{params => <ProductionPage user={productionUser} view="roll" rollId={params.id} />}</Route>
+    <Route path="/production/film"><ProductionPage user={productionUser} view="film" /></Route>
+    <Route path="/production/printing"><ProductionPage user={productionUser} view="printing" /></Route>
+    <Route path="/production/cutting"><ProductionPage user={productionUser} view="cutting" /></Route>
+    <Route path="/production/hall"><ProductionPage user={productionUser} view="hall" /></Route>
+    <Route path="/production/warehouse"><ProductionPage user={productionUser} view="warehouse" /></Route>
+    <Route path="/production">{productionHome && productionHome !== "/production" ? <Redirect to={productionHome} replace /> : <ProductionPage user={productionUser} view="management" />}</Route>
+    <Route path="/admin"><Admin user={auth.user} /></Route>
+    <Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route>
+  </Switch></Layout>;
 }
 
 export default App;

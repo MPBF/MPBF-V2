@@ -59,7 +59,12 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     });
   }
   const status = Number((error as { status?: number })?.status) || 500;
-  const code = (error as { code?: unknown })?.code;
+  const code = (error as { code?: unknown; cause?: { code?: unknown } })?.code
+    ?? (error as { cause?: { code?: unknown } })?.cause?.code;
+  if (code === "P0011") return res.status(409).json({
+    message: "لا يمكن تعديل خطة أو حالة أمر بدأ تنفيذه أو حذف سجلاته؛ استخدم إجراءات الإنتاج",
+    message_en: "A started production plan cannot be edited or deleted. Use the production actions.",
+  });
   if (status === 413) {
     const limit = /^\/api\/(?:orders|customer-products)(?:\/|\?|$)/.test(_req.originalUrl) ? "16 ميجابايت" : "10 ميجابايت";
     return res.status(413).json({ message: `حجم البيانات أكبر من الحد المسموح به (${limit})` });

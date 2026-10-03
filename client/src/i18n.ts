@@ -2,13 +2,14 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import english from "./i18n-en";
 import reviewedEnglish from "./i18n-en-reviewed";
+import productionEnglish from "./i18n-en-production";
 
 export type AppLanguage = "ar" | "en";
 
 void i18n.use(initReactI18next).init({
   resources: {
     ar: { translation: {} },
-    en: { translation: { ...reviewedEnglish, ...english } },
+    en: { translation: { ...productionEnglish, ...reviewedEnglish, ...english } },
   },
   lng: "ar",
   fallbackLng: "ar",

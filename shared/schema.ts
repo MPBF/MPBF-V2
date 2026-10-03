@@ -1,4 +1,5 @@
 import { relations, sql } from "drizzle-orm";
+export * from "./production-schema";
 import {
   boolean,
   check,

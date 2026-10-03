@@ -3,8 +3,6 @@ import path from "node:path";
 import ts from "typescript";
 
 const sourceRoot = path.resolve("client/src");
-const englishPath = path.join(sourceRoot, "i18n-en.ts");
-const englishFile = ts.createSourceFile(englishPath, fs.readFileSync(englishPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const englishKeys = new Set();
 const missing = new Map();
 const files = [];
@@ -50,9 +48,12 @@ function visitSource(node, sourceFile) {
   ts.forEachChild(node, (child) => visitSource(child, sourceFile));
 }
 
-collectEnglishKeys(englishFile);
-const reviewedPath = path.join(sourceRoot, "i18n-en-reviewed.ts");
-collectEnglishKeys(ts.createSourceFile(reviewedPath, fs.readFileSync(reviewedPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+for (const entry of fs.readdirSync(sourceRoot, { withFileTypes: true })) {
+  if (!entry.isFile() || !/^i18n-en(?:-[a-z0-9-]+)?\.ts$/i.test(entry.name)) continue;
+  const filePath = path.join(sourceRoot, entry.name);
+  const sourceFile = ts.createSourceFile(filePath, fs.readFileSync(filePath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  collectEnglishKeys(sourceFile);
+}
 collectFiles(sourceRoot);
 for (const filePath of files) {
   const source = fs.readFileSync(filePath, "utf8");

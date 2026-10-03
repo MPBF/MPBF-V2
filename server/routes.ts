@@ -49,6 +49,7 @@ import { canGrantPermissions, isProtectedProductionOrder, plannedFinalQuantity }
 import { categoryProductionPlan } from "./category-production-plan";
 import hr from "./hr";
 import selfService from "./self-service";
+import factoryProduction from "./production/routes";
 
 const router = Router();
 const admin = requirePermission("admin");
@@ -617,6 +618,7 @@ function userId(raw: string) {
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
 router.use("/self", selfService);
 router.use("/hr", hr);
+router.use("/production", factoryProduction);
 router.get("/public-branding", async (_req, res, next) => {
   try {
     const profile = (await db.select().from(company_profile).limit(1))[0] ?? null;
