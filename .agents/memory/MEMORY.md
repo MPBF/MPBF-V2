@@ -70,3 +70,4 @@
 - [Order printing scope](order-printing-scope.md) — user chose a standalone A4 landscape preview; the reference layout does not authorize public order sharing.
 - [Category overrun scope](category-overrun-scope.md) — user approved category-based planning for new production orders only; preserve saved percentages on existing orders.
 - [Customer profile product order](customer-profile-product-order.md) — user chose alphabetical category names, not codes; this preference is scoped to the customer profile.
+- [Language selector preference](language-selector-preference.md) — user chose a compact current-language flag dropdown, not adjacent flag buttons.

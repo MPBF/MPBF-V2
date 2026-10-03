@@ -203,7 +203,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
                         <div><span>{translate("الفئة")}</span><strong>{localizedName(product.category?.name_ar, product.category?.name)} {product.category?.code ? `· ${product.category.code}` : ""}</strong></div>
                         <div><span>{translate("الصنف")}</span><strong>{localizedName(product.item?.name_ar, product.item?.name)} {product.item?.code ? `· ${product.item.code}` : ""}</strong></div>
                         <div><span>{translate("لون الخلطة")}</span><strong>{localizedName(product.color?.name_ar, product.color?.name)} {product.color?.brand ? `· ${product.color.brand}` : ""}</strong></div>
-                        <div><span>{translate("اللون (عينة)")}</span><i className="odm-color-chip" style={{ backgroundColor: product.color?.color_hex || "transparent" }} aria-label={product.color?.name_ar || "غير محدد"} /></div>
+                        <div><span>{translate("اللون (عينة)")}</span><i className="odm-color-chip" style={{ backgroundColor: product.color?.color_hex || "transparent" }} aria-label={localizedName(product.color?.name_ar, product.color?.name, translate("غير محدد"))} /></div>
                       </div>
                     </> : <p className="odm-no-product">{translate("لم يعد المنتج المرتبط متاحاً.")}</p>}
                   </div>}

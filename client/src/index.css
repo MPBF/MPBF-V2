@@ -56,8 +56,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .topbar p { margin:3px 0 0; color:var(--muted); font-size:12px; }
 .top-actions { display:flex; align-items:center; gap:10px; }
 .language-switcher { position:relative; }
-.language-switcher select { max-width:150px; border:1px solid var(--line); border-radius:6px; padding:7px 9px; color:var(--ink); background:var(--panel); }
-.language-error { position:absolute; inset-block-start:100%; inset-inline-end:0; z-index:4; white-space:nowrap; color:var(--danger); background:var(--panel); padding:4px 7px; border:1px solid var(--line); }
+.language-error { position:absolute; inset-block-start:100%; inset-inline-end:0; z-index:4; width:max-content; max-width:min(280px, calc(100vw - 32px)); white-space:normal; color:var(--danger); background:var(--panel); padding:4px 7px; border:1px solid var(--line); }
 .user-chip { display:flex; align-items:center; gap:9px; padding:7px 10px; border-inline-start:1px solid var(--line); }
 .avatar { background:var(--aqua); color:var(--teal-deep); width:32px; height:32px; border-radius:50%; display:grid; place-items:center; font-weight:800; }
 .content { max-width: 1580px; margin:auto; padding: 30px 34px 60px; }

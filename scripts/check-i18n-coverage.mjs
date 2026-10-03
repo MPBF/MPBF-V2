@@ -22,11 +22,22 @@ function collectFiles(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const filePath = path.join(directory, entry.name);
     if (entry.isDirectory()) collectFiles(filePath);
-    else if (/\.(ts|tsx)$/.test(filePath) && filePath !== englishPath) files.push(filePath);
+    else if (/\.(ts|tsx)$/.test(filePath) && !entry.name.startsWith("i18n-en")) files.push(filePath);
   }
 }
 
 function visitSource(node, sourceFile) {
+  // Configuration labels, tuple options, and error strings also reach translate
+  // indirectly. Literal translate(...) calls alone missed those regressions.
+  if (ts.isStringLiteral(node) && /[ء-ي]/.test(node.text) && !englishKeys.has(node.text)) {
+    const explicitMetadata = path.basename(sourceFile.fileName) === "i18n.ts"
+      && ["MPBF | نظام تشغيل المصنع", "نظام MPBF لإدارة العملاء والطلبات والإنتاج والماكينات"].includes(node.text);
+    if (!explicitMetadata) {
+      const location = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+      const file = path.relative(sourceRoot, sourceFile.fileName).split(path.sep).join("/");
+      missing.set(node.text, `${file}:${location} :: ${node.text}`);
+    }
+  }
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "translate") {
     const argument = node.arguments[0];
     if (argument && ts.isStringLiteral(argument) && hasArabic(argument.text) && !englishKeys.has(argument.text)) {
@@ -40,6 +51,8 @@ function visitSource(node, sourceFile) {
 }
 
 collectEnglishKeys(englishFile);
+const reviewedPath = path.join(sourceRoot, "i18n-en-reviewed.ts");
+collectEnglishKeys(ts.createSourceFile(reviewedPath, fs.readFileSync(reviewedPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
 collectFiles(sourceRoot);
 for (const filePath of files) {
   const source = fs.readFileSync(filePath, "utf8");
@@ -49,3 +62,4 @@ for (const filePath of files) {
 
 console.log(`Missing English entries: ${missing.size}`);
 console.log([...missing.values()].sort().join("\n"));
+if (missing.size) process.exitCode = 1;

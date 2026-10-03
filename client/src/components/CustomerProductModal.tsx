@@ -257,10 +257,10 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
     const colors = normalizeColors(form[key]);
     return <div className="cp-colors">
       <span className="cp-color-label">{side === "front" ? translate("ألوان طباعة الوجه الأمامي") : translate("ألوان طباعة الوجه الخلفي")}</span>
-      <div className="cp-color-add"><input aria-label={`اختيار لون ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} type="color" value={side === "front" ? newFrontColor : newBackColor} onChange={(e) => side === "front" ? setNewFrontColor(e.target.value) : setNewBackColor(e.target.value)} /><button type="button" className="btn btn-muted" onClick={() => addPrintColor(side)}><Plus size={14} />{" "}{translate("أضف اللون")}</button></div>
+      <div className="cp-color-add"><input aria-label={`${translate("اختيار لون")} ${translate(side === "front" ? "الوجه الأمامي" : "الوجه الخلفي")}`} type="color" value={side === "front" ? newFrontColor : newBackColor} onChange={(e) => side === "front" ? setNewFrontColor(e.target.value) : setNewBackColor(e.target.value)} /><button type="button" className="btn btn-muted" onClick={() => addPrintColor(side)}><Plus size={14} />{" "}{translate("أضف اللون")}</button></div>
       <div className="cp-color-pills" aria-live="polite">{colors.map((color, index) => {
         const swatch = safeColor(color);
-        return <span className="cp-color-pill" key={`${color}-${index}`}><i style={swatch ? { background: swatch } : undefined} aria-hidden="true" /><span>{color}</span><button type="button" aria-label={`إزالة اللون ${color}`} onClick={() => removePrintColor(side, index)}><X size={13} /></button></span>;
+        return <span className="cp-color-pill" key={`${color}-${index}`}><i style={swatch ? { background: swatch } : undefined} aria-hidden="true" /><span>{color}</span><button type="button" aria-label={`${translate("إزالة اللون")} ${color}`} onClick={() => removePrintColor(side, index)}><X size={13} /></button></span>;
       })}{colors.length === 0 && <span className="cp-hint">{translate("لم تُحدد ألوان للطباعة بعد.")}</span>}</div>
     </div>;
   };
@@ -328,11 +328,11 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
             <div className="cp-grid cp-two">
               {(["front", "back"] as Side[]).map((side) => <div className="cp-image-card" key={side}>
                 <div className="cp-image-head"><strong>{side === "front" ? translate("كليشة الوجه الأمامي") : translate("كليشة الوجه الخلفي")}</strong><FileImage size={15} /></div>
-                <input className="cp-file" ref={(el) => { fileRefs.current[side] = el; }} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif" aria-label={`رفع تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} onChange={(e) => onFile(side, e)} disabled={saving || imageStatus[side].loading} />
+                <input className="cp-file" ref={(el) => { fileRefs.current[side] = el; }} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif" aria-label={`${translate("رفع تصميم")} ${translate(side === "front" ? "الوجه الأمامي" : "الوجه الخلفي")}`} onChange={(e) => onFile(side, e)} disabled={saving || imageStatus[side].loading} />
                 <span className="cp-hint">{translate("PNG · JPEG · GIF · WebP · BMP · AVIF — حتى 5 ميغابايت. اسم الملف محلي ولا يُحفظ.")}</span>
                 {imageStatus[side].error && <span className="cp-invalid" role="alert">{imageStatus[side].error}</span>}
                 {imageStatus[side].loading && <span className="cp-hint" role="status">{translate("جارٍ قراءة الصورة…")}</span>}
-                <div className="cp-preview">{form[idField(side)] ? <><img src={String(form[idField(side)])} alt={`معاينة تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} /><button type="button" className="cp-remove" aria-label={`إزالة تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} onClick={() => removeImage(side)}><Trash2 size={15} /></button></> : <span className="cp-preview-empty">{translate("لا يوجد تصميم محفوظ")}</span>}</div>
+                <div className="cp-preview">{form[idField(side)] ? <><img src={String(form[idField(side)])} alt={`${translate("معاينة تصميم")} ${translate(side === "front" ? "الوجه الأمامي" : "الوجه الخلفي")}`} /><button type="button" className="cp-remove" aria-label={`${translate("إزالة تصميم")} ${translate(side === "front" ? "الوجه الأمامي" : "الوجه الخلفي")}`} onClick={() => removeImage(side)}><Trash2 size={15} /></button></> : <span className="cp-preview-empty">{translate("لا يوجد تصميم محفوظ")}</span>}</div>
                 {renderPrintColors(side)}
               </div>)}
             </div>

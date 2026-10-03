@@ -11,6 +11,7 @@ import OrderCreateModal from "./components/OrderCreateModal";
 import CustomerProductModal from "./components/CustomerProductModal";
 import CustomerModal from "./components/CustomerModal";
 import ProductionOrderModal from "./components/ProductionOrderModal";
+import FlagLanguageSelector from "./components/FlagLanguageSelector";
 import OrderDetailsModal from "./components/OrderDetailsModal";
 import OrderPrintPage from "./components/OrderPrintPage";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
@@ -53,7 +54,7 @@ const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE)
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (search) query.set("search", search);
   return api(`${path}?${query.toString()}`).then((value) => {
-    if (!Array.isArray(value)) throw new Error("تعذر تحميل قائمة البيانات");
+    if (!Array.isArray(value)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
     return value as Row[];
   });
 };
@@ -62,7 +63,7 @@ const list = (path: string, search = "") => {
   if (path === "/roles" || path === "/sections") {
     const query = search ? `?search=${encodeURIComponent(search)}` : "";
     return api(`${path}${query}`).then((value) => {
-      if (!Array.isArray(value)) throw new Error("تعذر تحميل قائمة البيانات");
+      if (!Array.isArray(value)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
       return value as Row[];
     });
   }
@@ -84,9 +85,10 @@ const dictionaries: Record<string, string> = new Proxy(statusLabels, {
 const relationLabel = (row: Row, key: string) => {
   const arabicName = row[`${key}_name_ar`];
   const englishName = row[`${key}_name`];
-  return (i18n.language === "en" ? englishName || arabicName : arabicName || englishName) ||
+  return localizedName(arabicName, englishName, "") ||
     (key === "order" ? row.order_number : null) ||
-    (key === "production_order" ? row.production_order_number : null) || row[key] || null;
+    (key === "production_order" ? row.production_order_number : null) || row[`${key}_id`] ||
+    (typeof row[key] === "string" ? localizedName(row[key], row[key], "") : row[key]) || null;
 };
 const latinDigits = (value: string) => value
   .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
@@ -117,14 +119,16 @@ const fmtOrderDate = (value: any) => value ? new Intl.DateTimeFormat(formatLocal
 const displayValue = (row: Row, col: Column) => {
   if (col.key === "production_orders_summary") {
     const entries = row.production_orders_summary as OrderProductionSummary[] | undefined;
-    return entries?.length ? entries.map((entry) => `${entry.production_order_number} - ${(i18n.language === "en" ? entry.item_name || entry.item_name_ar : entry.item_name_ar || entry.item_name) || entry.item_id || "—"} - ${fmtNumber(entry.quantity_kg, 2, "كجم")}`).join(i18n.language === "ar" ? "؛ " : "; ") : translate("لا توجد أوامر إنتاج");
+    return entries?.length ? entries.map((entry) => `${entry.production_order_number} - ${localizedName(entry.item_name_ar, entry.item_name, entry.item_id || "—")} - ${fmtNumber(entry.quantity_kg, 2, "كجم")}`).join(i18n.language === "ar" ? "؛ " : "; ") : translate("لا توجد أوامر إنتاج");
   }
-  const raw = row[col.key] ?? (col.fallbackKey ? row[col.fallbackKey] : undefined);
+  const raw = i18n.language === "en" && col.key.endsWith("_ar") && col.label !== translate("الاسم العربي") && col.label !== translate("الاسم بالعربية")
+    ? localizedName(row[col.key], row[col.key.replace(/_ar$/, "")], String(row[col.key.replace(/_name_ar$/, "_id")] || row.id || "—"))
+    : row[col.key] ?? (col.fallbackKey ? row[col.fallbackKey] : undefined);
   const value = col.kind === "relation" ? relationLabel(row, col.key) : raw;
   if (col.joinKey) {
     const first = value === null || value === undefined || value === "" ? "" : latinDigits(String(value));
     const joinedRaw = row[col.joinKey];
-    const second = joinedRaw === null || joinedRaw === undefined || joinedRaw === "" ? "" : `${latinDigits(String(joinedRaw))}${col.joinUnit ? ` ${col.joinUnit}` : ""}`;
+    const second = joinedRaw === null || joinedRaw === undefined || joinedRaw === "" ? "" : `${latinDigits(String(joinedRaw))}${col.joinUnit ? ` ${translate(col.joinUnit)}` : ""}`;
     if (!first && !second) return "X";
     if (!first) return second;
     if (!second) return first;
@@ -140,12 +144,14 @@ const displayValue = (row: Row, col: Column) => {
 const secondaryValue = (row: Row, col: Column) => {
   if (col.secondaryRelation) return relationLabel(row, col.secondaryRelation) || "—";
   if (!col.secondaryKey) return "";
-  const value = row[col.secondaryKey];
+  const value = i18n.language === "en" && (col.secondaryKey.endsWith("_name") || col.secondaryKey === "name")
+    ? localizedName("", row[col.secondaryKey], "")
+    : row[col.secondaryKey];
   return value === null || value === undefined || value === "" ? "—" : latinDigits(String(value));
 };
 function OrderProductionCell({ entries }: { entries: OrderProductionSummary[] }) {
   if (!entries.length) return <span className="muted-text">{translate("لا توجد أوامر إنتاج")}</span>;
-  return <div className="order-production-list">{entries.map((entry) => <div className="order-production-item" key={entry.id}><strong>{entry.production_order_number}</strong><span>{translate("الصنف:")}{" "}{entry.item_name_ar || entry.item_name || entry.item_id || "—"}</span><span className="order-production-quantity">{fmtNumber(entry.quantity_kg, 2, "كجم")}</span></div>)}</div>;
+  return <div className="order-production-list">{entries.map((entry) => <div className="order-production-item" key={entry.id}><strong>{entry.production_order_number}</strong><span>{translate("الصنف:")}{" "}{localizedName(entry.item_name_ar, entry.item_name, entry.item_id || "—")}</span><span className="order-production-quantity">{fmtNumber(entry.quantity_kg, 2, "كجم")}</span></div>)}</div>;
 }
 const renderCell = (row: Row, col: Column) => {
   const value = displayValue(row, col);
@@ -210,7 +216,7 @@ function useBranding() {
 }
 
 function BrandIdentity({ branding }: { branding: BrandingSnapshot }) {
-  const companyName = i18n.language === "en" ? branding.companyNameEn || branding.companyNameAr : branding.companyNameAr || branding.companyNameEn;
+  const companyName = localizedName(branding.companyNameAr, branding.companyNameEn, "MPBF");
   return <div className="brand">{branding.logoSrc ? <img src={branding.logoSrc} alt={translate("شعار الشركة")} style={{ width: 38, height: 38, borderRadius: 10, objectFit: "cover", border: "1px solid var(--line)" }} /> : <div className="brand-mark">{translate("م")}</div>}<div><strong>{companyName || "MPBF"}</strong><small>{i18n.language === "en" ? "PLASTIC MANUFACTURING" : "MPBF"}</small></div></div>;
 }
 
@@ -220,13 +226,11 @@ function PublicLanguageSwitcher() {
     await i18n.changeLanguage(language);
     applyLanguage(language);
   };
-  return <div className="language-switcher public-language-switcher">
-    <label className="sr-only" htmlFor="public-language-switcher">{translate("اللغة")}</label>
-    <select id="public-language-switcher" aria-label={translate("اللغة")} value={normalizeLanguage(i18n.language)} onChange={(event) => void changeLanguage(event.target.value)}>
-      <option value="ar">{translate("العربية")}</option>
-      <option value="en">English</option>
-    </select>
-  </div>;
+  return <div className="language-switcher public-language-switcher"><FlagLanguageSelector
+    value={normalizeLanguage(i18n.language)}
+    effectiveLanguage={normalizeLanguage(i18n.language)}
+    onChange={(value) => void changeLanguage(value)}
+  /></div>;
 }
 
 function PasswordChange({ user, onComplete, setUser, defaultLanguage }: { user: Row; onComplete: (user: Row) => void; setUser: (user: Row | null) => void; defaultLanguage: "ar" | "en" }) {
@@ -262,21 +266,17 @@ function LanguageSwitcher({ user, setUser, defaultLanguage }: { user: Row; setUs
     }
   };
   return <div className="language-switcher">
-    <label className="sr-only" htmlFor="language-switcher">{translate("اللغة")}</label>
-    <select id="language-switcher" aria-label={translate("اللغة")} value={preference} disabled={saving} onChange={(event) => void changeLanguage(event.target.value)}>
-      <option value="">{translate("استخدم لغة الشركة")}</option>
-      <option value="ar">{translate("العربية")}</option>
-      <option value="en">English</option>
-    </select>
+    <FlagLanguageSelector value={preference} effectiveLanguage={normalizeLanguage(preference, defaultLanguage)}
+      allowDefault disabled={saving} onChange={(value) => void changeLanguage(value)} />
     {error && <span className="language-error" role="alert">{error}</span>}
   </div>;
 }
 
 function Layout({ children, user, setUser, branding }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void; branding: BrandingSnapshot }) {
-  user = { ...user, display_name_ar: i18n.language === "en" ? user.display_name || user.display_name_ar : user.display_name_ar || user.display_name };
+  const displayName = localizedName(user.display_name_ar, user.display_name, user.username || "—");
   const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
   const logout = async () => { try { await api("/logout", { method: "POST" }); } finally { setUser(null); setLoc("/"); } };
-  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav><div className="side-foot">{translate("نظام تشغيل المصنع")}<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{translate(title)}</h1><p>{translate("مركز التحكم التشغيلي · بيانات مباشرة")}</p></div><div className="top-actions"><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={branding.defaultLanguage} /><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label={translate("تسجيل الخروج")} className="btn btn-plain" onClick={logout} title={translate("تسجيل الخروج")}><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav></main></div>;
+  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav><div className="side-foot">{translate("نظام تشغيل المصنع")}<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{translate(title)}</h1><p>{translate("مركز التحكم التشغيلي · بيانات مباشرة")}</p></div><div className="top-actions"><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={branding.defaultLanguage} /><div className="user-chip"><div className="avatar">{String(displayName).slice(0, 1)}</div><span>{displayName}</span></div><button aria-label={translate("تسجيل الخروج")} className="btn btn-plain" onClick={logout} title={translate("تسجيل الخروج")}><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav></main></div>;
 }
 
 function Dashboard({ user }: { user: Row }) {
@@ -346,8 +346,8 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     }
   };
   const rowActions = (row: Row, mobile = false) => <div className="actions">
-    {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
-    {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && " طباعة"}</a>}
+    {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && translate(" عرض")}</button>}
+    {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && translate(" طباعة")}</a>}
     {writable && <button aria-label={`${translate("تعديل")} ${translate(cfg.singular)}`} title={translate("تعديل")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && ` ${translate("تعديل")}`}</button>}
     {clonable && <button aria-label={`${translate("استنساخ")} ${translate(cfg.singular)}`} title={translate("استنساخ")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => clone(row)}><Copy size={16} />{mobile && ` ${translate("استنساخ")}`}</button>}
     {deletable && <button aria-label={`${translate("حذف")} ${translate(cfg.singular)}`} title={translate("حذف")} className={mobile ? "btn btn-danger" : "btn btn-plain"} onClick={() => remove(row.id)}><Trash2 size={16} />{mobile && ` ${translate("حذف")}`}</button>}
@@ -370,7 +370,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         <div className="tools">
           <Search size={17} aria-hidden="true" />
           <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
-          <input id={`${kind}-search`} aria-label={`بحث في ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
+          <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
         </div>
       </div>
       {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>{translate("لا توجد سجلات مطابقة")}</strong>{translate("ابدأ بإضافة أول سجل لهذا القسم.")}</div> : <div className="table-wrap">
@@ -380,7 +380,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         </table>
         <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
       </div>}
-      {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`صفحات ${cfg.title}`}>
+      {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`${translate("صفحات")} ${cfg.title}`}>
         <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{translate("السابق")}</button>
         <span>{translate("صفحة")}{" "}{page + 1}</span>
         <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>{translate("التالي")}</button>
@@ -609,21 +609,21 @@ function UserModal({ row, user, onClose, onSaved }: { row: Row; user: Row; onClo
     body.status = form.status || "active";
     const validRole = roles.some((role) => String(role.id) === String(form.role_id));
     const currentRoleMissing = row.id && String(form.role_id ?? "") === String(row.role_id ?? "") && !validRole;
-    if (!validRole && !currentRoleMissing) throw new Error("اختر دوراً صالحاً من القائمة");
+    if (!validRole && !currentRoleMissing) throw new Error(translate("اختر دوراً صالحاً من القائمة"));
     if (!currentRoleMissing) body.role_id = Number(form.role_id);
     const validSection = !form.section_id || sections.some((section) => String(section.id) === String(form.section_id));
     const currentSectionMissing = row.id && String(form.section_id ?? "") === String(row.section_id ?? "") && !validSection;
-    if (!validSection && !currentSectionMissing) throw new Error("اختر قسماً صالحاً من القائمة");
+    if (!validSection && !currentSectionMissing) throw new Error(translate("اختر قسماً صالحاً من القائمة"));
     if (!currentSectionMissing) body.section_id = form.section_id || null;
     if (form.password) body.password = form.password;
-    if (form.birth_date && Number.isNaN(Date.parse(`${form.birth_date}T00:00:00`))) throw new Error("تاريخ الميلاد غير صالح");
-    if (form.service_start_date && Number.isNaN(Date.parse(`${form.service_start_date}T00:00:00`))) throw new Error("تاريخ بدء الخدمة غير صالح");
-    if (form.birth_date && new Date(`${form.birth_date}T00:00:00`).getTime() > Date.now()) throw new Error("تاريخ الميلاد لا يمكن أن يكون في المستقبل");
-    if (form.birth_date && form.service_start_date && form.service_start_date < form.birth_date) throw new Error("تاريخ بدء الخدمة يجب أن يكون بعد تاريخ الميلاد");
+    if (form.birth_date && Number.isNaN(Date.parse(`${form.birth_date}T00:00:00`))) throw new Error(translate("تاريخ الميلاد غير صالح"));
+    if (form.service_start_date && Number.isNaN(Date.parse(`${form.service_start_date}T00:00:00`))) throw new Error(translate("تاريخ بدء الخدمة غير صالح"));
+    if (form.birth_date && new Date(`${form.birth_date}T00:00:00`).getTime() > Date.now()) throw new Error(translate("تاريخ الميلاد لا يمكن أن يكون في المستقبل"));
+    if (form.birth_date && form.service_start_date && form.service_start_date < form.birth_date) throw new Error(translate("تاريخ بدء الخدمة يجب أن يكون بعد تاريخ الميلاد"));
     body.must_change_password = Boolean(form.must_change_password);
     body.include_in_attendance = Boolean(form.include_in_attendance);
     if (isAdmin) body.is_system_user = Boolean(form.is_system_user);
-    if (!row.id && !form.password) throw new Error("كلمة المرور مطلوبة عند إنشاء مستخدم");
+    if (!row.id && !form.password) throw new Error(translate("كلمة المرور مطلوبة عند إنشاء مستخدم"));
     setSaving(true);
     await api(row.id ? `/users/${row.id}` : "/users", { method: row.id ? "PUT" : "POST", body: JSON.stringify(body) }); onSaved();
   } catch (e) { setError((e as Error).message); } finally { setSaving(false); } };
@@ -749,7 +749,7 @@ function RolesAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: numb
     return () => gate.invalidate();
   }, [load, refreshToken]);
   const remove = async (r: Row) => { if (!deletable || !confirm(translate("تأكيد حذف الدور؟"))) return; try { await api(`/roles/${r.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
-  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} />{" "}{translate("إضافة دور")}</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{r.name_ar || r.name}</strong><span className="cell-sub">{r.name}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0}{" "}{translate("صلاحية")}</div></div><div className="actions">{writable && <button aria-label={`تعديل دور ${r.name_ar || r.name}`} title={translate("تعديل")} className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`حذف دور ${r.name_ar || r.name}`} title={translate("حذف")} className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>{translate("لا توجد أدوار")}</strong>{writable ? translate("أنشئ أول سياسة وصول للنظام.") : translate("لا توجد أدوار مسجلة.")}</div>}</div>{edit && writable && <RoleModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
+  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} />{" "}{translate("إضافة دور")}</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{localizedName(r.name_ar, r.name, String(r.id))}</strong><span className="cell-sub">{localizedName("", r.name, "")}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0}{" "}{translate("صلاحية")}</div></div><div className="actions">{writable && <button aria-label={`${translate("تعديل")} ${translate("دور")} ${localizedName(r.name_ar, r.name, String(r.id))}`} title={translate("تعديل")} className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`${translate("حذف")} ${translate("دور")} ${localizedName(r.name_ar, r.name, String(r.id))}`} title={translate("حذف")} className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>{translate("لا توجد أدوار")}</strong>{writable ? translate("أنشئ أول سياسة وصول للنظام.") : translate("لا توجد أدوار مسجلة.")}</div>}</div>{edit && writable && <RoleModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
 }
 
 function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
@@ -1096,11 +1096,15 @@ function CustomerDetail({ user }: { user: Row }) {
   const customer: Row | null = sourceCustomer ? {
     ...sourceCustomer,
     name_ar: localizedName(sourceCustomer.name_ar, sourceCustomer.name),
-    name: localizedName(sourceCustomer.name, sourceCustomer.name_ar),
+    name: localizedName(sourceCustomer.name_ar, sourceCustomer.name),
     sales_rep_name_ar: localizedName(sourceCustomer.sales_rep_name_ar, sourceCustomer.sales_rep_name),
-    sales_rep_name: localizedName(sourceCustomer.sales_rep_name, sourceCustomer.sales_rep_name_ar),
+    sales_rep_name: localizedName(sourceCustomer.sales_rep_name_ar, sourceCustomer.sales_rep_name),
   } : null;
-  const products = loadedCustomerId === customerId ? loadedProducts : [];
+  const sortedProducts = useMemo(() =>
+    sortCustomerProductsByCategory<Row>(loadedProducts, normalizeLanguage(i18n.language))
+      .map<Row>((product, index) => ({ ...product, __sequence: index + 1 })),
+  [loadedProducts, i18n.language]);
+  const products = loadedCustomerId === customerId ? sortedProducts : [];
   const error = loadedCustomerId === customerId ? errorState : "";
   const loading = loadedCustomerId !== customerId || loadingState;
   const productConfig: Config = { ...localizeConfig(configs.products), lockedFields: ["customer_id"] };
@@ -1117,7 +1121,7 @@ function CustomerDetail({ user }: { user: Row }) {
     api(`/customers/${encodeURIComponent(requestedCustomerId)}/detail`).then((data) => {
       if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
       setCustomer(data.customer || null);
-      setProducts(Array.isArray(data.products) ? sortCustomerProductsByCategory<Row>(data.products).map((product, index) => ({ ...product, __sequence: index + 1 })) : []);
+      setProducts(Array.isArray(data.products) ? data.products : []);
       setLoadedCustomerId(requestedCustomerId);
     }).catch((err) => {
       if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;

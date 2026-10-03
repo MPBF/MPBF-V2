@@ -1,13 +1,14 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import english from "./i18n-en";
+import reviewedEnglish from "./i18n-en-reviewed";
 
 export type AppLanguage = "ar" | "en";
 
 void i18n.use(initReactI18next).init({
   resources: {
     ar: { translation: {} },
-    en: { translation: english },
+    en: { translation: { ...reviewedEnglish, ...english } },
   },
   lng: "ar",
   fallbackLng: "ar",
@@ -42,7 +43,10 @@ export function intlLocale(): string {
 export function localizedName(arabic: unknown, english: unknown, fallback = "—"): string {
   const arabicName = typeof arabic === "string" ? arabic.trim() : "";
   const englishName = typeof english === "string" ? english.trim() : "";
-  return (i18n.language === "en" ? englishName || arabicName : arabicName || englishName) || fallback;
+  // Some legacy API "English" fields contain an Arabic SQL fallback.
+  return (i18n.language === "en"
+    ? (/[\u0600-\u06ff]/.test(englishName) ? "" : englishName)
+    : arabicName || englishName) || fallback;
 }
 
 export function applyLanguage(language: AppLanguage): void {

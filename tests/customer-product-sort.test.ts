@@ -6,6 +6,17 @@ const product = (id: number, categoryId: string | null, name?: string | null, en
 const ids = (rows: { id: number }[]) => rows.map((row) => row.id);
 
 describe("customer profile category-name sorting", () => {
+  it("uses English category names rather than Arabic when English is active", () => {
+    const rows = [product(1, "CAT01", "أكياس", "Z Bags"), product(2, "CAT02", "شنط", "A Bags")];
+    expect(ids(sortCustomerProductsByCategory(rows, "ar"))).toEqual([1, 2]);
+    expect(ids(sortCustomerProductsByCategory(rows, "en"))).toEqual([2, 1]);
+  });
+
+  it("keeps English-missing categories grouped by ID without an Arabic fallback", () => {
+    const rows = [product(1, null), product(2, "CAT2", "أكياس"), product(3, "CAT1", "شنط", "شنط"), product(4, "CAT3", "رولات", "Rolls"), product(5, "CAT2", "أكياس")];
+    expect(ids(sortCustomerProductsByCategory(rows, "en"))).toEqual([4, 3, 2, 5, 1]);
+  });
+
   it("sorts by Arabic category name, not category code or product ID", () => {
     const rows = [
       product(9, "CAT01", "شنط"), product(8, "CAT02", "أكياس"),

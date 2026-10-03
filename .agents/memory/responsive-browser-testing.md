@@ -14,3 +14,9 @@ HTML intercepted for isolated React component tests must receive the Vite React 
 **Why:** Intercepting the HTML bypasses Vite's HTML transformation, while its module transformation still expects the refresh globals. The resulting preamble error is a test-host failure, not a broken component.
 
 **How to apply:** Prefer the server's transformed HTML; if replacing the document through a browser route, supply the refresh preamble and check page errors before interpreting missing controls as product failures.
+
+Locate equivalent responsive actions by their accessible name and visibility, not by assuming they all have the same naming attribute.
+
+**Why:** Desktop icon actions can use an accessible label/title while mobile actions use visible text. Attribute-only selectors falsely report missing mobile edit actions.
+
+**How to apply:** Use accessible-name locators where available; otherwise account for visible text as well as accessible labels and titles.
