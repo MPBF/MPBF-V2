@@ -42,6 +42,7 @@ export function usesGeneratedAdminId(path: string): boolean {
 }
 
 export function newAdminFormDefaults(path: string): Record<string, boolean | string> {
+  if (path === "/categories") return { overrun_percentage: "0" };
   if (path === "/maintenance-component-catalog") return { enabled: true };
   if (path === "/master-batch-colors") {
     return { is_active: true, color_hex: "#FFFFFF", text_color: "#000000" };

@@ -50,4 +50,8 @@ describe("administration form review helpers", () => {
   it("includes the existing HDPE/LDPE blend in machine material choices", () => {
     expect(MACHINE_RAW_MATERIAL_TYPES).toContain("HDPE\\LDPE");
   });
+
+  it("defaults new categories to zero production overrun", () => {
+    expect(newAdminFormDefaults("/categories")).toEqual({ overrun_percentage: "0" });
+  });
 });

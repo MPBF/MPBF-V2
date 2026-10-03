@@ -159,6 +159,33 @@ describe("administration form routes", () => {
     });
   });
 
+  it.each([0, 5, 10, 20])("persists allowed category production overrun %s on create and edit", async (percentage) => {
+    executeRows = [[], [{ max_number: "5", suffix_width: 2 }], [{ value: "6" }]];
+    const created = await request("/categories", "POST", { name: "Film", overrun_percentage: percentage });
+    expect(created.status).toBe(201);
+    expect(inserted[0].values.overrun_percentage).toBe(percentage);
+    txSelectRows.set(categories, [{ id: "CAT1", parent_id: null, code: "CAT1" }]);
+    const edited = await request("/categories/CAT1", "PUT", { overrun_percentage: percentage });
+    expect(edited.status).toBe(200);
+    expect(updated[0].values).toEqual({ overrun_percentage: percentage });
+  });
+
+  it.each([-1, 1, 15, 25, 5.5, null, "", "5", "5%"])("rejects unsupported category production overrun %s", async (percentage) => {
+    const created = await request("/categories", "POST", { name: "Film", overrun_percentage: percentage });
+    expect(created.status).toBe(400);
+    expect(inserted).toHaveLength(0);
+    txSelectRows.set(categories, [{ id: "CAT1", parent_id: null, code: "CAT1" }]);
+    const edited = await request("/categories/CAT1", "PUT", { overrun_percentage: percentage });
+    expect(edited.status).toBe(400);
+    expect(updated).toHaveLength(0);
+  });
+
+  it("does not allow read-only category users to change the production overrun", async () => {
+    const response = await request("/categories/CAT1", "PUT", { overrun_percentage: 20 }, "view_orders");
+    expect(response.status).toBe(403);
+    expect(updated).toHaveLength(0);
+  });
+
   it("allocates SEC IDs from the locked counter instead of a submitted ID", async () => {
     executeRows = [[], [{ max_number: "8", suffix_width: 2 }], [{ value: "9" }]];
     const response = await request("/sections", "POST", {

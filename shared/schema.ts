@@ -269,7 +269,10 @@ export const categories = pgTable("categories", {
   name_ar: varchar("name_ar", { length: 100 }),
   code: varchar("code", { length: 20 }),
   parent_id: varchar("parent_id", { length: 20 }),
-});
+  overrun_percentage: integer("overrun_percentage").notNull().default(0),
+}, (table) => [
+  check("categories_overrun_percentage_allowed", sql`${table.overrun_percentage} IN (0, 5, 10, 20)`),
+]);
 
 export const items = pgTable("items", {
   id: varchar("id", { length: 20 }).primaryKey(),
@@ -535,7 +538,9 @@ export const insertSectionSchema = createInsertSchema(sections).omit({ id: true 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, created_at: true, updated_at: true });
 export const insertShiftDefinitionSchema = createInsertSchema(shift_definitions).omit({ created_at: true, updated_at: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ created_at: true });
-export const insertCategorySchema = createInsertSchema(categories).omit({ id: true });
+export const insertCategorySchema = createInsertSchema(categories).omit({ id: true }).extend({
+  overrun_percentage: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(20)]).optional(),
+});
 export const insertItemSchema = createInsertSchema(items).omit({ id: true });
 export const insertMasterBatchColorSchema = createInsertSchema(master_batch_colors).omit(omitGenerated);
 const wholeProductNumber = z.string().regex(/^-?\d+$/, "يجب إدخال عدد صحيح دون كسور").nullish();
