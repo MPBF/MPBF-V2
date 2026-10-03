@@ -1,6 +1,6 @@
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { customer_products, orders, production_orders, roles, users } from "../shared/schema";
+import { categories, customer_products, orders, production_orders, roles, users } from "../shared/schema";
 import router from "../server/routes";
 import { db } from "../server/db";
 
@@ -45,6 +45,8 @@ describe("privilege escalation routes", () => {
   let transactionDelete: jest.Mock;
   let directInsert: jest.Mock;
   let directUpdate: jest.Mock;
+  let productCustomerId: string;
+  let categoryPercentage: number;
 
   beforeAll(async () => {
     const app = express();
@@ -63,6 +65,8 @@ describe("privilege escalation routes", () => {
 
   beforeEach(() => {
     rolePermissions = ["admin"];
+    productCustomerId = "C2";
+    categoryPercentage = 10;
     productionOrderCurrent = {
       id: 8,
       production_order_number: "PO-8",
@@ -91,7 +95,8 @@ describe("privilege escalation routes", () => {
             if (table === roles) return [{ permissions: rolePermissions }];
             if (table === users) return [{ id: 42, role_id: 9 }];
             if (table === orders) return [{ id: 7, customer_id: "C1" }];
-            if (table === customer_products) return [{ id: 13, customer_id: "C2" }];
+            if (table === customer_products) return [{ id: 13, customer_id: productCustomerId, category_id: "CAT1" }];
+            if (table === categories) return [{ overrun_percentage: categoryPercentage }];
             if (table === production_orders) return locked
               ? [productionOrderCurrent]
               : productionSnapshot
@@ -219,8 +224,22 @@ describe("privilege escalation routes", () => {
     expect(transactionInsert).toHaveBeenCalledWith(expect.objectContaining({
       order_id: 7,
       quantity_kg: "10.25",
-      overrun_percentage: "50",
-      final_quantity_kg: "15.38",
+      overrun_percentage: "0",
+      final_quantity_kg: "10.25",
+    }));
+  });
+
+  it.each([0, 5, 10, 20])("uses category rate %s%% rather than client plan values on creation", async (percentage) => {
+    productCustomerId = "C1";
+    categoryPercentage = percentage;
+    const response = await request("/production-orders", "POST", {
+      production_order_number: "PO-9", order_id: 7, customer_product_id: 13,
+      quantity_kg: "1000", overrun_percentage: "50", final_quantity_kg: "999",
+    }, "manage_production");
+    expect(response.status).toBe(201);
+    expect(transactionInsert).toHaveBeenCalledWith(expect.objectContaining({
+      quantity_kg: "1000", overrun_percentage: String(percentage),
+      final_quantity_kg: (1000 * (1 + percentage / 100)).toFixed(2),
     }));
   });
 

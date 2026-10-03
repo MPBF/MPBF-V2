@@ -29,6 +29,7 @@ function fakeTransaction(
   failInsert = false,
   createdProducts: any[] = [],
   itemCategoryId = "CAT1",
+  categoryPercentage = 0,
 ) {
   return async (callback: (tx: any) => Promise<any>) => {
     // Writes are private until callback succeeds, just as in a DB transaction.
@@ -39,9 +40,12 @@ function fakeTransaction(
         from(table: unknown) {
           const rows = table === orders ? [draft.order] :
             table === production_orders ? [...draft.lines] :
-              table === customer_products ? [{ id: 1 }, { id: 2 }, { id: 3 }] :
+              table === customer_products ? [
+                ...pendingProducts,
+                ...[1, 2, 3].map((id) => ({ id, category_id: "CAT1" })),
+              ] :
                 table === customers ? [{ id: "C1" }] :
-                  table === categories ? [{ id: "CAT1", name: "Bag", name_ar: "كيس" }] :
+                  table === categories ? [{ id: "CAT1", name: "Bag", name_ar: "كيس", overrun_percentage: categoryPercentage }] :
                     table === items ? [{ id: "IT1", category_id: itemCategoryId }] : [];
           const query: any = {
             where: () => query,
@@ -193,13 +197,14 @@ describe("editing an order with production lines", () => {
     const state: { order: any; lines: any[] } = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
     state.lines[0].overrun_percentage = "25.00";
     state.lines[0].final_quantity_kg = "12.50";
-    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, [], "CAT1", 20) as typeof db.transaction);
     const response = await request([
       { id: 11, customer_product_id: 1, quantity_kg: "12.00" },
       { id: 12, customer_product_id: 2, quantity_kg: "20.00" },
     ]);
     expect(response.status).toBe(200);
     expect(state.lines[0]).toMatchObject({ quantity_kg: "12.00", final_quantity_kg: "15.00" });
+    expect(state.lines[0].overrun_percentage).toBe("25.00");
   });
 
   it("preserves the existing planned final quantity when only the product changes", async () => {
@@ -236,7 +241,7 @@ describe("editing an order with production lines", () => {
   it("creates a full order draft product through the same normalization and derivation on edit", async () => {
     const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
     const createdProducts: any[] = [];
-    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, createdProducts) as typeof db.transaction);
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, createdProducts, "CAT1", 20) as typeof db.transaction);
     const response = await request([
       ...untouchedLines(),
       { new_product: draftProduct(), quantity_kg: "5.00" },
@@ -272,6 +277,23 @@ describe("editing an order with production lines", () => {
       package_weight_kg: "5.00",
     });
     expect(createdProducts[0]).not.toHaveProperty("universal_thickness");
+    expect(state.lines.at(-1)).toMatchObject({
+      customer_product_id: 88, overrun_percentage: "20", final_quantity_kg: "6.00",
+    });
+    expect(state.lines.slice(0, 2)).toEqual(baseLines);
+  });
+
+  it("applies today's category rate only to appended lines, not existing lines", async () => {
+    const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, false, [], "CAT1", 10) as typeof db.transaction);
+    const response = await request([
+      ...untouchedLines(), { customer_product_id: 3, quantity_kg: "5.00" },
+    ]);
+    expect(response.status).toBe(200);
+    expect(state.lines.slice(0, 2)).toEqual(baseLines);
+    expect(state.lines.at(-1)).toMatchObject({
+      quantity_kg: "5.00", overrun_percentage: "10", final_quantity_kg: "5.50",
+    });
   });
 
   it("rejects forged child customer and computed product fields on edit", async () => {

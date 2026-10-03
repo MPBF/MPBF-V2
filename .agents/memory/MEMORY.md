@@ -68,4 +68,4 @@
 - [Skill/runtime capability drift](runtime-skill-drift.md) — installed skill documentation may describe an unsupported worker kind; use verified runtime capabilities.
 - [Production editor scope](production-editor-scope.md) — quantity-only is the Production Orders tab form restriction; keep existing transition APIs and started-order protections.
 - [Order printing scope](order-printing-scope.md) — user chose a standalone A4 landscape preview; the reference layout does not authorize public order sharing.
-- [Category overrun scope](category-overrun-scope.md) — default 0% approved; category percentages are metadata, not authorization to recalculate production orders.
+- [Category overrun scope](category-overrun-scope.md) — user approved category-based planning for new production orders only; preserve saved percentages on existing orders.

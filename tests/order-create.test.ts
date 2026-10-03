@@ -1,6 +1,6 @@
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it, jest } from "@jest/globals";
-import { customers, customer_products, orders, production_orders } from "../shared/schema";
+import { categories, customers, customer_products, orders, production_orders } from "../shared/schema";
 import { deliveryDateFromDays, orderDateInRiyadh } from "../server/order-delivery";
 import router from "../server/routes";
 import { db } from "../server/db";
@@ -35,7 +35,7 @@ describe("creating an order with delivery days", () => {
   });
   afterAll(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
 
-  it("assigns a number and stores the calculated date alongside 20 delivery days", async () => {
+  it.each([0, 5, 10, 20])("assigns order identifiers and snapshots category rate %s%%", async (percentage) => {
     const tx = {
       execute: async () => ({ rows: [{ max_number: "19" }] }),
       select: () => ({
@@ -43,7 +43,8 @@ describe("creating an order with delivery days", () => {
           where: () => {
             const query = {
               limit: async () => table === customers ? [{ id: "C1" }] :
-                table === customer_products ? [{ id: 3 }] : [],
+                table === customer_products ? [{ id: 3, category_id: "CAT1" }] :
+                  table === categories ? [{ id: "CAT1", overrun_percentage: percentage }] : [],
             };
             return { ...query, for: () => query };
           },
@@ -67,5 +68,9 @@ describe("creating an order with delivery days", () => {
     expect(result.order.delivery_days).toBe(20);
     expect(result.order.delivery_date).toBe(deliveryDateFromDays(orderDateInRiyadh(new Date(result.order.created_at)), 20));
     expect(result.production_orders[0].production_order_number).toBe("000020-01");
+    expect(result.production_orders[0]).toMatchObject({
+      quantity_kg: "10.00", overrun_percentage: String(percentage),
+      final_quantity_kg: (10 * (1 + percentage / 100)).toFixed(2),
+    });
   });
 });

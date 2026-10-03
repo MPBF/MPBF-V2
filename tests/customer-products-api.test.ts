@@ -40,7 +40,7 @@ describe("customer product routes", () => {
   let fixtureCategoryName = "Bag";
   let productionOrderReference = false;
 
-  const fixtureCategory = () => ({ id: "CAT1", name: fixtureCategoryName, name_ar: fixtureCategoryName });
+  const fixtureCategory = () => ({ id: "CAT1", name: fixtureCategoryName, name_ar: fixtureCategoryName, overrun_percentage: 20 });
   const fixtureItem = () => ({ id: "IT1", category_id: itemCategoryId });
 
   function transactionForTest() {
@@ -68,6 +68,7 @@ describe("customer product routes", () => {
             if (table === customer_products) {
               if (locked) return currentProduct ? [currentProduct] : [];
               const id = condition?.queryChunks?.find((part: any) => typeof part.value === "number")?.value;
+              if (id === 18 && savedInsert) return [{ id: 18, ...savedInsert }];
               return sourceProduct && sourceProduct.id === id ? [sourceProduct] : [];
             }
             return [];
@@ -530,6 +531,10 @@ describe("customer product routes", () => {
       ...createOrderWithProduct(orderProductInput()),
     }, "manage_orders");
     expect(response.status).toBe(201);
+    const result = await response.json();
+    expect(result.production_orders[0]).toMatchObject({
+      quantity_kg: "10.00", overrun_percentage: "20", final_quantity_kg: "12.00",
+    });
     expect(savedInsert).toMatchObject({
       customer_id: "C1",
       category_id: "CAT1",

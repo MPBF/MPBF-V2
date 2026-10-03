@@ -46,6 +46,7 @@ import { getOrderDetails } from "./order-details";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import { canGrantPermissions, isProtectedProductionOrder, plannedFinalQuantity } from "./audit-rules";
+import { categoryProductionPlan } from "./category-production-plan";
 import hr from "./hr";
 import selfService from "./self-service";
 
@@ -1026,13 +1027,13 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
             throw error;
           }
         }
+        const plan = await categoryProductionPlan(tx, productId, line.quantity_kg);
         const [productionOrder] = await tx.insert(production_orders).values({
           production_order_number: `${orderNumber}-${String(index + 1).padStart(2, "0")}`,
           order_id: order.id,
           customer_product_id: productId,
           quantity_kg: line.quantity_kg,
-          final_quantity_kg: line.quantity_kg,
-          overrun_percentage: "0",
+          ...plan,
           status: "pending",
         }).returning();
         createdLines.push(productionOrder);
@@ -1150,10 +1151,11 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
           }
         } else {
           nextSuffix += 1;
+          const plan = await categoryProductionPlan(tx, productId, line.quantity_kg);
           const [created] = await tx.insert(production_orders).values({
             production_order_number: `${order.order_number}-${String(nextSuffix).padStart(2, "0")}`,
             order_id: id, customer_product_id: productId, quantity_kg: line.quantity_kg,
-            final_quantity_kg: line.quantity_kg, overrun_percentage: "0", status: "pending",
+            ...plan, status: "pending",
           }).returning();
           resultLines.push(created);
         }
@@ -1440,16 +1442,14 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         if (!productionInput.production_order_number || !productionInput.order_id || !productionInput.quantity_kg) {
           return res.status(400).json({ message: "رقم أمر الإنتاج والطلب والكمية المطلوبة حقول إلزامية" });
         }
-        const overrun = productionInput.overrun_percentage ?? "0";
-        const finalQuantity = productionInput.final_quantity_kg ??
-          productionQuantity.parse(plannedFinalQuantity(productionInput.quantity_kg, overrun));
-        const values = {
-          ...productionInput,
-          overrun_percentage: overrun,
-          final_quantity_kg: finalQuantity,
-        };
         const row = await db.transaction(async (tx) => {
           await assertProductionProductMatchesOrder(tx, productionInput.order_id!, productionInput.customer_product_id);
+          const plan = await categoryProductionPlan(tx, productionInput.customer_product_id, productionInput.quantity_kg!);
+          const values = {
+            ...productionInput,
+            ...plan,
+            final_quantity_kg: productionQuantity.parse(plan.final_quantity_kg),
+          };
           return tx.insert(production_orders).values(values).returning();
         });
         return res.status(201).json(row[0]);
