@@ -1,3 +1,4 @@
+import { localizedName, translate, translateError } from "../i18n";
 import { AlertCircle, Check, ChevronDown, CircleHelp, FileImage, LoaderCircle, Package, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type SyntheticEvent, type KeyboardEvent } from "react";
 
@@ -26,8 +27,8 @@ function normalizeColors(value: unknown): string[] {
   if (typeof value === "string" && value) { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : [value]; } catch { return [value]; } }
   return [];
 }
-const name = (row: Row) => String(row?.name_ar || row?.name || row?.display_name_ar || row?.display_name || "");
-const customerName = (row: Row) => [row.name_ar || row.display_name_ar, row.name || row.display_name].filter((v, i, a) => v && a.indexOf(v) === i).join(" - ") || name(row);
+const name = (row: Row) => localizedName(row?.name_ar || row?.display_name_ar, row?.name || row?.display_name, "");
+const customerName = (row: Row) => localizedName(row.name_ar || row.display_name_ar, row.name || row.display_name, name(row));
 const validHex = (v: string) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v);
 const safeColor = (value: string) => {
   if (validHex(value)) return value;
@@ -42,7 +43,7 @@ const batchSwatch = (row: Row | undefined) => {
 async function getJson(path: string, signal: AbortSignal) {
   const res = await fetch(`/api${path}`, { credentials: "include", signal, headers: { Accept: "application/json" } });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.message || `تعذر تحميل البيانات (${res.status})`);
+  if (!res.ok) throw new Error(translateError(body.message || `تعذر تحميل البيانات (${res.status})`));
   return body?.data ?? body;
 }
 async function loadAll(path: string, signal: AbortSignal): Promise<Row[]> {
@@ -113,7 +114,7 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
           id: String(c.id),
           is_active: c.is_active !== false && c.is_active !== 0 && c.is_active !== "false",
         }));
-        if (!Array.isArray(formOpts?.printing_cylinders)) throw new Error("استجابة خيارات الطباعة غير صالحة.");
+        if (!Array.isArray(formOpts?.printing_cylinders)) throw new Error(translate("استجابة خيارات الطباعة غير صالحة."));
         const cylinders = [...new Set([...PRINTING_CYLINDERS, ...formOpts.printing_cylinders.map(String)])];
         setOptions({ customers: partial.customers || [], categories: partial.categories || [], items: partial.items || [], colors: normalizedColors, cylinders });
       } catch (e) { if (!controller.signal.aborted) setOptionError((e as Error).message || "تعذر تحميل الخيارات."); }
@@ -175,11 +176,11 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
     if (!file) return;
     const token = ++fileTokens.current[side];
     setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: "" } }));
-    if (!imageTypes.has(file.type)) { setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: "نوع الملف غير مدعوم. استخدم PNG أو JPEG أو GIF أو WebP أو BMP أو AVIF." } })); event.target.value = ""; return; }
-    if (file.size > 5 * 1024 * 1024) { setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: "حجم الصورة يتجاوز 5 ميغابايت." } })); event.target.value = ""; return; }
+    if (!imageTypes.has(file.type)) { setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: translate("نوع الملف غير مدعوم. استخدم PNG أو JPEG أو GIF أو WebP أو BMP أو AVIF.") } })); event.target.value = ""; return; }
+    if (file.size > 5 * 1024 * 1024) { setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: translate("حجم الصورة يتجاوز 5 ميغابايت.") } })); event.target.value = ""; return; }
     setImageStatus((prev) => ({ ...prev, [side]: { loading: true, error: "" } }));
     const reader = new FileReader();
-    reader.onerror = () => { if (live.current && fileTokens.current[side] === token) setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: "تعذر قراءة الملف. أعد المحاولة." } })); };
+    reader.onerror = () => { if (live.current && fileTokens.current[side] === token) setImageStatus((prev) => ({ ...prev, [side]: { loading: false, error: translate("تعذر قراءة الملف. أعد المحاولة.") } })); };
     reader.onload = () => {
       if (!live.current || fileTokens.current[side] !== token || typeof reader.result !== "string") return;
       set(idField(side), reader.result);
@@ -208,27 +209,27 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
     if (saveLock.current) return;
     setError("");
     setFacingWarning("");
-    if (loading || optionError) { setError("حمّل خيارات النموذج بنجاح قبل الحفظ."); return; }
+    if (loading || optionError) { setError(translate("حمّل خيارات النموذج بنجاح قبل الحفظ.")); return; }
     const validation = validateCustomerProductForm(form, {
       customers: options.customers,
       items: options.items,
       categoryId: form.category_id,
       validateCuttingLength: manualCut || (initialEditCut.current && !userCutChanged),
     });
-    if (validation) { setError(validation); return; }
-    if (!selectedCustomerValid) { setError("اختر عميلاً صالحاً من القائمة."); return; }
-    if (!itemValid) { setError("الصنف المحفوظ لا يتبع التصنيف المحدد. اختر صنفاً متوافقاً أو امسح الصنف."); return; }
-    if (imageStatus.front.loading || imageStatus.back.loading) { setError("انتظر اكتمال قراءة الصور قبل الحفظ."); return; }
+    if (validation) { setError(translateError(validation)); return; }
+    if (!selectedCustomerValid) { setError(translate("اختر عميلاً صالحاً من القائمة.")); return; }
+    if (!itemValid) { setError(translate("الصنف المحفوظ لا يتبع التصنيف المحدد. اختر صنفاً متوافقاً أو امسح الصنف.")); return; }
+    if (imageStatus.front.loading || imageStatus.back.loading) { setError(translate("انتظر اكتمال قراءة الصور قبل الحفظ.")); return; }
       const payload = buildCustomerProductPayload(form, {
       categoryName,
       preserveCuttingLength: initialEditCut.current && !userCutChanged,
     });
     if (payload.cutting_length_cm != null && (!Number.isInteger(payload.cutting_length_cm) || payload.cutting_length_cm <= 0)) {
-      setError("طول القطع يجب أن يكون عدداً صحيحاً موجباً."); return;
+      setError(translate("طول القطع يجب أن يكون عدداً صحيحاً موجباً.")); return;
     }
     const facingNotice = customerProductFacingNotice(form);
     if (facingNotice?.kind === "warning" && !confirmUnequalSides) {
-      setFacingWarning(facingNotice.message);
+      setFacingWarning(translateError(facingNotice.message));
       return;
     }
     saveLock.current = true; setSaving(true);
@@ -245,7 +246,7 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
           : { ...payload, ...(row.__clone_source_id ? { clone_source_id: row.__clone_source_id } : {}) }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || "تعذر حفظ المنتج. تحقق من البيانات وحاول مجدداً.");
+      if (!response.ok) throw new Error(translateError(body.message || "تعذر حفظ المنتج. تحقق من البيانات وحاول مجدداً."));
       onSaved();
     } catch (e) { setError((e as Error).message || "تعذر حفظ المنتج."); }
     finally { saveLock.current = false; if (live.current) setSaving(false); }
@@ -255,92 +256,92 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
     const key = side === "front" ? "front_print_colors" : "back_print_colors";
     const colors = normalizeColors(form[key]);
     return <div className="cp-colors">
-      <span className="cp-color-label">{side === "front" ? "ألوان طباعة الوجه الأمامي" : "ألوان طباعة الوجه الخلفي"}</span>
-      <div className="cp-color-add"><input aria-label={`اختيار لون ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} type="color" value={side === "front" ? newFrontColor : newBackColor} onChange={(e) => side === "front" ? setNewFrontColor(e.target.value) : setNewBackColor(e.target.value)} /><button type="button" className="btn btn-muted" onClick={() => addPrintColor(side)}><Plus size={14} /> أضف اللون</button></div>
+      <span className="cp-color-label">{side === "front" ? translate("ألوان طباعة الوجه الأمامي") : translate("ألوان طباعة الوجه الخلفي")}</span>
+      <div className="cp-color-add"><input aria-label={`اختيار لون ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} type="color" value={side === "front" ? newFrontColor : newBackColor} onChange={(e) => side === "front" ? setNewFrontColor(e.target.value) : setNewBackColor(e.target.value)} /><button type="button" className="btn btn-muted" onClick={() => addPrintColor(side)}><Plus size={14} />{" "}{translate("أضف اللون")}</button></div>
       <div className="cp-color-pills" aria-live="polite">{colors.map((color, index) => {
         const swatch = safeColor(color);
         return <span className="cp-color-pill" key={`${color}-${index}`}><i style={swatch ? { background: swatch } : undefined} aria-hidden="true" /><span>{color}</span><button type="button" aria-label={`إزالة اللون ${color}`} onClick={() => removePrintColor(side, index)}><X size={13} /></button></span>;
-      })}{colors.length === 0 && <span className="cp-hint">لم تُحدد ألوان للطباعة بعد.</span>}</div>
+      })}{colors.length === 0 && <span className="cp-hint">{translate("لم تُحدد ألوان للطباعة بعد.")}</span>}</div>
     </div>;
   };
 
   return <div className="cp-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
     <div className="cp-modal" ref={modalRef} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
-      <div className="cp-head"><div className="cp-title"><span className="cp-mark"><Package size={20} /></span><div><h2 id={titleId}>{row.id ? "تعديل منتج العميل" : "إضافة منتج عميل"}</h2><p>{row.id ? "حدّث مواصفات المنتج مع الحفاظ على القيم الحالية." : "عرّف المقاس والطباعة والتعبئة بدقة."}</p></div></div><button className="cp-close" type="button" aria-label="إغلاق النافذة" onClick={close} disabled={saving}><X size={19} /></button></div>
-      {optionError && <div className="cp-options-state" role="alert"><AlertCircle size={15} /> تعذر تحميل خيارات النموذج. <button type="button" onClick={() => setRetryIndex((v) => v + 1)}>إعادة المحاولة</button><span className="cp-invalid">{optionError}</span></div>}
+      <div className="cp-head"><div className="cp-title"><span className="cp-mark"><Package size={20} /></span><div><h2 id={titleId}>{row.id ? translate("تعديل منتج العميل") : translate("إضافة منتج عميل")}</h2><p>{row.id ? translate("حدّث مواصفات المنتج مع الحفاظ على القيم الحالية.") : translate("عرّف المقاس والطباعة والتعبئة بدقة.")}</p></div></div><button className="cp-close" type="button" aria-label={translate("إغلاق النافذة")} onClick={close} disabled={saving}><X size={19} /></button></div>
+      {optionError && <div className="cp-options-state" role="alert"><AlertCircle size={15} />{" "}{translate("تعذر تحميل خيارات النموذج.")}{" "}<button type="button" onClick={() => setRetryIndex((v) => v + 1)}>{translate("إعادة المحاولة")}</button><span className="cp-invalid">{optionError}</span></div>}
       {error && <div className="cp-error" role="alert">{error}</div>}
-      {facingWarning && <div className="cp-facing-warning" ref={warningRef} role="alert" aria-label="تنبيه اختلاف الجانبين">
+      {facingWarning && <div className="cp-facing-warning" ref={warningRef} role="alert" aria-label={translate("تنبيه اختلاف الجانبين")}>
         <p><AlertCircle size={16} aria-hidden="true" />{facingWarning}</p>
         <div className="cp-warning-actions">
-          <button type="button" onClick={() => { setFacingWarning(""); modalRef.current?.querySelector<HTMLSelectElement>("#cp-right")?.focus(); }}>العودة للتعديل</button>
-          <button type="button" onClick={(event) => void save(event, true)}>الاستمرار في الحفظ</button>
+          <button type="button" onClick={() => { setFacingWarning(""); modalRef.current?.querySelector<HTMLSelectElement>("#cp-right")?.focus(); }}>{translate("العودة للتعديل")}</button>
+          <button type="button" onClick={(event) => void save(event, true)}>{translate("الاستمرار في الحفظ")}</button>
         </div>
       </div>}
       <form id="cp-form" className="cp-body" onSubmit={save} noValidate>
         <fieldset className="cp-fields" disabled={saving}>
-        {loading ? <div className="cp-loading" aria-label="جار تحميل الخيارات" aria-busy="true"><i /><i /><i /><i /></div> : <>
-          <section className="cp-section"><h3 className="cp-section-title"><span>01</span>العميل والتصنيف</h3>
+        {loading ? <div className="cp-loading" aria-label={translate("جار تحميل الخيارات")} aria-busy="true"><i /><i /><i /><i /></div> : <>
+          <section className="cp-section"><h3 className="cp-section-title"><span>01</span>{translate("العميل والتصنيف")}</h3>
             <div className="cp-grid cp-three">
-               <div className="cp-field"><label htmlFor="cp-customer">العميل <b aria-hidden="true">*</b></label>{fixedCustomerId ? <input id="cp-customer" value={customerName(options.customers.find((customer) => String(customer.id) === fixedCustomerId) || {}) || fixedCustomerId} readOnly aria-readonly="true" /> : <CustomerPicker customers={options.customers} value={String(form.customer_id || "")} onChange={(id) => set("customer_id", id)} labelFor={customerName} />}{fixedCustomerId && <span className="cp-hint">عميل الطلب · لا يمكن تغييره من هنا</span>}</div>
-              <div className="cp-field"><label htmlFor="cp-category">التصنيف</label><select id="cp-category" value={String(form.category_id || "")} onChange={(e) => changeCategory(e.target.value)}><option value="">غير محدد</option>{options.categories.map((c) => <option key={c.id} value={String(c.id)}>{name(c)} ({c.id})</option>)}{form.category_id && !category && <option value={String(form.category_id)}>التصنيف الحالي ({form.category_id}) — اختر تصنيفاً صالحاً</option>}</select></div>
-               <div className="cp-field"><label htmlFor="cp-item">الصنف</label><select id="cp-item" disabled={!form.category_id} value={String(form.item_id || "")} onChange={(e) => set("item_id", e.target.value)}><option value="">{form.category_id ? "غير محدد" : "اختر التصنيف أولاً"}</option>{legacyUncategorizedItem && <option value={String(form.item_id)}>الصنف الحالي ({form.item_id}) — دون تصنيف</option>}{categoryItems.map((i) => <option key={i.id} value={String(i.id)}>{name(i)}{i.code ? ` (${i.code})` : ""}</option>)}{form.item_id && !itemValid && <option value={String(form.item_id)}>الصنف الحالي ({form.item_id}) — لا يتبع التصنيف</option>}</select>{!itemValid && <span className="cp-invalid">يرجى اختيار صنف ضمن التصنيف الحالي أو مسح الصنف.</span>}</div>
+               <div className="cp-field"><label htmlFor="cp-customer">{translate("العميل")}{" "}<b aria-hidden="true">*</b></label>{fixedCustomerId ? <input id="cp-customer" value={customerName(options.customers.find((customer) => String(customer.id) === fixedCustomerId) || {}) || fixedCustomerId} readOnly aria-readonly="true" /> : <CustomerPicker customers={options.customers} value={String(form.customer_id || "")} onChange={(id) => set("customer_id", id)} labelFor={customerName} />}{fixedCustomerId && <span className="cp-hint">{translate("عميل الطلب · لا يمكن تغييره من هنا")}</span>}</div>
+              <div className="cp-field"><label htmlFor="cp-category">{translate("التصنيف")}</label><select id="cp-category" value={String(form.category_id || "")} onChange={(e) => changeCategory(e.target.value)}><option value="">{translate("غير محدد")}</option>{options.categories.map((c) => <option key={c.id} value={String(c.id)}>{name(c)} ({c.id})</option>)}{form.category_id && !category && <option value={String(form.category_id)}>{translate("التصنيف الحالي (")}{form.category_id}{translate(") — اختر تصنيفاً صالحاً")}</option>}</select></div>
+               <div className="cp-field"><label htmlFor="cp-item">{translate("الصنف")}</label><select id="cp-item" disabled={!form.category_id} value={String(form.item_id || "")} onChange={(e) => set("item_id", e.target.value)}><option value="">{form.category_id ? translate("غير محدد") : translate("اختر التصنيف أولاً")}</option>{legacyUncategorizedItem && <option value={String(form.item_id)}>{translate("الصنف الحالي (")}{form.item_id}{translate(") — دون تصنيف")}</option>}{categoryItems.map((i) => <option key={i.id} value={String(i.id)}>{name(i)}{i.code ? ` (${i.code})` : ""}</option>)}{form.item_id && !itemValid && <option value={String(form.item_id)}>{translate("الصنف الحالي (")}{form.item_id}{translate(") — لا يتبع التصنيف")}</option>}</select>{!itemValid && <span className="cp-invalid">{translate("يرجى اختيار صنف ضمن التصنيف الحالي أو مسح الصنف.")}</span>}</div>
             </div>
           </section>
-          <section className="cp-section"><h3 className="cp-section-title"><span>02</span>المواصفات والأبعاد</h3>
+          <section className="cp-section"><h3 className="cp-section-title"><span>02</span>{translate("المواصفات والأبعاد")}</h3>
             <div className="cp-grid cp-dimensions">
               <ProductValueSelect label="الجانب الأيمن" id="cp-right" value={form.right_facing} values={PRODUCT_SELECT_VALUES.facing} onChange={(v) => set("right_facing", v)} />
               <ProductValueSelect label="العرض (سم)" id="cp-width" value={form.width} values={PRODUCT_SELECT_VALUES.width} onChange={(v) => set("width", v)} />
               <ProductValueSelect label="الجانب الأيسر" id="cp-left" value={form.left_facing} values={PRODUCT_SELECT_VALUES.facing} onChange={(v) => set("left_facing", v)} />
-              <div className="cp-field"><label>وصف المقاس المحسوب</label><div className="cp-readonly">{preview.size_caption || "—"}</div></div>
+              <div className="cp-field"><label>{translate("وصف المقاس المحسوب")}</label><div className="cp-readonly">{preview.size_caption || "—"}</div></div>
             </div>
             <div className="cp-grid cp-specifications">
               <ProductValueSelect label="السماكة (ميكرون)" id="cp-thickness" value={form.thickness} values={PRODUCT_SELECT_VALUES.thickness} onChange={(v) => set("thickness", v)} />
               <ProductValueSelect label="الكثافة" id="cp-density" value={form.density} values={PRODUCT_SELECT_VALUES.density} onChange={(v) => set("density", v)} />
-              <div className="cp-field"><label htmlFor="cp-punching">التخريم</label><select id="cp-punching" value={String(form.punching || "بدون")} onChange={(e) => set("punching", e.target.value)}>{(punchingOptions(categoryName) || []).map((p) => <option key={p} value={p}>{p}</option>)}{form.punching && !(punchingOptions(categoryName) || []).includes(String(form.punching)) && <option value={String(form.punching)}>القيمة الحالية: {String(form.punching)}</option>}</select></div>
-               <div className="cp-field"><label>وزن الكيس (جرام)</label><div className="cp-readonly ltr">{preview.bag_weight_grams || "—"}</div></div>
-               <div className="cp-field"><label>عدد الأكياس في الكيلو</label><div className="cp-readonly ltr">{preview.bags_per_kilo || "—"}</div></div>
+              <div className="cp-field"><label htmlFor="cp-punching">{translate("التخريم")}</label><select id="cp-punching" value={String(form.punching || "بدون")} onChange={(e) => set("punching", e.target.value)}>{(punchingOptions(categoryName) || []).map((p) => <option key={p} value={p}>{p}</option>)}{form.punching && !(punchingOptions(categoryName) || []).includes(String(form.punching)) && <option value={String(form.punching)}>{translate("القيمة الحالية:")}{" "}{String(form.punching)}</option>}</select></div>
+               <div className="cp-field"><label>{translate("وزن الكيس (جرام)")}</label><div className="cp-readonly ltr">{preview.bag_weight_grams || "—"}</div></div>
+               <div className="cp-field"><label>{translate("عدد الأكياس في الكيلو")}</label><div className="cp-readonly ltr">{preview.bags_per_kilo || "—"}</div></div>
             </div>
           </section>
-          <section className="cp-section"><h3 className="cp-section-title"><span>03</span>الطباعة والقطع</h3>
+          <section className="cp-section"><h3 className="cp-section-title"><span>03</span>{translate("الطباعة والقطع")}</h3>
             <div className="cp-grid cp-three">
-              <div className="cp-field"><label htmlFor="cp-cylinder">سلندر الطباعة</label><select id="cp-cylinder" value={String(form.printing_cylinder || "")} onChange={(e) => changeCylinder(e.target.value)}><option value="">بدون سلندر</option>{options.cylinders.map((v) => <option key={v} value={v}>{v}</option>)}{form.printing_cylinder && !options.cylinders.includes(String(form.printing_cylinder)) && <option value={String(form.printing_cylinder)}>القيمة الحالية: {String(form.printing_cylinder)}</option>}</select></div>
-               <ProductValueSelect label="طول القطع (سم)" id="cp-cut-length" value={manualCut ? form.cutting_length_cm : automaticCutLength ?? ""} values={PRODUCT_SELECT_VALUES.cuttingLength} onChange={(v) => { setUserCutChanged(true); set("cutting_length_cm", v); }} zeroMeansUnset disabled={!manualCut} hint={manualCut ? "من 0 إلى 300 · 0 = غير محدد" : "يُحسب من محيط السلندر"} />
-              <div className="cp-field"><label>حالة الطباعة</label><div className="cp-check"><input type="checkbox" checked={Boolean(computed.is_printed)} disabled readOnly aria-label="منتج مطبوع" /><span>{computed.is_printed ? "منتج مطبوع" : "بدون طباعة"}</span></div></div>
+              <div className="cp-field"><label htmlFor="cp-cylinder">{translate("سلندر الطباعة")}</label><select id="cp-cylinder" value={String(form.printing_cylinder || "")} onChange={(e) => changeCylinder(e.target.value)}><option value="">{translate("بدون سلندر")}</option>{options.cylinders.map((v) => <option key={v} value={v}>{v}</option>)}{form.printing_cylinder && !options.cylinders.includes(String(form.printing_cylinder)) && <option value={String(form.printing_cylinder)}>{translate("القيمة الحالية:")}{" "}{String(form.printing_cylinder)}</option>}</select></div>
+               <ProductValueSelect label="طول القطع (سم)" id="cp-cut-length" value={manualCut ? form.cutting_length_cm : automaticCutLength ?? ""} values={PRODUCT_SELECT_VALUES.cuttingLength} onChange={(v) => { setUserCutChanged(true); set("cutting_length_cm", v); }} zeroMeansUnset disabled={!manualCut} hint={manualCut ? translate("من 0 إلى 300 · 0 = غير محدد") : translate("يُحسب من محيط السلندر")} />
+              <div className="cp-field"><label>{translate("حالة الطباعة")}</label><div className="cp-check"><input type="checkbox" checked={Boolean(computed.is_printed)} disabled readOnly aria-label={translate("منتج مطبوع")} /><span>{computed.is_printed ? translate("منتج مطبوع") : translate("بدون طباعة")}</span></div></div>
             </div>
           </section>
-          <section className="cp-section"><h3 className="cp-section-title"><span>04</span>المواد والخامات</h3>
+          <section className="cp-section"><h3 className="cp-section-title"><span>04</span>{translate("المواد والخامات")}</h3>
             <div className="cp-grid cp-three">
-              <div className="cp-field"><label htmlFor="cp-material">المادة الخام</label><select id="cp-material" value={String(form.raw_material || "")} onChange={(e) => set("raw_material", e.target.value)}><option value="">اختر المادة</option>{["HDPE", "LDPE", "Regrind"].map((v) => <option key={v} value={v}>{v}</option>)}{form.raw_material && !["HDPE", "LDPE", "Regrind"].includes(String(form.raw_material)) && <option value={String(form.raw_material)}>القيمة الحالية: {String(form.raw_material)}</option>}</select></div>
-              <div className="cp-field"><label htmlFor="cp-master-batch">لون الماستر باتش</label><div className="cp-color-select"><button id="cp-master-batch" type="button" className="cp-color-trigger" aria-haspopup="listbox" aria-expanded={colorOpen} onClick={() => setColorOpen((v) => !v)}><span className={`cp-color-dot ${batchSwatch(selectedBatch) === "transparent" ? "transparent" : ""}`} style={batchSwatch(selectedBatch) && batchSwatch(selectedBatch) !== "transparent" ? { backgroundImage: "none", backgroundColor: batchSwatch(selectedBatch) } : undefined} />{selectedBatch ? name(selectedBatch) : form.master_batch_id ? `القيمة الحالية (${form.master_batch_id})` : "بدون لون"}<ChevronDown size={15} /></button>{colorOpen && <div className="cp-color-menu" role="listbox" aria-label="ألوان الماستر باتش"><button type="button" className="cp-color-option" role="option" aria-selected={!form.master_batch_id} onClick={() => { set("master_batch_id", ""); setColorOpen(false); }}><span className="cp-color-dot" />بدون لون</button>{activeColors.map((c) => { const swatch = batchSwatch(c); return <button type="button" className="cp-color-option" role="option" aria-selected={String(c.id) === String(form.master_batch_id)} key={c.id} onClick={() => { set("master_batch_id", String(c.id)); setColorOpen(false); }}><span className={`cp-color-dot ${swatch === "transparent" ? "transparent" : ""}`} style={swatch && swatch !== "transparent" ? { backgroundImage: "none", backgroundColor: swatch } : undefined} />{name(c)}<small className="cp-color-id">{c.id}{c.is_active ? "" : " · غير نشط"}</small></button>; })}{form.master_batch_id && !selectedBatch && <button type="button" className="cp-color-option" role="option" aria-selected="true" onClick={() => { setColorOpen(false); }}>{`اللون الحالي (${form.master_batch_id})`}</button>}</div>}</div></div>
+              <div className="cp-field"><label htmlFor="cp-material">{translate("المادة الخام")}</label><select id="cp-material" value={String(form.raw_material || "")} onChange={(e) => set("raw_material", e.target.value)}><option value="">{translate("اختر المادة")}</option>{["HDPE", "LDPE", "Regrind"].map((v) => <option key={v} value={v}>{v}</option>)}{form.raw_material && !["HDPE", "LDPE", "Regrind"].includes(String(form.raw_material)) && <option value={String(form.raw_material)}>{translate("القيمة الحالية:")}{" "}{String(form.raw_material)}</option>}</select></div>
+              <div className="cp-field"><label htmlFor="cp-master-batch">{translate("لون الماستر باتش")}</label><div className="cp-color-select"><button id="cp-master-batch" type="button" className="cp-color-trigger" aria-haspopup="listbox" aria-expanded={colorOpen} onClick={() => setColorOpen((v) => !v)}><span className={`cp-color-dot ${batchSwatch(selectedBatch) === "transparent" ? "transparent" : ""}`} style={batchSwatch(selectedBatch) && batchSwatch(selectedBatch) !== "transparent" ? { backgroundImage: "none", backgroundColor: batchSwatch(selectedBatch) } : undefined} />{selectedBatch ? name(selectedBatch) : form.master_batch_id ? `القيمة الحالية (${form.master_batch_id})` : translate("بدون لون")}<ChevronDown size={15} /></button>{colorOpen && <div className="cp-color-menu" role="listbox" aria-label={translate("ألوان الماستر باتش")}><button type="button" className="cp-color-option" role="option" aria-selected={!form.master_batch_id} onClick={() => { set("master_batch_id", ""); setColorOpen(false); }}><span className="cp-color-dot" />{translate("بدون لون")}</button>{activeColors.map((c) => { const swatch = batchSwatch(c); return <button type="button" className="cp-color-option" role="option" aria-selected={String(c.id) === String(form.master_batch_id)} key={c.id} onClick={() => { set("master_batch_id", String(c.id)); setColorOpen(false); }}><span className={`cp-color-dot ${swatch === "transparent" ? "transparent" : ""}`} style={swatch && swatch !== "transparent" ? { backgroundImage: "none", backgroundColor: swatch } : undefined} />{name(c)}<small className="cp-color-id">{c.id}{c.is_active ? "" : translate(" · غير نشط")}</small></button>; })}{form.master_batch_id && !selectedBatch && <button type="button" className="cp-color-option" role="option" aria-selected="true" onClick={() => { setColorOpen(false); }}>{`اللون الحالي (${form.master_batch_id})`}</button>}</div>}</div></div>
             </div>
           </section>
-          <section className="cp-section"><h3 className="cp-section-title"><span>05</span>الأوزان والتعبئة</h3>
+          <section className="cp-section"><h3 className="cp-section-title"><span>05</span>{translate("الأوزان والتعبئة")}</h3>
             <div className="cp-grid cp-three cp-packaging">
               <ProductValueSelect label="الوحدة" id="cp-cut-unit" value={form.cutting_unit} values={PRODUCT_SELECT_VALUES.cuttingUnit} onChange={(v) => set("cutting_unit", v)} />
               <ProductValueSelect label="وزن الوحدة (جرام)" id="cp-unit-weight" value={form.unit_weight_kg} values={PRODUCT_SELECT_VALUES.unitWeightKg} labelForValue={unitWeightLabel} onChange={(v) => set("unit_weight_kg", v)} />
               <ProductValueSelect label="التعبئة / عبوة" id="cp-unit-quantity" value={form.unit_quantity} values={PRODUCT_SELECT_VALUES.packageQuantity} onChange={(v) => set("unit_quantity", v)} />
-               <div className="cp-field"><label>وزن العبوة المحسوب (كجم)</label><div className="cp-readonly ltr">{preview.package_weight_kg || "—"}</div></div>
-              <div className="cp-field"><label htmlFor="cp-status">الحالة</label><select id="cp-status" value={String(form.status || "active")} onChange={(e) => set("status", e.target.value)}><option value="active">نشط</option><option value="inactive">غير نشط</option>{form.status && !["active", "inactive"].includes(String(form.status)) && <option value={String(form.status)}>القيمة الحالية: {String(form.status)}</option>}</select></div>
+               <div className="cp-field"><label>{translate("وزن العبوة المحسوب (كجم)")}</label><div className="cp-readonly ltr">{preview.package_weight_kg || "—"}</div></div>
+              <div className="cp-field"><label htmlFor="cp-status">{translate("الحالة")}</label><select id="cp-status" value={String(form.status || "active")} onChange={(e) => set("status", e.target.value)}><option value="active">{translate("نشط")}</option><option value="inactive">{translate("غير نشط")}</option>{form.status && !["active", "inactive"].includes(String(form.status)) && <option value={String(form.status)}>{translate("القيمة الحالية:")}{" "}{String(form.status)}</option>}</select></div>
             </div>
           </section>
-          <section className="cp-section"><h3 className="cp-section-title"><span>06</span>التصاميم وألوان الطباعة</h3>
+          <section className="cp-section"><h3 className="cp-section-title"><span>06</span>{translate("التصاميم وألوان الطباعة")}</h3>
             <div className="cp-grid cp-two">
               {(["front", "back"] as Side[]).map((side) => <div className="cp-image-card" key={side}>
-                <div className="cp-image-head"><strong>{side === "front" ? "كليشة الوجه الأمامي" : "كليشة الوجه الخلفي"}</strong><FileImage size={15} /></div>
+                <div className="cp-image-head"><strong>{side === "front" ? translate("كليشة الوجه الأمامي") : translate("كليشة الوجه الخلفي")}</strong><FileImage size={15} /></div>
                 <input className="cp-file" ref={(el) => { fileRefs.current[side] = el; }} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif" aria-label={`رفع تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} onChange={(e) => onFile(side, e)} disabled={saving || imageStatus[side].loading} />
-                <span className="cp-hint">PNG · JPEG · GIF · WebP · BMP · AVIF — حتى 5 ميغابايت. اسم الملف محلي ولا يُحفظ.</span>
+                <span className="cp-hint">{translate("PNG · JPEG · GIF · WebP · BMP · AVIF — حتى 5 ميغابايت. اسم الملف محلي ولا يُحفظ.")}</span>
                 {imageStatus[side].error && <span className="cp-invalid" role="alert">{imageStatus[side].error}</span>}
-                {imageStatus[side].loading && <span className="cp-hint" role="status">جارٍ قراءة الصورة…</span>}
-                <div className="cp-preview">{form[idField(side)] ? <><img src={String(form[idField(side)])} alt={`معاينة تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} /><button type="button" className="cp-remove" aria-label={`إزالة تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} onClick={() => removeImage(side)}><Trash2 size={15} /></button></> : <span className="cp-preview-empty">لا يوجد تصميم محفوظ</span>}</div>
+                {imageStatus[side].loading && <span className="cp-hint" role="status">{translate("جارٍ قراءة الصورة…")}</span>}
+                <div className="cp-preview">{form[idField(side)] ? <><img src={String(form[idField(side)])} alt={`معاينة تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} /><button type="button" className="cp-remove" aria-label={`إزالة تصميم ${side === "front" ? "الوجه الأمامي" : "الوجه الخلفي"}`} onClick={() => removeImage(side)}><Trash2 size={15} /></button></> : <span className="cp-preview-empty">{translate("لا يوجد تصميم محفوظ")}</span>}</div>
                 {renderPrintColors(side)}
               </div>)}
             </div>
           </section>
-          <section className="cp-section"><h3 className="cp-section-title"><span>07</span>ملاحظات</h3><div className="cp-field"><label htmlFor="cp-notes">ملاحظات المنتج</label><textarea id="cp-notes" rows={3} value={String(form.notes || "")} onChange={(e) => set("notes", e.target.value)} placeholder="مواصفات أو تعليمات إضافية…" /></div></section>
+          <section className="cp-section"><h3 className="cp-section-title"><span>07</span>{translate("ملاحظات")}</h3><div className="cp-field"><label htmlFor="cp-notes">{translate("ملاحظات المنتج")}</label><textarea id="cp-notes" rows={3} value={String(form.notes || "")} onChange={(e) => set("notes", e.target.value)} placeholder={translate("مواصفات أو تعليمات إضافية…")} /></div></section>
         </>}
         </fieldset>
       </form>
-      <div className="cp-footer"><span className="cp-footer-note"><CircleHelp size={13} /> {onDraftSaved ? "مسودة · يُحفظ المنتج عند حفظ الطلب" : "الحقول المحسوبة للقراءة فقط · السماكة العامة غير مرسلة"}</span><div className="cp-actions"><button className="cp-cancel" type="button" onClick={close} disabled={saving}>إلغاء</button><button className="cp-save" type="submit" form="cp-form" disabled={saving || loading || Boolean(optionError)}>{saving ? <><LoaderCircle size={16} className="cp-spin" /> جارٍ الحفظ</> : <><Check size={16} />{onDraftSaved ? "إضافة إلى الطلب" : row.id ? "حفظ التعديلات" : "إضافة المنتج"}</>}</button></div></div>
+      <div className="cp-footer"><span className="cp-footer-note"><CircleHelp size={13} /> {onDraftSaved ? translate("مسودة · يُحفظ المنتج عند حفظ الطلب") : translate("الحقول المحسوبة للقراءة فقط · السماكة العامة غير مرسلة")}</span><div className="cp-actions"><button className="cp-cancel" type="button" onClick={close} disabled={saving}>{translate("إلغاء")}</button><button className="cp-save" type="submit" form="cp-form" disabled={saving || loading || Boolean(optionError)}>{saving ? <><LoaderCircle size={16} className="cp-spin" />{" "}{translate("جارٍ الحفظ")}</> : <><Check size={16} />{onDraftSaved ? translate("إضافة إلى الطلب") : row.id ? translate("حفظ التعديلات") : translate("إضافة المنتج")}</>}</button></div></div>
     </div>
   </div>;
 }

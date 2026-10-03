@@ -1,3 +1,4 @@
+import i18n, { intlLocale, localizedName, translate } from "../i18n";
 import { AlertCircle, CalendarDays, ChevronDown, ChevronUp, Factory, FileText, Printer, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
@@ -37,10 +38,10 @@ function DetailFields({ data, labels, omit = [] }: { data: Record<string, unknow
   const statusLabel = labels.status === "حالة الإنتاج" ? productionStatusLabel : orderStatusLabel;
   return <dl className="odm-fields">{Object.entries(data).filter(([key]) => !omit.includes(key)).map(([key, value]) =>
     <div className="odm-field" key={key}>
-      <dt>{labels[key] ?? fieldLabel(key)}</dt>
+      <dt>{translate(labels[key] ?? fieldLabel(key))}</dt>
       <dd dir={typeof value === "string" && /[a-z0-9]/i.test(value) ? "auto" : undefined}>
         {key === "status" || key === "previous_status" ? statusLabel(value) : key === "created_at" ? (
-          value ? new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(new Date(String(value))) : "—"
+          value ? new Intl.DateTimeFormat(intlLocale(), { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Riyadh" }).format(new Date(String(value))) : "—"
         ) : key === "delivery_date" ? formatOrderDate(value) : numericFields.has(key) ? numberText(value) : displayValue(value)}
       </dd>
     </div>)}</dl>;
@@ -117,15 +118,15 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
       <header className="odm-header">
         <div className="odm-heading-mark"><FileText size={20} aria-hidden="true" /></div>
         <div className="odm-title-wrap">
-          <span className="odm-eyebrow">ملف الطلب · تفاصيل تشغيلية</span>
-          <h2 id="odm-title">{order?.order_number ? `طلب رقم ${order.order_number}` : "تفاصيل الطلب"}</h2>
+          <span className="odm-eyebrow">{translate("ملف الطلب · تفاصيل تشغيلية")}</span>
+          <h2 id="odm-title">{order?.order_number ? translate("طلب رقم {{number}}", { number: order.order_number }) : translate("تفاصيل الطلب")}</h2>
           {order && <span className="odm-header-sub">{order.customer_id} <span>·</span> {orderStatusLabel(order.status)}</span>}
         </div>
         <div className="odm-head-actions">
-          <button className="odm-print-button" type="button" onClick={onPrint} disabled={!data} aria-label="فتح معاينة الطباعة في تبويب جديد">
-            <Printer size={17} /> <span>معاينة الطباعة</span>
+          <button className="odm-print-button" type="button" onClick={onPrint} disabled={!data} aria-label={translate("فتح معاينة الطباعة في تبويب جديد")}>
+            <Printer size={17} /> <span>{translate("معاينة الطباعة")}</span>
           </button>
-          <button className="odm-icon-button" type="button" onClick={onClose} aria-label="إغلاق التفاصيل"><X size={19} /></button>
+          <button className="odm-icon-button" type="button" onClick={onClose} aria-label={translate("إغلاق التفاصيل")}><X size={19} /></button>
         </div>
       </header>
 
@@ -134,33 +135,33 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
           <div className="odm-skeleton odm-skeleton-summary" />
           <div className="odm-skeleton-grid">{Array.from({ length: 6 }, (_, index) => <div className="odm-skeleton" key={index} />)}</div>
           <div className="odm-skeleton odm-skeleton-large" />
-          <span>جارٍ جلب بيانات الطلب…</span>
+          <span>{translate("جارٍ جلب بيانات الطلب…")}</span>
         </div>}
         {state.status === "error" && <div className="odm-error-state" role="alert">
           <div className="odm-error-icon"><AlertCircle size={23} /></div>
-          <h3>{state.notFound ? "الطلب غير موجود" : "تعذر تحميل التفاصيل"}</h3>
+          <h3>{state.notFound ? translate("الطلب غير موجود") : translate("تعذر تحميل التفاصيل")}</h3>
           <p>{state.message}</p>
-          {!state.notFound && <button className="odm-retry" type="button" onClick={load}><RefreshCw size={15} /> إعادة المحاولة</button>}
+          {!state.notFound && <button className="odm-retry" type="button" onClick={load}><RefreshCw size={15} />{" "}{translate("إعادة المحاولة")}</button>}
         </div>}
         {data && order && <>
-          <section className="odm-summary-strip" aria-label="ملخص الطلب">
-            <div className="odm-summary-item"><span>العميل</span><strong>{data.customer?.name_ar || data.customer?.name || "—"}</strong></div>
-            <div className="odm-summary-item"><span>الحالة</span><strong className="odm-status">{orderStatusLabel(order.status)}</strong></div>
-            <div className="odm-summary-item"><span>تاريخ الطلب</span><strong><CalendarDays size={14} /> {formatOrderDate(order.created_at)}</strong></div>
-            <div className="odm-summary-item"><span>موعد التسليم</span><strong><CalendarDays size={14} /> {formatOrderDate(order.delivery_date)}</strong></div>
+          <section className="odm-summary-strip" aria-label={translate("ملخص الطلب")}>
+            <div className="odm-summary-item"><span>{translate("العميل")}</span><strong>{localizedName(data.customer?.name_ar, data.customer?.name)}</strong></div>
+            <div className="odm-summary-item"><span>{translate("الحالة")}</span><strong className="odm-status">{orderStatusLabel(order.status)}</strong></div>
+            <div className="odm-summary-item"><span>{translate("تاريخ الطلب")}</span><strong><CalendarDays size={14} /> {formatOrderDate(order.created_at)}</strong></div>
+            <div className="odm-summary-item"><span>{translate("موعد التسليم")}</span><strong><CalendarDays size={14} /> {formatOrderDate(order.delivery_date)}</strong></div>
           </section>
 
           <section className="odm-section">
-            <div className="odm-section-head"><div><span className="odm-section-icon"><FileText size={16} /></span><div><h3>بيانات الطلب</h3><p>الحقول المسجلة في الطلب</p></div></div></div>
+            <div className="odm-section-head"><div><span className="odm-section-icon"><FileText size={16} /></span><div><h3>{translate("بيانات الطلب")}</h3><p>{translate("الحقول المسجلة في الطلب")}</p></div></div></div>
             <DetailFields data={order as unknown as Record<string, unknown>} labels={orderFieldLabels} omit={["share_token"]} />
           </section>
 
           <section className="odm-section">
-            <div className="odm-section-head"><div><span className="odm-section-icon"><Factory size={16} /></span><div><h3>العميل والمسؤولون</h3><p>بيانات العميل ومن أنشأ الطلب ويتابعه</p></div></div></div>
+            <div className="odm-section-head"><div><span className="odm-section-icon"><Factory size={16} /></span><div><h3>{translate("العميل والمسؤولون")}</h3><p>{translate("بيانات العميل ومن أنشأ الطلب ويتابعه")}</p></div></div></div>
             <div className="odm-people-grid">
-              <article className="odm-person-card"><span>العميل</span><strong>{data.customer?.name_ar || data.customer?.name || "—"}</strong><small>{data.customer?.name && data.customer.name_ar ? data.customer.name : "—"}</small></article>
-              <article className="odm-person-card"><span>منشئ الطلب</span><strong>{personName(data.creator)}</strong><small>{data.creator?.username || (data.creator?.id != null ? `#${data.creator.id}` : "—")}</small></article>
-              <article className="odm-person-card"><span>مندوب المبيعات</span><strong>{personName(data.sales_representative)}</strong><small>{data.sales_representative?.username || (data.sales_representative?.id != null ? `#${data.sales_representative.id}` : "—")}</small></article>
+              <article className="odm-person-card"><span>{translate("العميل")}</span><strong>{localizedName(data.customer?.name_ar, data.customer?.name)}</strong><small>{localizedName(data.customer?.name, data.customer?.name_ar)}</small></article>
+              <article className="odm-person-card"><span>{translate("منشئ الطلب")}</span><strong>{personName(data.creator)}</strong><small>{data.creator?.username || (data.creator?.id != null ? `#${data.creator.id}` : "—")}</small></article>
+              <article className="odm-person-card"><span>{translate("مندوب المبيعات")}</span><strong>{personName(data.sales_representative)}</strong><small>{data.sales_representative?.username || (data.sales_representative?.id != null ? `#${data.sales_representative.id}` : "—")}</small></article>
             </div>
             {data.customer && <DetailFields data={data.customer as unknown as Record<string, unknown>} labels={{
               id: "رقم العميل", name: "الاسم", name_ar: "الاسم بالعربية", code: "رمز العميل", user_id: "رقم المستخدم",
@@ -172,39 +173,39 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
 
           <section className="odm-section odm-production-section">
             <div className="odm-section-head odm-production-heading">
-              <div><span className="odm-section-icon"><Factory size={16} /></span><div><h3>أوامر الإنتاج المرتبطة</h3><p>بيانات التخطيط وحالة كل أمر إنتاج</p></div></div>
-              <span className="odm-count">{data.production_orders.length} أوامر</span>
+              <div><span className="odm-section-icon"><Factory size={16} /></span><div><h3>{translate("أوامر الإنتاج المرتبطة")}</h3><p>{translate("بيانات التخطيط وحالة كل أمر إنتاج")}</p></div></div>
+              <span className="odm-count">{data.production_orders.length}{" "}{translate("أوامر")}</span>
             </div>
             <div className="odm-quantity-summary">
-              <div><span>إجمالي المطلوب</span><strong dir="ltr">{numberText(data.totals.requested_kg)} <small>كجم</small></strong></div>
-              <div><span>إجمالي المخطط (مع الزيادة)</span><strong dir="ltr">{numberText(data.totals.planned_kg)} <small>كجم</small></strong></div>
-              <p>الكميات المعروضة تخص الطلبات وخطة الإنتاج؛ لا تمثل كمية منفذة فعلياً.</p>
+              <div><span>{translate("إجمالي المطلوب")}</span><strong dir="ltr">{numberText(data.totals.requested_kg)} <small>{translate("كجم")}</small></strong></div>
+              <div><span>{translate("إجمالي المخطط (مع الزيادة)")}</span><strong dir="ltr">{numberText(data.totals.planned_kg)} <small>{translate("كجم")}</small></strong></div>
+              <p>{translate("الكميات المعروضة تخص الطلبات وخطة الإنتاج؛ لا تمثل كمية منفذة فعلياً.")}</p>
             </div>
-            {data.actual_production.available === false && <div className="odm-actual-note" role="note">{data.actual_production.message || "لا تتوفر سجلات إنتاج فعلي."} لا تُعرض كمية الإنتاج الفعلي كصفر.</div>}
-            {data.production_orders.length === 0 ? <div className="odm-empty-production">لا توجد أوامر إنتاج مرتبطة بهذا الطلب.</div> :
+            {data.actual_production.available === false && <div className="odm-actual-note" role="note">{data.actual_production.message || "لا تتوفر سجلات إنتاج فعلي."}{" "}{translate("لا تُعرض كمية الإنتاج الفعلي كصفر.")}</div>}
+            {data.production_orders.length === 0 ? <div className="odm-empty-production">{translate("لا توجد أوامر إنتاج مرتبطة بهذا الطلب.")}</div> :
               <div className="odm-production-list">{data.production_orders.map((production, index) => {
                 const product = production.product;
                 const isOpen = expanded.includes(index);
                 return <article className={`odm-production-card${isOpen ? " is-expanded" : ""}`} key={`${production.id}-${index}`}>
                   <button className="odm-production-toggle" type="button" onClick={() => toggleProduction(index)} aria-expanded={isOpen}>
                     <span className="odm-production-index">{String(index + 1).padStart(2, "0")}</span>
-                    <span className="odm-production-main"><strong>{displayValue(production.production_order_number)}</strong><small>{product?.item?.name_ar || product?.item?.name || product?.category?.name_ar || "منتج غير محدد"} · {productionStatusLabel(production.status)}</small></span>
-                    <span className="odm-quantity-pair"><span><small>مطلوب</small><b dir="ltr">{numberText(production.quantity_kg)} كجم</b></span><span><small>مخطط</small><b dir="ltr">{numberText(production.final_quantity_kg)} كجم</b></span></span>
+                    <span className="odm-production-main"><strong>{displayValue(production.production_order_number)}</strong><small>{i18n.language === "en" ? product?.item?.name || product?.item?.name_ar || product?.category?.name || product?.category?.name_ar || translate("منتج غير محدد") : product?.item?.name_ar || product?.item?.name || product?.category?.name_ar || product?.category?.name || translate("منتج غير محدد")} · {productionStatusLabel(production.status)}</small></span>
+                    <span className="odm-quantity-pair"><span><small>{translate("مطلوب")}</small><b dir="ltr">{numberText(production.quantity_kg)}{" "}{translate("كجم")}</b></span><span><small>{translate("مخطط")}</small><b dir="ltr">{numberText(production.final_quantity_kg)}{" "}{translate("كجم")}</b></span></span>
                     {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                   </button>
                   {isOpen && <div className="odm-production-body">
-                    <h4 className="odm-subhead">بيانات أمر الإنتاج</h4>
+                    <h4 className="odm-subhead">{translate("بيانات أمر الإنتاج")}</h4>
                     <DetailFields data={production as unknown as Record<string, unknown>} labels={productionFieldLabels} omit={["product"]} />
-                    <h4 className="odm-subhead">مواصفات المنتج</h4>
+                    <h4 className="odm-subhead">{translate("مواصفات المنتج")}</h4>
                     {product ? <>
                       <DetailFields data={product as unknown as Record<string, unknown>} labels={productFieldLabels} omit={["category", "item", "color"]} />
                       <div className="odm-linked-details">
-                        <div><span>الفئة</span><strong>{product.category?.name_ar || product.category?.name || "—"} {product.category?.code ? `· ${product.category.code}` : ""}</strong></div>
-                        <div><span>الصنف</span><strong>{product.item?.name_ar || product.item?.name || "—"} {product.item?.code ? `· ${product.item.code}` : ""}</strong></div>
-                        <div><span>لون الخلطة</span><strong>{product.color?.name_ar || product.color?.name || "—"} {product.color?.brand ? `· ${product.color.brand}` : ""}</strong></div>
-                        <div><span>اللون (عينة)</span><i className="odm-color-chip" style={{ backgroundColor: product.color?.color_hex || "transparent" }} aria-label={product.color?.name_ar || "غير محدد"} /></div>
+                        <div><span>{translate("الفئة")}</span><strong>{localizedName(product.category?.name_ar, product.category?.name)} {product.category?.code ? `· ${product.category.code}` : ""}</strong></div>
+                        <div><span>{translate("الصنف")}</span><strong>{localizedName(product.item?.name_ar, product.item?.name)} {product.item?.code ? `· ${product.item.code}` : ""}</strong></div>
+                        <div><span>{translate("لون الخلطة")}</span><strong>{localizedName(product.color?.name_ar, product.color?.name)} {product.color?.brand ? `· ${product.color.brand}` : ""}</strong></div>
+                        <div><span>{translate("اللون (عينة)")}</span><i className="odm-color-chip" style={{ backgroundColor: product.color?.color_hex || "transparent" }} aria-label={product.color?.name_ar || "غير محدد"} /></div>
                       </div>
-                    </> : <p className="odm-no-product">لم يعد المنتج المرتبط متاحاً.</p>}
+                    </> : <p className="odm-no-product">{translate("لم يعد المنتج المرتبط متاحاً.")}</p>}
                   </div>}
                 </article>;
               })}</div>}
@@ -212,8 +213,8 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
         </>}
       </main>
       <footer className="odm-footer">
-        <span>عرض للقراءة فقط</span>
-        <button type="button" className="odm-close-footer" onClick={onClose}>إغلاق</button>
+        <span>{translate("عرض للقراءة فقط")}</span>
+        <button type="button" className="odm-close-footer" onClick={onClose}>{translate("إغلاق")}</button>
       </footer>
     </section>
   </div>;

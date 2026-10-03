@@ -1,3 +1,4 @@
+import i18n, { translate } from "../i18n";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { groupProductsByRootCategory, type CatalogRow } from "../lib/product-category-groups";
@@ -19,7 +20,7 @@ export default function CustomerProductSelect({ id, products, categories, select
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const groups = useMemo(() => groupProductsByRootCategory(products, categories), [products, categories]);
+  const groups = useMemo(() => groupProductsByRootCategory(products, categories), [products, categories, i18n.language]);
   const selectedGroup = groups.find((group) => group.products.some((product) => String(product.id) === selectedId));
   const selected = selectedGroup?.products.find((product) => String(product.id) === selectedId);
   const search = query.trim().toLocaleLowerCase();
@@ -32,7 +33,7 @@ export default function CustomerProductSelect({ id, products, categories, select
   const optionId = (product: CatalogRow) => `${id}-option-${encodeURIComponent(String(product.id))}`;
 
   useEffect(() => {
-    inputRef.current?.setCustomValidity(disabled || selected ? "" : "اختر منتجًا من القائمة.");
+    inputRef.current?.setCustomValidity(disabled || selected ? "" : translate("اختر منتجًا من القائمة."));
   }, [disabled, selected]);
 
   useEffect(() => {
@@ -116,18 +117,18 @@ export default function CustomerProductSelect({ id, products, categories, select
           onKeyDown={handleKeyDown}
           onInvalid={openList}
           autoComplete="off"
-          placeholder={open ? "ابحث عن المنتج أو التصنيف…" : "اختر منتجًا"}
+          placeholder={open ? translate("ابحث عن المنتج أو التصنيف…") : translate("اختر منتجًا")}
           disabled={disabled}
           required={!selected}
         />
         <ChevronDown size={17} aria-hidden="true" />
       </div>
       {open && !disabled && (
-        <div ref={listRef} id={`${id}-options`} role="listbox" aria-label="منتجات العميل حسب التصنيف الرئيسي" className="order-product-picker-options">
+        <div ref={listRef} id={`${id}-options`} role="listbox" aria-label={translate("منتجات العميل حسب التصنيف الرئيسي")} className="order-product-picker-options">
           {visibleGroups.length ? visibleGroups.map((group, groupIndex) => (
             <div role="group" aria-labelledby={`${id}-group-${groupIndex}`} className="order-product-picker-group" key={group.id}>
               <div className="order-product-picker-heading" id={`${id}-group-${groupIndex}`} style={{ color: group.color }}>
-                <span>{group.label}</span><small>{group.products.length}</small>
+                <span>{translate(group.label)}</span><small>{group.products.length}</small>
               </div>
               {group.products.map((product) => {
                 const currentIndex = ++index;
@@ -150,7 +151,7 @@ export default function CustomerProductSelect({ id, products, categories, select
                 </button>;
               })}
             </div>
-          )) : <div className="order-product-picker-empty" role="status">{products.length ? "لا توجد منتجات مطابقة للبحث." : "لا توجد منتجات مسجلة لهذا العميل."}</div>}
+          )) : <div className="order-product-picker-empty" role="status">{products.length ? translate("لا توجد منتجات مطابقة للبحث.") : translate("لا توجد منتجات مسجلة لهذا العميل.")}</div>}
         </div>
       )}
     </div>

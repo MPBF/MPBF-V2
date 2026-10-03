@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, Boxes, Copy, Eye, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Printer, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import { availableOrderTabs, selectedOrderTab, type OrderPageTab } from "./lib/order-tabs";
@@ -15,6 +16,7 @@ import OrderPrintPage from "./components/OrderPrintPage";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 import { sortCustomerProductsByCategory } from "./lib/customer-product-sort";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
+import i18n, { applyLanguage, localizedName, normalizeLanguage, translate, translateError } from "./i18n";
 
 type Row = Record<string, any>;
 type OrderProductionSummary = {
@@ -43,7 +45,7 @@ const api = async (path: string, options: RequestInit = {}) => {
       429: "عدد المحاولات كبير. حاول مرة أخرى لاحقاً",
       500: "حدث خطأ داخلي في الخادم",
     };
-    throw new Error(body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب");
+    throw new Error(translateError(body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب"));
   }
   return normalizePayload(body);
 };
@@ -71,8 +73,21 @@ const can = (user: Row, permissions: readonly string[]) => permissions.some((per
 const orderStatuses = ["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"];
 const productionStatuses = ["pending", "active", "completed", "cancelled", "archived"];
 const machineTypes = ["extruder", "printer", "cutter", "quality_check"];
-const dictionaries: Record<string, string> = { active: "نشط", inactive: "غير نشط", waiting: "انتظار", on_hold: "معلّق", in_production: "قيد الإنتاج", for_production: "جاهز للإنتاج", paused: "متوقف", cancelled: "ملغي", completed: "مكتمل", delivered: "مسلّم", archived: "مؤرشف", pending: "قيد الانتظار", extruder: "فيلم", printer: "طباعة", printing: "طباعة", Printer: "طباعة", cutter: "قص", cutting: "قص", Cutter: "قص", quality_check: "فحص جودة", maintenance: "صيانة", down: "متوقفة" };
-const relationLabel = (row: Row, key: string) => row[`${key}_name_ar`] || row[`${key}_name`] || (key === "order" ? row.order_number : null) || (key === "production_order" ? row.production_order_number : null) || row[key] || null;
+const statusLabels: Record<string, string> = { active: "نشط", inactive: "غير نشط", waiting: "انتظار", on_hold: "معلّق", in_production: "قيد الإنتاج", for_production: "جاهز للإنتاج", paused: "متوقف", cancelled: "ملغي", completed: "مكتمل", delivered: "مسلّم", archived: "مؤرشف", pending: "قيد الانتظار", extruder: "فيلم", printer: "طباعة", printing: "طباعة", Printer: "طباعة", cutter: "قص", cutting: "قص", Cutter: "قص", quality_check: "فحص جودة", maintenance: "صيانة", down: "متوقفة" };
+const dictionaries: Record<string, string> = new Proxy(statusLabels, {
+  get(target, property) {
+    if (typeof property !== "string") return undefined;
+    const value = target[property];
+    return value ? translate(value) : value;
+  },
+});
+const relationLabel = (row: Row, key: string) => {
+  const arabicName = row[`${key}_name_ar`];
+  const englishName = row[`${key}_name`];
+  return (i18n.language === "en" ? englishName || arabicName : arabicName || englishName) ||
+    (key === "order" ? row.order_number : null) ||
+    (key === "production_order" ? row.production_order_number : null) || row[key] || null;
+};
 const latinDigits = (value: string) => value
   .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
   .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
@@ -88,7 +103,7 @@ const fmtNumber = (value: any, digits = 2, unit = "", tightUnit = false) => {
   if (value === null || value === undefined || value === "") return "—";
   const number = Number(latinDigits(String(value)));
   if (!Number.isFinite(number)) return "—";
-  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: Math.min(digits, 2) }).format(number)}${unit ? `${tightUnit ? "" : " "}${unit}` : ""}`;
+  return `${new Intl.NumberFormat(i18n.language === "ar" ? "ar-SA-u-nu-latn" : "en-US", { minimumFractionDigits: 0, maximumFractionDigits: Math.min(digits, 2) }).format(number)}${unit ? `${tightUnit ? "" : " "}${translate(unit)}` : ""}`;
 };
 const decimalInputValue = (value: any, precision = 2) => {
   if (value === null || value === undefined || value === "") return "";
@@ -96,12 +111,13 @@ const decimalInputValue = (value: any, precision = 2) => {
   const factor = 10 ** precision;
   return Number.isFinite(number) ? String(Math.round((number + Number.EPSILON) * factor) / factor) : latinDigits(String(value));
 };
-const fmtDate = (value: any) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date(`${String(value).slice(0, 10)}T00:00:00+03:00`)) : "—";
-const fmtOrderDate = (value: any) => value ? new Intl.DateTimeFormat("ar-SA-u-nu-latn", { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date(value)) : "—";
+const formatLocale = () => i18n.language === "ar" ? "ar-SA-u-nu-latn" : "en-GB";
+const fmtDate = (value: any) => value ? new Intl.DateTimeFormat(formatLocale(), { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date(`${String(value).slice(0, 10)}T00:00:00+03:00`)) : "—";
+const fmtOrderDate = (value: any) => value ? new Intl.DateTimeFormat(formatLocale(), { dateStyle: "medium", timeZone: "Asia/Riyadh" }).format(new Date(value)) : "—";
 const displayValue = (row: Row, col: Column) => {
   if (col.key === "production_orders_summary") {
     const entries = row.production_orders_summary as OrderProductionSummary[] | undefined;
-    return entries?.length ? entries.map((entry) => `${entry.production_order_number} - ${entry.item_name_ar || entry.item_name || entry.item_id || "—"} - ${fmtNumber(entry.quantity_kg, 2, "كجم")}`).join("؛ ") : "لا توجد أوامر إنتاج";
+    return entries?.length ? entries.map((entry) => `${entry.production_order_number} - ${(i18n.language === "en" ? entry.item_name || entry.item_name_ar : entry.item_name_ar || entry.item_name) || entry.item_id || "—"} - ${fmtNumber(entry.quantity_kg, 2, "كجم")}`).join(i18n.language === "ar" ? "؛ " : "; ") : translate("لا توجد أوامر إنتاج");
   }
   const raw = row[col.key] ?? (col.fallbackKey ? row[col.fallbackKey] : undefined);
   const value = col.kind === "relation" ? relationLabel(row, col.key) : raw;
@@ -116,8 +132,8 @@ const displayValue = (row: Row, col: Column) => {
   }
   if (col.kind === "number") return fmtNumber(value, 2, col.unit, col.tightUnit);
   if (col.kind === "date") return fmtDate(value);
-  if (col.kind === "boolean") return value === true ? "نعم" : value === false ? "لا" : "—";
-  if (col.kind === "status") return typeof value === "boolean" ? (value ? "نشط" : "غير نشط") : value ? dictionaries[value] || value : "—";
+  if (col.kind === "boolean") return value === true ? translate("نعم") : value === false ? translate("لا") : "—";
+  if (col.kind === "status") return typeof value === "boolean" ? (value ? translate("نشط") : translate("غير نشط")) : value ? translate(dictionaries[value] || value) : "—";
   const text = value === null || value === undefined || value === "" ? "—" : latinDigits(String(value));
   return col.truncateNumbers ? text.replace(/-?\d+(?:\.\d+)?/g, (number) => String(Math.trunc(Number(number)))) : text;
 };
@@ -128,8 +144,8 @@ const secondaryValue = (row: Row, col: Column) => {
   return value === null || value === undefined || value === "" ? "—" : latinDigits(String(value));
 };
 function OrderProductionCell({ entries }: { entries: OrderProductionSummary[] }) {
-  if (!entries.length) return <span className="muted-text">لا توجد أوامر إنتاج</span>;
-  return <div className="order-production-list">{entries.map((entry) => <div className="order-production-item" key={entry.id}><strong>{entry.production_order_number}</strong><span>الصنف: {entry.item_name_ar || entry.item_name || entry.item_id || "—"}</span><span className="order-production-quantity">{fmtNumber(entry.quantity_kg, 2, "كجم")}</span></div>)}</div>;
+  if (!entries.length) return <span className="muted-text">{translate("لا توجد أوامر إنتاج")}</span>;
+  return <div className="order-production-list">{entries.map((entry) => <div className="order-production-item" key={entry.id}><strong>{entry.production_order_number}</strong><span>{translate("الصنف:")}{" "}{entry.item_name_ar || entry.item_name || entry.item_id || "—"}</span><span className="order-production-quantity">{fmtNumber(entry.quantity_kg, 2, "كجم")}</span></div>)}</div>;
 }
 const renderCell = (row: Row, col: Column) => {
   const value = displayValue(row, col);
@@ -158,6 +174,14 @@ const configs: Record<string, Config> = {
   settings: { path: "/system-settings", title: "إعدادات النظام", singular: "إعداد", read: ["manage_settings", "admin"], write: ["manage_settings", "admin"], fields: [{ key: "setting_key", label: "المفتاح" }, { key: "setting_value", label: "القيمة" }, { key: "setting_type", label: "النوع" }, { key: "description", label: "الوصف", type: "textarea" }] },
 };
 
+const localizeConfig = (config: Config): Config => ({
+  ...config,
+  title: translate(config.title),
+  singular: translate(config.singular),
+  fields: config.fields.map((field) => ({ ...field, label: translate(field.label) })),
+  columns: config.columns?.map((column) => ({ ...column, label: translate(column.label) })),
+});
+
 const nav = [
   ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read],
   ["/orders", "الطلبات", FileText, [...configs.orders.read, ...configs.production.read]],
@@ -174,36 +198,85 @@ function useAuth() {
 
 function useBranding() {
   const [branding, setBranding] = useState<BrandingSnapshot>(defaultBranding);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    const load = () => { void fetchBrandingSnapshot().then(setBranding).catch(() => {}); };
+    const load = () => { void fetchBrandingSnapshot().then(setBranding).catch(() => {}).finally(() => setReady(true)); };
     load();
     const onUpdate = () => load();
     window.addEventListener("branding:updated", onUpdate);
     return () => window.removeEventListener("branding:updated", onUpdate);
   }, []);
-  return branding;
+  return { branding, ready };
 }
 
 function BrandIdentity({ branding }: { branding: BrandingSnapshot }) {
-  return <div className="brand">{branding.logoSrc ? <img src={branding.logoSrc} alt="شعار الشركة" style={{ width: 38, height: 38, borderRadius: 10, objectFit: "cover", border: "1px solid var(--line)" }} /> : <div className="brand-mark">م</div>}<div><strong>{branding.companyNameAr || "MPBF"}</strong><small>{branding.companyNameEn || "PLASTIC MANUFACTURING"}</small></div></div>;
+  const companyName = i18n.language === "en" ? branding.companyNameEn || branding.companyNameAr : branding.companyNameAr || branding.companyNameEn;
+  return <div className="brand">{branding.logoSrc ? <img src={branding.logoSrc} alt={translate("شعار الشركة")} style={{ width: 38, height: 38, borderRadius: 10, objectFit: "cover", border: "1px solid var(--line)" }} /> : <div className="brand-mark">{translate("م")}</div>}<div><strong>{companyName || "MPBF"}</strong><small>{i18n.language === "en" ? "PLASTIC MANUFACTURING" : "MPBF"}</small></div></div>;
 }
 
-function PasswordChange({ user, onComplete }: { user: Row; onComplete: (user: Row) => void }) {
+function PublicLanguageSwitcher() {
+  const changeLanguage = async (value: string) => {
+    const language = normalizeLanguage(value);
+    await i18n.changeLanguage(language);
+    applyLanguage(language);
+  };
+  return <div className="language-switcher public-language-switcher">
+    <label className="sr-only" htmlFor="public-language-switcher">{translate("اللغة")}</label>
+    <select id="public-language-switcher" aria-label={translate("اللغة")} value={normalizeLanguage(i18n.language)} onChange={(event) => void changeLanguage(event.target.value)}>
+      <option value="ar">{translate("العربية")}</option>
+      <option value="en">English</option>
+    </select>
+  </div>;
+}
+
+function PasswordChange({ user, onComplete, setUser, defaultLanguage }: { user: Row; onComplete: (user: Row) => void; setUser: (user: Row | null) => void; defaultLanguage: "ar" | "en" }) {
   const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
   const submit = async (event: FormEvent) => { event.preventDefault(); setSaving(true); setError(""); try { await api("/change-password", { method: "POST", body: JSON.stringify({ password }) }); onComplete((await api("/me")).user); } catch (e) { setError((e as Error).message); } finally { setSaving(false); } };
-  return <div className="login-page"><section className="login-box" style={{ gridColumn: "1/-1" }}><form className="login-card" onSubmit={submit}><div className="eyebrow">إجراء أمني إلزامي</div><h2>تحديث كلمة المرور</h2><p>مرحباً {user.display_name_ar || user.username}. يجب تحديث كلمة المرور قبل متابعة العمل.</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="new-password">كلمة المرور الجديدة</label><input id="new-password" autoFocus autoComplete="new-password" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></div><button className="btn btn-primary" disabled={saving}>حفظ والمتابعة</button></form></section></div>;
+  return <div className="login-page"><section className="login-box" style={{ gridColumn: "1/-1" }}><form className="login-card" onSubmit={submit}><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={defaultLanguage} /><div className="eyebrow">{translate("إجراء أمني إلزامي")}</div><h2>{translate("تحديث كلمة المرور")}</h2><p>{translate("مرحباً")} {" "}{user.display_name_ar || user.username}{translate(". يجب تحديث كلمة المرور قبل متابعة العمل.")}</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="new-password">{translate("كلمة المرور الجديدة")}</label><input id="new-password" autoFocus autoComplete="new-password" type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></div><button className="btn btn-primary" disabled={saving}>{translate("حفظ والمتابعة")}</button></form></section></div>;
 }
 
 function Login({ onLogin, branding }: { onLogin: (user: Row) => void; branding: BrandingSnapshot }) {
   const [form, setForm] = useState({ username: "", password: "" }); const [error, setError] = useState("");
   const submit = async (event: FormEvent) => { event.preventDefault(); setError(""); try { onLogin((await api("/login", { method: "POST", body: JSON.stringify(form) })).user); } catch (e) { setError((e as Error).message); } };
-  return <div className="login-page"><section className="login-art"><div><BrandIdentity branding={branding} /><h1>دقة المصنع.<br />في كل وردية.</h1><p>من الطلب إلى الرول النهائي، مساحة عمل واحدة لفريق MPBF.</p></div><div className="grid-lines" /></section><section className="login-box"><form className="login-card" onSubmit={submit}><div className="eyebrow">دخول الفريق</div><h2>مرحباً بعودتك</h2><p>سجّل الدخول للوصول إلى مركز التشغيل.</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="login-username">اسم المستخدم</label><input id="login-username" autoFocus autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div><div className="field"><label htmlFor="login-password">كلمة المرور</label><input id="login-password" type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div><button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }}>دخول آمن</button></form></section></div>;
+  return <div className="login-page"><section className="login-art"><div><BrandIdentity branding={branding} /><h1>{translate("دقة المصنع.")}<br />{translate("في كل وردية.")}</h1><p>{translate("من الطلب إلى الرول النهائي، مساحة عمل واحدة لفريق MPBF.")}</p></div><div className="grid-lines" /></section><section className="login-box"><form className="login-card" onSubmit={submit}><PublicLanguageSwitcher /><div className="eyebrow">{translate("دخول الفريق")}</div><h2>{translate("مرحباً بعودتك")}</h2><p>{translate("سجّل الدخول للوصول إلى مركز التشغيل.")}</p>{error && <div className="error" role="alert" aria-live="assertive">{error}</div>}<div className="field"><label htmlFor="login-username">{translate("اسم المستخدم")}</label><input id="login-username" autoFocus autoComplete="username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div><div className="field"><label htmlFor="login-password">{translate("كلمة المرور")}</label><input id="login-password" type="password" autoComplete="current-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div><button className="btn btn-primary" style={{ width: "100%", marginTop: 8 }}>{translate("دخول آمن")}</button></form></section></div>;
+}
+
+function LanguageSwitcher({ user, setUser, defaultLanguage }: { user: Row; setUser: (user: Row | null) => void; defaultLanguage: "ar" | "en" }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const preference = user.preferred_language === "ar" || user.preferred_language === "en" ? user.preferred_language : "";
+  const changeLanguage = async (value: string) => {
+    const preferredLanguage = value === "ar" || value === "en" ? value : null;
+    setSaving(true);
+    setError("");
+    try {
+      await api("/me/language", { method: "PUT", body: JSON.stringify({ preferred_language: preferredLanguage }) });
+      const language = normalizeLanguage(preferredLanguage, defaultLanguage);
+      await i18n.changeLanguage(language);
+      applyLanguage(language);
+      setUser({ ...user, preferred_language: preferredLanguage });
+    } catch {
+      setError(translate("تعذر حفظ تفضيل اللغة"));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="language-switcher">
+    <label className="sr-only" htmlFor="language-switcher">{translate("اللغة")}</label>
+    <select id="language-switcher" aria-label={translate("اللغة")} value={preference} disabled={saving} onChange={(event) => void changeLanguage(event.target.value)}>
+      <option value="">{translate("استخدم لغة الشركة")}</option>
+      <option value="ar">{translate("العربية")}</option>
+      <option value="en">English</option>
+    </select>
+    {error && <span className="language-error" role="alert">{error}</span>}
+  </div>;
 }
 
 function Layout({ children, user, setUser, branding }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void; branding: BrandingSnapshot }) {
+  user = { ...user, display_name_ar: i18n.language === "en" ? user.display_name || user.display_name_ar : user.display_name_ar || user.display_name };
   const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
   const logout = async () => { try { await api("/logout", { method: "POST" }); } finally { setUser(null); setLoc("/"); } };
-  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav><div className="side-foot">نظام تشغيل المصنع<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{title}</h1><p>مركز التحكم التشغيلي · بيانات مباشرة</p></div><div className="top-actions"><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label="تسجيل الخروج" className="btn btn-plain" onClick={logout} title="تسجيل الخروج"><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{label}</span></Link>)}</nav></main></div>;
+  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav><div className="side-foot">{translate("نظام تشغيل المصنع")}<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{translate(title)}</h1><p>{translate("مركز التحكم التشغيلي · بيانات مباشرة")}</p></div><div className="top-actions"><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={branding.defaultLanguage} /><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label={translate("تسجيل الخروج")} className="btn btn-plain" onClick={logout} title={translate("تسجيل الخروج")}><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav></main></div>;
 }
 
 function Dashboard({ user }: { user: Row }) {
@@ -212,7 +285,7 @@ function Dashboard({ user }: { user: Row }) {
   useEffect(load, []);
   const cards = [["customers", "العملاء", "عملاء مسجلون"], ["orders", "الطلبات", "إجمالي الطلبات"], ["production_orders", "أوامر الإنتاج", "قيد المتابعة"], ["machines", "الماكينات", "أصول المصنع"], ["users", "المستخدمون", "حسابات النظام"]];
   const shortcuts = nav.filter(([href, , , permissions]) => !["/", "/my-dashboard", "/admin"].includes(href) && can(user, permissions));
-  return <><PageHero kicker="نظرة تشغيلية · اليوم" title="لوحة الإدارة" description="ملخص مباشر لأداء المصنع ومحطات العمل." onRefresh={load} refreshing={refreshing} actions={<span className="tag">اتصال مباشر بالبيانات</span>} />{error && <div className="error">{error}</div>}<div className="stats">{cards.map(([key, label, sub]) => <div className="stat" key={key}><label>{label}</label><strong>{data ? data[key] ?? 0 : <span className="skeleton" style={{ display: "inline-block", width: 55 }} />}</strong><small>{sub}</small></div>)}</div><div className="panel"><div className="panel-head"><h3>محطات العمل</h3><span className="eyebrow">اختصارات سريعة</span></div><div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>{shortcuts.map(([href, label, Icon]) => <Link className="btn btn-muted" href={href} key={href}><Icon size={17} />{label}</Link>)}</div></div></>;
+  return <><PageHero kicker="نظرة تشغيلية · اليوم" title={translate("لوحة الإدارة")} description="ملخص مباشر لأداء المصنع ومحطات العمل." onRefresh={load} refreshing={refreshing} actions={<span className="tag">{translate("اتصال مباشر بالبيانات")}</span>} />{error && <div className="error">{error}</div>}<div className="stats">{cards.map(([key, label, sub]) => <div className="stat" key={key}><label>{translate(label)}</label><strong>{data ? data[key] ?? 0 : <span className="skeleton" style={{ display: "inline-block", width: 55 }} />}</strong><small>{translate(sub)}</small></div>)}</div><div className="panel"><div className="panel-head"><h3>{translate("محطات العمل")}</h3><span className="eyebrow">{translate("اختصارات سريعة")}</span></div><div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>{shortcuts.map(([href, label, Icon]) => <Link className="btn btn-muted" href={href} key={href}><Icon size={17} />{translate(label)}</Link>)}</div></div></>;
 }
 
 function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: string; user: Row; refreshToken?: number; showHero?: boolean }) {
@@ -226,7 +299,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     const id = Number(viewOrderQuery);
     setViewingOrder(viewOrderQuery && /^\d+$/.test(viewOrderQuery) && Number.isSafeInteger(id) && id > 0 ? id : null);
   }, [kind, viewOrderQuery]);
-  const cfg = configs[kind]; const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
+  const cfg = useMemo(() => localizeConfig(configs[kind]), [kind, i18n.language]); const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
   const readable = can(user, cfg.read); const writable = can(user, cfg.write); const deletable = can(user, cfg.del || ["admin"]); const clonable = Boolean(cfg.clone && writable);
   const viewable = kind === "production" || kind === "orders";
   const showActions = viewable || writable || deletable || clonable;
@@ -260,8 +333,8 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     load();
     return () => gate.invalidate();
   }, [load]);
-  if (!readable) return <div className="empty"><strong>لا تملك صلاحية العرض</strong>تواصل مع مدير النظام.</div>;
-  const remove = async (id: any) => { if (!deletable || !confirm("تأكيد حذف السجل؟")) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
+  if (!readable) return <div className="empty"><strong>{translate("لا تملك صلاحية العرض")}</strong>{translate("تواصل مع مدير النظام.")}</div>;
+  const remove = async (id: any) => { if (!deletable || !confirm(translate("تأكيد حذف السجل؟"))) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
   const printOrder = (id: number) => window.open(`/orders/${encodeURIComponent(String(id))}/print`, "_blank", "noopener,noreferrer");
   const closeOrder = () => {
@@ -273,11 +346,11 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     }
   };
   const rowActions = (row: Row, mobile = false) => <div className="actions">
-    {viewable && <button aria-label={kind === "orders" ? "عرض الطلب" : "عرض أمر الإنتاج"} title="عرض" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
-    {kind === "orders" && <a aria-label="طباعة الطلب" title="طباعة" className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && " طباعة"}</a>}
-    {writable && <button aria-label={`تعديل ${cfg.singular}`} title="تعديل" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && " تعديل"}</button>}
-    {clonable && <button aria-label={`استنساخ ${cfg.singular}`} title="استنساخ" className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => clone(row)}><Copy size={16} />{mobile && " استنساخ"}</button>}
-    {deletable && <button aria-label={`حذف ${cfg.singular}`} title="حذف" className={mobile ? "btn btn-danger" : "btn btn-plain"} onClick={() => remove(row.id)}><Trash2 size={16} />{mobile && " حذف"}</button>}
+    {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
+    {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && " طباعة"}</a>}
+    {writable && <button aria-label={`${translate("تعديل")} ${translate(cfg.singular)}`} title={translate("تعديل")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && ` ${translate("تعديل")}`}</button>}
+    {clonable && <button aria-label={`${translate("استنساخ")} ${translate(cfg.singular)}`} title={translate("استنساخ")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => clone(row)}><Copy size={16} />{mobile && ` ${translate("استنساخ")}`}</button>}
+    {deletable && <button aria-label={`${translate("حذف")} ${translate(cfg.singular)}`} title={translate("حذف")} className={mobile ? "btn btn-danger" : "btn btn-plain"} onClick={() => remove(row.id)}><Trash2 size={16} />{mobile && ` ${translate("حذف")}`}</button>}
   </div>;
   const cols = cfg.columns || cfg.fields.slice(0, 5).map((field) => ({ key: field.key, label: field.label, kind: field.type === "date" ? "date" : field.type === "decimal" || field.type === "integer" ? "number" : field.key === "status" ? "status" : "text" } as Column));
   const columnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : "", kind === "orders" && field.key === "order_number" ? "order-number-column" : ""].filter(Boolean).join(" ");
@@ -285,32 +358,32 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   const renderCell = (row: Row, field: Column) => {
     if (kind === "orders" && field.key === "order_number") return <span className="order-number-stack"><span className="order-number-code">{displayValue(row, field)}</span><small className="order-number-date">{fmtOrderDate(row.created_at)}</small></span>;
     if (field.key === "production_orders_summary") return <OrderProductionCell entries={Array.isArray(row.production_orders_summary) ? row.production_orders_summary : []} />;
-    const content = field.colorKey ? <span className="color-stack">{isTransparentColor(row, field) ? <X className="transparent-mark" size={22} aria-label="بدون لون" /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
+    const content = field.colorKey ? <span className="color-stack">{isTransparentColor(row, field) ? <X className="transparent-mark" size={22} aria-label={translate("بدون لون")} /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
     return field.customerLink ? <Link className="customer-link" href={`/customers/${encodeURIComponent(String(row.id))}`}>{content}</Link> : content;
   };
   return <>
-    {showHero ? <PageHero kicker={`سجل البيانات · ${rows.length} سجل معروض`} title={cfg.title} description={`استعرض وأدر سجلات ${cfg.title}.`} onRefresh={load} refreshing={busy} actions={writable && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة {cfg.singular}</button>} /> : writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة {cfg.singular}</button></div>}
+    {showHero ? <PageHero kicker={translate("سجل البيانات · {{count}} سجل معروض", { count: rows.length })} title={translate(cfg.title)} description={translate("استعرض وأدر سجلات {{title}}.", { title: translate(cfg.title) })} onRefresh={load} refreshing={busy} actions={writable && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة")}{" "}{translate(cfg.singular)}</button>} /> : writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة")}{" "}{translate(cfg.singular)}</button></div>}
     {error && <div className="error" role="alert">{error}</div>}
     <section className="panel">
       <div className="panel-head">
-        <div><h3>سجل {cfg.title}</h3><small className="muted-text">السجلات المعروضة من البيانات المحملة</small></div>
+        <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
         <div className="tools">
           <Search size={17} aria-hidden="true" />
-          <label className="sr-only" htmlFor={`${kind}-search`}>بحث في {cfg.title}</label>
-          <input id={`${kind}-search`} aria-label={`بحث في ${cfg.title}`} className="search" placeholder="بحث في السجل…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
+          <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
+          <input id={`${kind}-search`} aria-label={`بحث في ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
         </div>
       </div>
-      {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>لا توجد سجلات مطابقة</strong>ابدأ بإضافة أول سجل لهذا القسم.</div> : <div className="table-wrap">
+      {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>{translate("لا توجد سجلات مطابقة")}</strong>{translate("ابدأ بإضافة أول سجل لهذا القسم.")}</div> : <div className="table-wrap">
         <table>
-          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>إجراء</th>}</tr></thead>
+          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
         </table>
         <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
       </div>}
       {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`صفحات ${cfg.title}`}>
-        <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>السابق</button>
-        <span>صفحة {page + 1}</span>
-        <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>التالي</button>
+        <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{translate("السابق")}</button>
+        <span>{translate("صفحة")}{" "}{page + 1}</span>
+        <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>{translate("التالي")}</button>
       </nav>}
     </section>
     {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}
@@ -387,7 +460,7 @@ function EntityFormModal({ cfg, row, onClose, onSaved }: { cfg: Config; row: Row
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (optionsLoading || optionErrors.length) {
-      setError("تعذر تحميل قوائم العلاقات. أعد المحاولة قبل الحفظ لتجنب تغيير العلاقات دون قصد.");
+      setError(translate("تعذر تحميل قوائم العلاقات. أعد المحاولة قبل الحفظ لتجنب تغيير العلاقات دون قصد."));
       return;
     }
     setSaving(true);
@@ -424,15 +497,15 @@ function EntityFormModal({ cfg, row, onClose, onSaved }: { cfg: Config; row: Row
       setSaving(false);
     }
   };
-  const labelFor = (option: Row) => latinDigits(String(option.name_ar || option.name || option.order_number || option.production_order_number || option.id));
+  const labelFor = (option: Row) => latinDigits(localizedName(option.name_ar, option.name, String(option.order_number || option.production_order_number || option.id || "—")));
   const generatedId = "يُولَّد تلقائيًا عند الحفظ";
   const idField = cfg.fields.find((field) => field.key === "id");
   const idLabel = usesGeneratedAdminId(cfg.path) ? idField?.label || (cfg.path === "/categories" ? "رمز التصنيف" : cfg.path === "/items" ? "رمز الصنف" : null) : null;
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}><form className={`modal ${cfg.path === "/machines" ? "wide-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="entity-dialog-title" onSubmit={save}>
-    <header><h3 id="entity-dialog-title">{row.id ? "تعديل" : "إضافة"} {cfg.singular}</h3><button aria-label="إغلاق الحوار" title="إغلاق" disabled={saving} type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>
-    {optionsLoading && <div className="tag" role="status" style={{ margin: 18 }}>جارٍ تحميل خيارات العلاقات…</div>}
-    {optionErrors.length > 0 && <div className="error" role="alert" style={{ margin: 18 }}>{optionErrors.join(" · ")} <button type="button" className="btn btn-muted" onClick={() => setRetryOptions((attempt) => attempt + 1)}>إعادة تحميل القوائم</button></div>}
-    {cfg.fields.some((field) => field.relation && form[field.key] && !relationOptions(field).some((option) => String(option.id) === String(form[field.key]))) && !optionErrors.length && <div className="tag" role="status" style={{ margin: 18 }}>توجد علاقة محفوظة قديمة أو غير متاحة. ستبقى كما هي ما لم تختر بديلاً صالحاً.</div>}
+    <header><h3 id="entity-dialog-title">{row.id ? translate("تعديل") : translate("إضافة")} {cfg.singular}</h3><button aria-label={translate("إغلاق الحوار")} title={translate("إغلاق")} disabled={saving} type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>
+    {optionsLoading && <div className="tag" role="status" style={{ margin: 18 }}>{translate("جارٍ تحميل خيارات العلاقات…")}</div>}
+    {optionErrors.length > 0 && <div className="error" role="alert" style={{ margin: 18 }}>{optionErrors.join(" · ")} <button type="button" className="btn btn-muted" onClick={() => setRetryOptions((attempt) => attempt + 1)}>{translate("إعادة تحميل القوائم")}</button></div>}
+    {cfg.fields.some((field) => field.relation && form[field.key] && !relationOptions(field).some((option) => String(option.id) === String(form[field.key]))) && !optionErrors.length && <div className="tag" role="status" style={{ margin: 18 }}>{translate("توجد علاقة محفوظة قديمة أو غير متاحة. ستبقى كما هي ما لم تختر بديلاً صالحاً.")}</div>}
     {error && <div className="error" role="alert" style={{ margin: 18 }}>{error}</div>}
     <div className="form-grid">
       {idLabel && <div className="field"><label htmlFor="generated-record-id">{idLabel}</label><input id="generated-record-id" value={row.id ?? generatedId} disabled readOnly /></div>}
@@ -442,16 +515,16 @@ function EntityFormModal({ cfg, row, onClose, onSaved }: { cfg: Config; row: Row
         return <div className={field.wide ? "field wide" : "field"} key={field.key}>
           <label htmlFor={`field-${field.key}`}>{field.label}</label>
           {field.relation ? <select id={`field-${field.key}`} required={field.required} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}>
-            <option value="">غير محدد</option>{choices.map((option) => <option key={option.id} value={option.id}>{labelFor(option)}</option>)}
-            {currentMissing && <option value={form[field.key]}>القيمة الحالية المحفوظة: {String(form[field.key])}</option>}
-          </select> : field.type === "select" || field.type === "percentage" ? <select id={`field-${field.key}`} required={field.required} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}>{field.type !== "percentage" && <option value="">اختر</option>}{field.options?.map((option) => <option key={option} value={option}>{field.type === "percentage" ? `${option}%` : dictionaries[option] || option}</option>)}{form[field.key] && !field.options?.includes(String(form[field.key])) && <option value={form[field.key]}>القيمة الحالية المحفوظة: {dictionaries[String(form[field.key])] || dictionaries[canonicalMachineType(form[field.key])] || String(form[field.key])}</option>}</select>
+            <option value="">{translate("غير محدد")}</option>{choices.map((option) => <option key={option.id} value={option.id}>{labelFor(option)}</option>)}
+            {currentMissing && <option value={form[field.key]}>{translate("القيمة الحالية المحفوظة:")}{" "}{String(form[field.key])}</option>}
+          </select> : field.type === "select" || field.type === "percentage" ? <select id={`field-${field.key}`} required={field.required} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}>{field.type !== "percentage" && <option value="">{translate("اختر")}</option>}{field.options?.map((option) => <option key={option} value={option}>{field.type === "percentage" ? `${option}%` : dictionaries[option] || option}</option>)}{form[field.key] && !field.options?.includes(String(form[field.key])) && <option value={form[field.key]}>{translate("القيمة الحالية المحفوظة:")}{" "}{dictionaries[String(form[field.key])] || dictionaries[canonicalMachineType(form[field.key])] || String(form[field.key])}</option>}</select>
             : field.type === "textarea" ? <textarea id={`field-${field.key}`} required={field.required} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })} />
-            : field.type === "boolean" ? <label className="check-row"><input id={`field-${field.key}`} type="checkbox" checked={Boolean(form[field.key] ?? true)} onChange={(e) => setForm({ ...form, [field.key]: e.target.checked })} />{form[field.key] === false ? "غير مفعّل" : "مفعّل"}</label>
-            : <div className="input-with-preview"><input id={`field-${field.key}`} required={field.required} type={field.type === "date" ? "date" : field.type === "integer" || field.type === "decimal" ? "number" : "text"} min={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : undefined} max={cfg.path === "/customer-products" && field.key === "width" ? "999999" : cfg.path === "/customer-products" && field.key === "thickness" ? "99999" : undefined} step={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : field.type === "decimal" ? (cfg.path === "/machines" && field.key.endsWith("_thickness") ? "0.001" : "0.01") : undefined} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })} />{(field.key === "color_hex" || field.key === "text_color") && <i className="color-preview" aria-label="معاينة اللون" style={{ background: form[field.key] || "#ddd" }} />}</div>}
+            : field.type === "boolean" ? <label className="check-row"><input id={`field-${field.key}`} type="checkbox" checked={Boolean(form[field.key] ?? true)} onChange={(e) => setForm({ ...form, [field.key]: e.target.checked })} />{form[field.key] === false ? translate("غير مفعّل") : translate("مفعّل")}</label>
+            : <div className="input-with-preview"><input id={`field-${field.key}`} required={field.required} type={field.type === "date" ? "date" : field.type === "integer" || field.type === "decimal" ? "number" : "text"} min={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : undefined} max={cfg.path === "/customer-products" && field.key === "width" ? "999999" : cfg.path === "/customer-products" && field.key === "thickness" ? "99999" : undefined} step={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : field.type === "decimal" ? (cfg.path === "/machines" && field.key.endsWith("_thickness") ? "0.001" : "0.01") : undefined} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })} />{(field.key === "color_hex" || field.key === "text_color") && <i className="color-preview" aria-label={translate("معاينة اللون")} style={{ background: form[field.key] || "#ddd" }} />}</div>}
         </div>;
       })}
     </div>
-    <footer><button disabled={saving || optionsLoading || optionErrors.length > 0} className="btn btn-primary">{saving ? "جارٍ الحفظ…" : "حفظ السجل"}</button><button disabled={saving} type="button" className="btn btn-muted" onClick={onClose}>إلغاء</button></footer>
+    <footer><button disabled={saving || optionsLoading || optionErrors.length > 0} className="btn btn-primary">{saving ? translate("جارٍ الحفظ…") : translate("حفظ السجل")}</button><button disabled={saving} type="button" className="btn btn-muted" onClick={onClose}>{translate("إلغاء")}</button></footer>
   </form></div>;
 }
 
@@ -459,10 +532,10 @@ function CompanyProfile({ user }: { user: Row }) {
   const allowed = can(user, ["manage_settings", "admin"]);
   const [form, setForm] = useState<Row>({}); const [error, setError] = useState(""); const [saved, setSaved] = useState(false);
   useEffect(() => { if (allowed) api("/company-profile").then((value) => setForm(value || {})).catch((e) => setError(e.message)); }, [allowed]);
-  if (!allowed) return <div className="empty"><strong>لا تملك صلاحية العرض</strong>تواصل مع مدير النظام.</div>;
+  if (!allowed) return <div className="empty"><strong>{translate("لا تملك صلاحية العرض")}</strong>{translate("تواصل مع مدير النظام.")}</div>;
   const fields = [["name", "اسم الشركة"], ["name_ar", "اسم الشركة بالعربية"], ["address", "العنوان"], ["tax_number", "الرقم الضريبي"], ["phone", "الهاتف"], ["email", "البريد الإلكتروني"], ["working_hours_per_day", "ساعات العمل"]]; 
   const save = async (event: FormEvent) => { event.preventDefault(); setError(""); setSaved(false); try { const body = Object.fromEntries(fields.map(([key]) => [key, form[key]]).filter(([, value]) => value !== "" && value !== null && value !== undefined)); await api("/company-profile", { method: "PUT", body: JSON.stringify(body) }); setSaved(true); } catch (e) { setError((e as Error).message); } };
-  return <section className="panel"><div className="panel-head"><h3>ملف الشركة</h3></div><form className="form-grid" onSubmit={save}>{fields.map(([key, label]) => <div className="field" key={key}><label htmlFor={`company-${key}`}>{label}</label><input id={`company-${key}`} type={key === "working_hours_per_day" ? "number" : "text"} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: key === "working_hours_per_day" ? Number(e.target.value) : e.target.value })} /></div>)}<div className="wide" aria-live="polite">{error && <div className="error" role="alert">{error}</div>}{saved && <div className="tag">تم حفظ التغييرات</div>}<button className="btn btn-primary">حفظ ملف الشركة</button></div></form></section>;
+  return <section className="panel"><div className="panel-head"><h3>{translate("ملف الشركة")}</h3></div><form className="form-grid" onSubmit={save}>{fields.map(([key, label]) => <div className="field" key={key}><label htmlFor={`company-${key}`}>{translate(label)}</label><input id={`company-${key}`} type={key === "working_hours_per_day" ? "number" : "text"} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: key === "working_hours_per_day" ? Number(e.target.value) : e.target.value })} /></div>)}<div className="wide" aria-live="polite">{error && <div className="error" role="alert">{error}</div>}{saved && <div className="tag">{translate("تم حفظ التغييرات")}</div>}<button className="btn btn-primary">{translate("حفظ ملف الشركة")}</button></div></form></section>;
 }
 
 const permissionGroups = [
@@ -558,22 +631,22 @@ function UserModal({ row, user, onClose, onSaved }: { row: Row; user: Row; onClo
   const currentRoleUnavailable = Boolean(form.role_id) && !roles.some((role) => String(role.id) === String(form.role_id));
   const currentSectionUnavailable = Boolean(form.section_id) && !sections.some((section) => String(section.id) === String(form.section_id));
   return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}><form className="modal wide-modal" role="dialog" aria-modal="true" aria-labelledby="user-dialog-title" onSubmit={save}>
-    <header><div><div className="eyebrow">ملف هوية وصلاحيات</div><h3 id="user-dialog-title">{row.id ? "تعديل مستخدم" : "إضافة مستخدم"}</h3></div><button aria-label="إغلاق حوار المستخدم" title="إغلاق" disabled={saving} type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>
-    {lookupError && <div className="error" role="alert" style={{ margin: 18 }}>{lookupError} <button type="button" className="btn btn-muted" onClick={() => setRetryLookups((attempt) => attempt + 1)}>إعادة تحميل الأدوار والأقسام</button></div>}
-    {currentRoleUnavailable || currentSectionUnavailable ? <div className="tag" role="status" style={{ margin: 18 }}>توجد علاقة قديمة غير موجودة في القوائم؛ ستبقى كما هي ما لم تختر بديلاً صالحاً.</div> : null}
+    <header><div><div className="eyebrow">{translate("ملف هوية وصلاحيات")}</div><h3 id="user-dialog-title">{row.id ? translate("تعديل مستخدم") : translate("إضافة مستخدم")}</h3></div><button aria-label={translate("إغلاق حوار المستخدم")} title={translate("إغلاق")} disabled={saving} type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>
+    {lookupError && <div className="error" role="alert" style={{ margin: 18 }}>{lookupError} <button type="button" className="btn btn-muted" onClick={() => setRetryLookups((attempt) => attempt + 1)}>{translate("إعادة تحميل الأدوار والأقسام")}</button></div>}
+    {currentRoleUnavailable || currentSectionUnavailable ? <div className="tag" role="status" style={{ margin: 18 }}>{translate("توجد علاقة قديمة غير موجودة في القوائم؛ ستبقى كما هي ما لم تختر بديلاً صالحاً.")}</div> : null}
     {error && <div className="error" role="alert" style={{ margin: 18 }}>{error}</div>}<div className="form-grid">
-      <div className="field"><label htmlFor="user-record-id">رقم المستخدم</label><input id="user-record-id" value={row.id ?? "يُولَّد تلقائيًا عند الحفظ"} disabled readOnly /></div>
-      {textFields.map(([key, label]) => <div className="field" key={key}><label htmlFor={`user-${key}`}>{label}</label><input id={`user-${key}`} name={key} type={key === "email" ? "email" : key === "phone" ? "tel" : "text"} required={key === "username"} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></div>)}
-      <div className="field"><label htmlFor="user-profession">المهنة</label><select id="user-profession" value={form.profession ?? ""} onChange={(e) => setForm({ ...form, profession: e.target.value })}><option value="">اختر المهنة</option>{form.profession && !professionOptions.includes(form.profession as typeof professionOptions[number]) && <option value={String(form.profession)}>{String(form.profession)}</option>}{professionOptions.map((profession) => <option key={profession} value={profession}>{profession}</option>)}</select></div>
-      <div className="field"><label htmlFor="user-nationality">الجنسية</label><select id="user-nationality" value={form.nationality ?? ""} onChange={(e) => setForm({ ...form, nationality: e.target.value })}><option value="">اختر الجنسية</option>{form.nationality && !nationalityOptions.includes(form.nationality as typeof nationalityOptions[number]) && <option value={String(form.nationality)}>{String(form.nationality)}</option>}{nationalityOptions.map((nationality) => <option key={nationality} value={nationality}>{nationality}</option>)}</select></div>
-      <div className="field"><label htmlFor="user-role">الدور</label><select id="user-role" required={!currentRoleUnavailable} value={form.role_id ?? ""} onChange={(e) => setForm({ ...form, role_id: e.target.value })}><option value="">اختر الدور</option>{roles.map((r) => <option key={r.id} value={r.id}>{roleName(r)}</option>)}{currentRoleUnavailable && <option value={form.role_id}>الدور الحالي المحفوظ ({form.role_id})</option>}</select></div>
-      <div className="field"><label htmlFor="user-section">القسم</label><select id="user-section" value={form.section_id ?? ""} onChange={(e) => setForm({ ...form, section_id: e.target.value })}><option value="">بدون قسم</option>{sections.map((s) => <option key={s.id} value={s.id}>{s.name_ar || s.name || s.id}</option>)}{currentSectionUnavailable && <option value={form.section_id}>القسم الحالي المحفوظ ({form.section_id})</option>}</select></div>
-      <div className="field"><label>حالة الحساب</label><select value={form.status ?? "active"} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">نشط</option><option value="inactive">غير نشط</option></select></div>
-      <div className="field"><label>تاريخ الميلاد</label><input type="date" value={form.birth_date ?? ""} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} /></div>
-      <div className="field"><label>تاريخ بدء الخدمة</label><input type="date" value={form.service_start_date ?? ""} onChange={(e) => setForm({ ...form, service_start_date: e.target.value })} /></div>
-      <div className="field"><label>كلمة المرور {row.id && <small>(اختيارية عند التعديل)</small>}</label><input type="password" autoComplete="new-password" minLength={8} required={!row.id} value={form.password ?? ""} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
-      <div className="check-grid wide">{[["must_change_password","إجبار تغيير كلمة المرور"],["include_in_attendance","يظهر في الحضور"],...(isAdmin ? [["is_system_user","حساب نظام"] as const] : [])].map(([key,label]) => <label className="check-row" key={key}><input type="checkbox" checked={Boolean(form[key])} disabled={key === "is_system_user" && !isAdmin} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} />{label}</label>)}</div>
-    </div><footer><button disabled={saving || loadingLookups || Boolean(lookupError)} className="btn btn-primary"><Check size={16} />{saving ? "جارٍ الحفظ…" : "حفظ المستخدم"}</button><button disabled={saving} type="button" className="btn btn-muted" onClick={onClose}>إلغاء</button></footer>
+      <div className="field"><label htmlFor="user-record-id">{translate("رقم المستخدم")}</label><input id="user-record-id" value={row.id ?? "يُولَّد تلقائيًا عند الحفظ"} disabled readOnly /></div>
+      {textFields.map(([key, label]) => <div className="field" key={key}><label htmlFor={`user-${key}`}>{translate(label)}</label><input id={`user-${key}`} name={key} type={key === "email" ? "email" : key === "phone" ? "tel" : "text"} required={key === "username"} value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} /></div>)}
+      <div className="field"><label htmlFor="user-profession">{translate("المهنة")}</label><select id="user-profession" value={form.profession ?? ""} onChange={(e) => setForm({ ...form, profession: e.target.value })}><option value="">{translate("اختر المهنة")}</option>{form.profession && !professionOptions.includes(form.profession as typeof professionOptions[number]) && <option value={String(form.profession)}>{String(form.profession)}</option>}{professionOptions.map((profession) => <option key={profession} value={profession}>{translate(profession)}</option>)}</select></div>
+      <div className="field"><label htmlFor="user-nationality">{translate("الجنسية")}</label><select id="user-nationality" value={form.nationality ?? ""} onChange={(e) => setForm({ ...form, nationality: e.target.value })}><option value="">{translate("اختر الجنسية")}</option>{form.nationality && !nationalityOptions.includes(form.nationality as typeof nationalityOptions[number]) && <option value={String(form.nationality)}>{String(form.nationality)}</option>}{nationalityOptions.map((nationality) => <option key={nationality} value={nationality}>{translate(nationality)}</option>)}</select></div>
+      <div className="field"><label htmlFor="user-role">{translate("الدور")}</label><select id="user-role" required={!currentRoleUnavailable} value={form.role_id ?? ""} onChange={(e) => setForm({ ...form, role_id: e.target.value })}><option value="">{translate("اختر الدور")}</option>{roles.map((r) => <option key={r.id} value={r.id}>{roleName(r)}</option>)}{currentRoleUnavailable && <option value={form.role_id}>{translate("الدور الحالي المحفوظ (")}{form.role_id})</option>}</select></div>
+      <div className="field"><label htmlFor="user-section">{translate("القسم")}</label><select id="user-section" value={form.section_id ?? ""} onChange={(e) => setForm({ ...form, section_id: e.target.value })}><option value="">{translate("بدون قسم")}</option>{sections.map((s) => <option key={s.id} value={s.id}>{s.name_ar || s.name || s.id}</option>)}{currentSectionUnavailable && <option value={form.section_id}>{translate("القسم الحالي المحفوظ (")}{form.section_id})</option>}</select></div>
+      <div className="field"><label>{translate("حالة الحساب")}</label><select value={form.status ?? "active"} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="active">{translate("نشط")}</option><option value="inactive">{translate("غير نشط")}</option></select></div>
+      <div className="field"><label>{translate("تاريخ الميلاد")}</label><input type="date" value={form.birth_date ?? ""} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} /></div>
+      <div className="field"><label>{translate("تاريخ بدء الخدمة")}</label><input type="date" value={form.service_start_date ?? ""} onChange={(e) => setForm({ ...form, service_start_date: e.target.value })} /></div>
+      <div className="field"><label>{translate("كلمة المرور")}{" "}{row.id && <small>{translate("(اختيارية عند التعديل)")}</small>}</label><input type="password" autoComplete="new-password" minLength={8} required={!row.id} value={form.password ?? ""} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+      <div className="check-grid wide">{[["must_change_password","إجبار تغيير كلمة المرور"],["include_in_attendance","يظهر في الحضور"],...(isAdmin ? [["is_system_user","حساب نظام"] as const] : [])].map(([key,label]) => <label className="check-row" key={key}><input type="checkbox" checked={Boolean(form[key])} disabled={key === "is_system_user" && !isAdmin} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} />{translate(label)}</label>)}</div>
+    </div><footer><button disabled={saving || loadingLookups || Boolean(lookupError)} className="btn btn-primary"><Check size={16} />{saving ? translate("جارٍ الحفظ…") : translate("حفظ المستخدم")}</button><button disabled={saving} type="button" className="btn btn-muted" onClick={onClose}>{translate("إلغاء")}</button></footer>
   </form></div>;
 }
 
@@ -609,25 +682,25 @@ function UsersAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: numb
     load();
     return () => gate.invalidate();
   }, [load]);
-  const remove = async (row: Row) => { if (!confirm("تأكيد حذف المستخدم؟")) return; try { await api(`/users/${row.id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
+  const remove = async (row: Row) => { if (!confirm(translate("تأكيد حذف المستخدم؟"))) return; try { await api(`/users/${row.id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const arabicName = (row: Row) => row.display_name_ar || row.full_name || row.display_name || "—";
   const englishName = (row: Row) => row.display_name || row.full_name || "—";
   return <>
-    <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} /> إضافة مستخدم</button></div>
+    <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة مستخدم")}</button></div>
     {error && <div className="error" role="alert">{error}</div>}
     <section className="panel">
       <div className="panel-head">
-        <div><h3>دليل المستخدمين</h3><small className="muted-text">بيانات الهوية، الدور، والقسم</small></div>
-        <div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor="users-search">بحث في المستخدمين</label><input id="users-search" aria-label="بحث بالاسم أو المستخدم" className="search" placeholder="بحث بالاسم أو المستخدم…" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); setEdit(null); }} /></div>
+        <div><h3>{translate("دليل المستخدمين")}</h3><small className="muted-text">{translate("بيانات الهوية، الدور، والقسم")}</small></div>
+        <div className="tools"><Search size={17} aria-hidden="true" /><label className="sr-only" htmlFor="users-search">{translate("بحث في المستخدمين")}</label><input id="users-search" aria-label={translate("بحث بالاسم أو المستخدم")} className="search" placeholder={translate("بحث بالاسم أو المستخدم…")} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); setEdit(null); }} /></div>
       </div>
       {requestBusy ? <div style={{ padding: 20 }} aria-busy="true"><div className="skeleton" /></div> : <div className="table-wrap">
-        <table className="users-table"><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>القسم</th><th>الدور</th><th>الهاتف</th><th>خيارات</th></tr></thead>
-          <tbody>{rows.map((r) => <tr key={r.id}><td><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small></td><td>{r.username || "—"}</td><td>{r.section_name_ar || r.section_name || "—"}</td><td>{r.role_name_ar || r.role_name || "—"}</td><td>{r.phone || "—"}</td><td><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-plain" title="تعديل" onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-plain" title="حذف" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody>
+        <table className="users-table"><thead><tr><th>{translate("الاسم")}</th><th>{translate("اسم المستخدم")}</th><th>{translate("القسم")}</th><th>{translate("الدور")}</th><th>{translate("الهاتف")}</th><th>{translate("خيارات")}</th></tr></thead>
+          <tbody>{rows.map((r) => <tr key={r.id}><td><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small></td><td>{r.username || "—"}</td><td>{r.section_name_ar || r.section_name || "—"}</td><td>{r.role_name_ar || r.role_name || "—"}</td><td>{r.phone || "—"}</td><td><div className="actions"><button aria-label={translate("تعديل المستخدم")} className="btn btn-plain" title={translate("تعديل")} onClick={() => setEdit(r)}><Pencil size={16} /></button>{can(user, ["admin"]) && <button aria-label={translate("حذف المستخدم")} className="btn btn-plain" title={translate("حذف")} onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></td></tr>)}</tbody>
         </table>
-        <div className="mobile-cards user-cards">{rows.map((r) => <article className="entity-card" key={r.id}><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small><div className="card-line"><span>اسم المستخدم</span><b>{r.username || "—"}</b></div><div className="card-line"><span>القسم</span><b>{r.section_name_ar || r.section_name || "—"}</b></div><div className="card-line"><span>الدور</span><b>{r.role_name_ar || r.role_name || "—"}</b></div><div className="card-line"><span>الهاتف</span><b>{r.phone || "—"}</b></div><div className="actions"><button aria-label="تعديل المستخدم" className="btn btn-muted" onClick={() => setEdit(r)}><Pencil size={15} /> تعديل</button>{can(user, ["admin"]) && <button aria-label="حذف المستخدم" className="btn btn-danger" onClick={() => remove(r)}><Trash2 size={15} /> حذف</button>}</div></article>)}</div>
-        {!rows.length && <div className="empty"><strong>لا توجد حسابات مطابقة</strong>أنشئ حساباً جديداً لبدء إدارة الوصول.</div>}
+        <div className="mobile-cards user-cards">{rows.map((r) => <article className="entity-card" key={r.id}><strong>{arabicName(r)}</strong><small className="cell-sub" dir="ltr">{englishName(r)}</small><div className="card-line"><span>{translate("اسم المستخدم")}</span><b>{r.username || "—"}</b></div><div className="card-line"><span>{translate("القسم")}</span><b>{r.section_name_ar || r.section_name || "—"}</b></div><div className="card-line"><span>{translate("الدور")}</span><b>{r.role_name_ar || r.role_name || "—"}</b></div><div className="card-line"><span>{translate("الهاتف")}</span><b>{r.phone || "—"}</b></div><div className="actions"><button aria-label={translate("تعديل المستخدم")} className="btn btn-muted" onClick={() => setEdit(r)}><Pencil size={15} />{" "}{translate("تعديل")}</button>{can(user, ["admin"]) && <button aria-label={translate("حذف المستخدم")} className="btn btn-danger" onClick={() => remove(r)}><Trash2 size={15} />{" "}{translate("حذف")}</button>}</div></article>)}</div>
+        {!rows.length && <div className="empty"><strong>{translate("لا توجد حسابات مطابقة")}</strong>{translate("أنشئ حساباً جديداً لبدء إدارة الوصول.")}</div>}
       </div>}
-      {!requestBusy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label="صفحات المستخدمين"><button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>السابق</button><span>صفحة {page + 1}</span><button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>التالي</button></nav>}
+      {!requestBusy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={translate("صفحات المستخدمين")}><button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{translate("السابق")}</button><span>{translate("صفحة")}{" "}{page + 1}</span><button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>{translate("التالي")}</button></nav>}
     </section>
     {edit && <UserModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />}
   </>;
@@ -641,19 +714,19 @@ function RoleModal({ row, user, onClose, onSaved }: { row: Row; user: Row; onClo
   const toggle = (value: string) => {
     if (!canGrant(value)) return;
     const permissions: string[] = form.permissions;
-    if (value === "admin" && !window.confirm("تغيير صلاحية مدير النظام قد يمنح وصولاً كاملاً للنظام أو يزيله. هل تريد المتابعة؟")) return;
+    if (value === "admin" && !window.confirm(translate("تغيير صلاحية مدير النظام قد يمنح وصولاً كاملاً للنظام أو يزيله. هل تريد المتابعة؟"))) return;
     setForm({ ...form, permissions: permissions.includes(value) ? permissions.filter((p) => p !== value) : [...permissions, value] });
   };
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    if (!String(form.name || "").trim()) { setError("اسم الدور مطلوب"); return; }
+    if (!String(form.name || "").trim()) { setError(translate("اسم الدور مطلوب")); return; }
     const newlyGranted = form.permissions.filter((permission: string) => !existing.includes(permission));
-    if (newlyGranted.some((permission: string) => !canGrant(permission))) { setError("لا يمكنك منح صلاحيات لا تملكها"); return; }
+    if (newlyGranted.some((permission: string) => !canGrant(permission))) { setError(translate("لا يمكنك منح صلاحيات لا تملكها")); return; }
     setSaving(true); setError("");
     try { await api(row.id ? `/roles/${row.id}` : "/roles", { method: row.id ? "PUT" : "POST", body: JSON.stringify({ name: String(form.name).trim(), name_ar: form.name_ar || null, permissions: form.permissions }) }); onSaved(); } catch (err) { setError((err as Error).message); } finally { setSaving(false); }
   };
   useEffect(() => { const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !saving) onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [saving, onClose]);
-  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}><form className="modal role-modal" role="dialog" aria-modal="true" aria-labelledby="role-dialog-title" onSubmit={save}><header><div><div className="eyebrow">سياسة الوصول</div><h3 id="role-dialog-title">{row.id ? "تعديل دور" : "إضافة دور"}</h3></div><button aria-label="إغلاق حوار الدور" title="إغلاق" disabled={saving} type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>{error && <div className="error" role="alert" style={{ margin: 18 }}>{error}</div>}<div className="role-head form-grid"><div className="field"><label htmlFor="role-record-id">رقم الدور</label><input id="role-record-id" value={row.id ?? "يُولَّد تلقائيًا عند الحفظ"} disabled readOnly /></div><div className="field"><label htmlFor="role-name">اسم الدور بالإنجليزية</label><input id="role-name" required value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div><div className="field"><label htmlFor="role-name-ar">اسم الدور بالعربية</label><input id="role-name-ar" value={form.name_ar ?? ""} onChange={(e) => setForm({ ...form, name_ar: e.target.value })} /></div></div><div className="permission-summary"><KeyRound size={17} /> <strong>{form.permissions.length}</strong> صلاحية محددة <span>الصلاحيات التي لا تملكها محفوظة دون تغيير؛ منح صلاحية مدير النظام يتطلب تأكيداً صريحاً من مدير النظام.</span></div><div className="permission-groups">{permissionGroups.map((group) => { const bulkKeys: string[] = group.items.map(([key]) => key).filter((key) => key !== "admin" && canGrant(key)); const selected = bulkKeys.filter((key) => form.permissions.includes(key)).length; return <section className="permission-group" key={group.label}><div className="permission-group-head"><strong>{group.label}</strong>{bulkKeys.length > 0 && <button type="button" className="text-button" onClick={() => setForm({ ...form, permissions: selected === bulkKeys.length ? form.permissions.filter((p: string) => !bulkKeys.includes(p)) : Array.from(new Set([...form.permissions, ...bulkKeys])) })}>{selected === bulkKeys.length ? "إلغاء تحديد الكل" : "تحديد الكل"}</button>}<span>{selected}/{bulkKeys.length} متاحة</span></div><div className="permission-grid">{group.items.map(([key, label]) => <label className={`permission ${form.permissions.includes(key) ? "selected" : ""}`} key={key}><input type="checkbox" checked={form.permissions.includes(key)} disabled={!canGrant(key)} onChange={() => toggle(key)} /><span>{label}{key === "admin" ? " (تأكيد مطلوب)" : ""}</span></label>)}</div></section>})}{existing.filter((p: string) => !allPermissionLabels.has(p)).length > 0 && <div className="unknown-permissions"><strong>صلاحيات محفوظة أخرى</strong><div>{existing.filter((p: string) => !allPermissionLabels.has(p)).map((p: string) => <span className="tag" key={p}>{p}</span>)}</div></div>}</div><footer><button disabled={saving} className="btn btn-primary"><Check size={16} />{saving ? "جارٍ الحفظ…" : "حفظ الدور"}</button><button disabled={saving} type="button" className="btn btn-muted" onClick={onClose}>إلغاء</button></footer></form></div>;
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}><form className="modal role-modal" role="dialog" aria-modal="true" aria-labelledby="role-dialog-title" onSubmit={save}><header><div><div className="eyebrow">{translate("سياسة الوصول")}</div><h3 id="role-dialog-title">{row.id ? translate("تعديل دور") : translate("إضافة دور")}</h3></div><button aria-label={translate("إغلاق حوار الدور")} title={translate("إغلاق")} disabled={saving} type="button" className="btn btn-plain" onClick={onClose}><X /></button></header>{error && <div className="error" role="alert" style={{ margin: 18 }}>{error}</div>}<div className="role-head form-grid"><div className="field"><label htmlFor="role-record-id">{translate("رقم الدور")}</label><input id="role-record-id" value={row.id ?? "يُولَّد تلقائيًا عند الحفظ"} disabled readOnly /></div><div className="field"><label htmlFor="role-name">{translate("اسم الدور بالإنجليزية")}</label><input id="role-name" required value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div><div className="field"><label htmlFor="role-name-ar">{translate("اسم الدور بالعربية")}</label><input id="role-name-ar" value={form.name_ar ?? ""} onChange={(e) => setForm({ ...form, name_ar: e.target.value })} /></div></div><div className="permission-summary"><KeyRound size={17} /> <strong>{form.permissions.length}</strong>{" "}{translate("صلاحية محددة")}{" "}<span>{translate("الصلاحيات التي لا تملكها محفوظة دون تغيير؛ منح صلاحية مدير النظام يتطلب تأكيداً صريحاً من مدير النظام.")}</span></div><div className="permission-groups">{permissionGroups.map((group) => { const bulkKeys: string[] = group.items.map(([key]) => key).filter((key) => key !== "admin" && canGrant(key)); const selected = bulkKeys.filter((key) => form.permissions.includes(key)).length; return <section className="permission-group" key={group.label}><div className="permission-group-head"><strong>{translate(group.label)}</strong>{bulkKeys.length > 0 && <button type="button" className="text-button" onClick={() => setForm({ ...form, permissions: selected === bulkKeys.length ? form.permissions.filter((p: string) => !bulkKeys.includes(p)) : Array.from(new Set([...form.permissions, ...bulkKeys])) })}>{selected === bulkKeys.length ? translate("إلغاء تحديد الكل") : translate("تحديد الكل")}</button>}<span>{selected}/{bulkKeys.length}{" "}{translate("متاحة")}</span></div><div className="permission-grid">{group.items.map(([key, label]) => <label className={`permission ${form.permissions.includes(key) ? "selected" : ""}`} key={key}><input type="checkbox" checked={form.permissions.includes(key)} disabled={!canGrant(key)} onChange={() => toggle(key)} /><span>{translate(label)}{key === "admin" ? translate(" (تأكيد مطلوب)") : ""}</span></label>)}</div></section>})}{existing.filter((p: string) => !allPermissionLabels.has(p)).length > 0 && <div className="unknown-permissions"><strong>{translate("صلاحيات محفوظة أخرى")}</strong><div>{existing.filter((p: string) => !allPermissionLabels.has(p)).map((p: string) => <span className="tag" key={p}>{p}</span>)}</div></div>}</div><footer><button disabled={saving} className="btn btn-primary"><Check size={16} />{saving ? translate("جارٍ الحفظ…") : translate("حفظ الدور")}</button><button disabled={saving} type="button" className="btn btn-muted" onClick={onClose}>{translate("إلغاء")}</button></footer></form></div>;
 }
 
 function RolesAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: number }) {
@@ -675,8 +748,8 @@ function RolesAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: numb
     load();
     return () => gate.invalidate();
   }, [load, refreshToken]);
-  const remove = async (r: Row) => { if (!deletable || !confirm("تأكيد حذف الدور؟")) return; try { await api(`/roles/${r.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
-  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} /> إضافة دور</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{r.name_ar || r.name}</strong><span className="cell-sub">{r.name}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0} صلاحية</div></div><div className="actions">{writable && <button aria-label={`تعديل دور ${r.name_ar || r.name}`} title="تعديل" className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`حذف دور ${r.name_ar || r.name}`} title="حذف" className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>لا توجد أدوار</strong>{writable ? "أنشئ أول سياسة وصول للنظام." : "لا توجد أدوار مسجلة."}</div>}</div>{edit && writable && <RoleModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
+  const remove = async (r: Row) => { if (!deletable || !confirm(translate("تأكيد حذف الدور؟"))) return; try { await api(`/roles/${r.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
+  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} />{" "}{translate("إضافة دور")}</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{r.name_ar || r.name}</strong><span className="cell-sub">{r.name}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0}{" "}{translate("صلاحية")}</div></div><div className="actions">{writable && <button aria-label={`تعديل دور ${r.name_ar || r.name}`} title={translate("تعديل")} className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`حذف دور ${r.name_ar || r.name}`} title={translate("حذف")} className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>{translate("لا توجد أدوار")}</strong>{writable ? translate("أنشئ أول سياسة وصول للنظام.") : translate("لا توجد أدوار مسجلة.")}</div>}</div>{edit && writable && <RoleModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
 }
 
 function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
@@ -825,7 +898,7 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
       await upsertSetting("company_logo_file_name", logoFileName || "", "string", "اسم ملف شعار الشركة");
 
       setSettings(await list("/system-settings"));
-      setSaved("تم حفظ هوية المصنع وإعدادات التشغيل");
+      setSaved(translate("تم حفظ هوية المصنع وإعدادات التشغيل"));
       window.dispatchEvent(new Event("branding:updated"));
     } catch (e) {
       setError((e as Error).message);
@@ -836,11 +909,11 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setError("ملف الشعار يجب أن يكون صورة");
+      setError(translate("ملف الشعار يجب أن يكون صورة"));
       return;
     }
     if (file.size > 1_500_000) {
-      setError("حجم الشعار كبير. الحد الأقصى 1.5MB");
+      setError(translate("حجم الشعار كبير. الحد الأقصى 1.5MB"));
       return;
     }
     const reader = new FileReader();
@@ -849,7 +922,7 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
       setLogoFileName(file.name);
       setError("");
     };
-    reader.onerror = () => setError("تعذر قراءة ملف الشعار");
+    reader.onerror = () => setError(translate("تعذر قراءة ملف الشعار"));
     reader.readAsDataURL(file);
   };
 
@@ -862,81 +935,81 @@ function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
       <section className="panel settings-section">
         <div className="panel-head">
           <div>
-            <div className="eyebrow">هوية المصنع وتشغيل النظام</div>
-            <h3>الإعدادات الأساسية</h3>
+            <div className="eyebrow">{translate("هوية المصنع وتشغيل النظام")}</div>
+            <h3>{translate("الإعدادات الأساسية")}</h3>
           </div>
           <Building2 size={21} color="var(--orange)" />
         </div>
         <form className="form-grid" onSubmit={saveCompanyAndOperations}>
           <div className="field">
-            <label htmlFor="profile-name-ar">اسم الشركة بالعربية</label>
+            <label htmlFor="profile-name-ar">{translate("اسم الشركة بالعربية")}</label>
             <input id="profile-name-ar" value={profile.name_ar ?? ""} onChange={(e) => setProfile({ ...profile, name_ar: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="profile-name">اسم الشركة بالإنجليزية</label>
+            <label htmlFor="profile-name">{translate("اسم الشركة بالإنجليزية")}</label>
             <input id="profile-name" required value={profile.name ?? ""} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="profile-tax">الرقم الضريبي</label>
+            <label htmlFor="profile-tax">{translate("الرقم الضريبي")}</label>
             <input id="profile-tax" value={profile.tax_number ?? ""} onChange={(e) => setProfile({ ...profile, tax_number: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="profile-phone">الهاتف</label>
+            <label htmlFor="profile-phone">{translate("الهاتف")}</label>
             <input id="profile-phone" type="tel" value={profile.phone ?? ""} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="profile-email">البريد الإلكتروني</label>
+            <label htmlFor="profile-email">{translate("البريد الإلكتروني")}</label>
             <input id="profile-email" type="email" value={profile.email ?? ""} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
           </div>
           <div className="field wide">
-            <label htmlFor="profile-address">العنوان</label>
+            <label htmlFor="profile-address">{translate("العنوان")}</label>
             <textarea id="profile-address" value={profile.address ?? ""} onChange={(e) => setProfile({ ...profile, address: e.target.value })} />
           </div>
           <div className="field wide">
-            <label htmlFor="profile-logo-file">شعار الشركة (رفع ملف)</label>
+            <label htmlFor="profile-logo-file">{translate("شعار الشركة (رفع ملف)")}</label>
             <input id="profile-logo-file" type="file" accept="image/*" onChange={onLogoFileChange} />
-            {logoFileName && <small className="cell-sub">الملف الحالي: {logoFileName}</small>}
-            {logoDataUrl && <img src={logoDataUrl} alt="شعار الشركة" style={{ marginTop: 8, maxHeight: 72, borderRadius: 8, border: "1px solid var(--line)" }} />}
+            {logoFileName && <small className="cell-sub">{translate("الملف الحالي:")}{" "}{logoFileName}</small>}
+            {logoDataUrl && <img src={logoDataUrl} alt={translate("شعار الشركة")} style={{ marginTop: 8, maxHeight: 72, borderRadius: 8, border: "1px solid var(--line)" }} />}
           </div>
           <div className="field">
-            <label htmlFor="default-language">اللغة الافتراضية</label>
+            <label htmlFor="default-language">{translate("اللغة الافتراضية")}</label>
             <select id="default-language" value={profile.default_language ?? "ar"} onChange={(e) => setProfile({ ...profile, default_language: e.target.value })}>
-              {languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {languageOptions.map((option) => <option key={option.value} value={option.value}>{translate(option.label)}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="factory-timezone">المنطقة الزمنية</label>
+            <label htmlFor="factory-timezone">{translate("المنطقة الزمنية")}</label>
             <select id="factory-timezone" value={operations.timezone} onChange={(e) => setOperations({ ...operations, timezone: e.target.value })}>
               {timezoneOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="work-hours-day">ساعات العمل اليومية</label>
+            <label htmlFor="work-hours-day">{translate("ساعات العمل اليومية")}</label>
             <select id="work-hours-day" value={String(profile.working_hours_per_day ?? 8)} onChange={(e) => setProfile({ ...profile, working_hours_per_day: Number(e.target.value) })}>
-              {[6, 7, 8, 9, 10, 12].map((hours) => <option key={hours} value={hours}>{hours} ساعة</option>)}
+              {[6, 7, 8, 9, 10, 12].map((hours) => <option key={hours} value={hours}>{hours}{" "}{translate("ساعة")}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="overtime-factor">معامل ساعة الإضافي</label>
+            <label htmlFor="overtime-factor">{translate("معامل ساعة الإضافي")}</label>
             <select id="overtime-factor" value={operations.overtime_factor} onChange={(e) => setOperations({ ...operations, overtime_factor: e.target.value })}>
               {overtimeFactorOptions.map((factor) => <option key={factor} value={factor}>{factor}x</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="holiday-day">يوم العطلة الأسبوعي</label>
+            <label htmlFor="holiday-day">{translate("يوم العطلة الأسبوعي")}</label>
             <select id="holiday-day" value={operations.weekly_holiday_day} onChange={(e) => setOperations({ ...operations, weekly_holiday_day: e.target.value })}>
-              {weeklyHolidayOptions.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
+              {weeklyHolidayOptions.map((day) => <option key={day.value} value={day.value}>{translate(day.label)}</option>)}
             </select>
           </div>
           <div className="field">
-            <label htmlFor="holiday-overtime">احتساب إضافي في يوم العطلة</label>
+            <label htmlFor="holiday-overtime">{translate("احتساب إضافي في يوم العطلة")}</label>
             <select id="holiday-overtime" value={String(operations.enable_holiday_overtime)} onChange={(e) => setOperations({ ...operations, enable_holiday_overtime: e.target.value })}>
-              <option value="true">مفعل</option>
-              <option value="false">غير مفعل</option>
+              <option value="true">{translate("مفعل")}</option>
+              <option value="false">{translate("غير مفعل")}</option>
             </select>
           </div>
           <div className="wide">
-            <button className="btn btn-primary">حفظ الإعدادات الأساسية</button>
+            <button className="btn btn-primary">{translate("حفظ الإعدادات الأساسية")}</button>
           </div>
         </form>
       </section>
@@ -950,7 +1023,7 @@ function Admin({ user }: { user: Row }) {
   const visibleTabs = tabs.filter(([, , , permissions]) => can(user, permissions));
   const [tab, setTab] = useState(visibleTabs[0]?.[0] || "users");
   const [refreshToken, setRefreshToken] = useState(0);
-  return <><PageHero kicker="مركز الإدارة · صلاحياتك مفعلة" title="الإدارة" description="إدارة الهوية والأصول والتعريفات من مساحة واحدة منظمة." onRefresh={() => setRefreshToken((token) => token + 1)} actions={<span className="tag"><Shield size={16} /> ADMIN / CORE</span>} /><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{label}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} refreshToken={refreshToken} /> : tab === "roles" ? <RolesAdmin user={user} refreshToken={refreshToken} /> : tab === "settings" ? <SettingsAdmin refreshToken={refreshToken} /> : <EntityPage kind={tab} user={user} refreshToken={refreshToken} showHero={false} />}</div></>;
+  return <><PageHero kicker="مركز الإدارة · صلاحياتك مفعلة" title={translate("الإدارة")} description="إدارة الهوية والأصول والتعريفات من مساحة واحدة منظمة." onRefresh={() => setRefreshToken((token) => token + 1)} actions={<span className="tag"><Shield size={16} /> ADMIN / CORE</span>} /><div className="admin-tabs" role="tablist">{visibleTabs.map(([key, label, Icon]) => <button id={`admin-tab-${key}`} aria-controls={`admin-panel-${key}`} role="tab" aria-selected={tab === key} key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}><Icon size={17} />{translate(label)}</button>)}</div><div id={`admin-panel-${tab}`} role="tabpanel" aria-labelledby={`admin-tab-${tab}`} style={{ marginTop: 24 }}>{tab === "users" ? <UsersAdmin user={user} refreshToken={refreshToken} /> : tab === "roles" ? <RolesAdmin user={user} refreshToken={refreshToken} /> : tab === "settings" ? <SettingsAdmin refreshToken={refreshToken} /> : <EntityPage kind={tab} user={user} refreshToken={refreshToken} showHero={false} />}</div></>;
 }
 
 function OrdersPage({ user }: { user: Row }) {
@@ -968,12 +1041,12 @@ function OrdersPage({ user }: { user: Row }) {
     });
   };
 
-  if (!tab) return <div className="error" role="alert">لا تملك صلاحية عرض الطلبات أو أوامر الإنتاج.</div>;
+  if (!tab) return <div className="error" role="alert">{translate("لا تملك صلاحية عرض الطلبات أو أوامر الإنتاج.")}</div>;
   return <>
-    <PageHero kicker="متابعة الطلبات" title="الطلبات" description="الطلبات وأوامر الإنتاج في صفحة واحدة." onRefresh={() => setRefreshToken((token) => token + 1)} />
-    <div className="customer-tabs" role="tablist" aria-label="أقسام الطلبات">
-      {tabs.includes("orders") && <button id="orders-tab-orders" type="button" role="tab" aria-controls="orders-panel-orders" aria-selected={tab === "orders"} className={tab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}><FileText size={17} /> الطلبات</button>}
-      {tabs.includes("production") && <button id="orders-tab-production" type="button" role="tab" aria-controls="orders-panel-production" aria-selected={tab === "production"} className={tab === "production" ? "active" : ""} onClick={() => selectTab("production")}><Factory size={17} /> أوامر الإنتاج</button>}
+    <PageHero kicker="متابعة الطلبات" title={translate("الطلبات")} description="الطلبات وأوامر الإنتاج في صفحة واحدة." onRefresh={() => setRefreshToken((token) => token + 1)} />
+    <div className="customer-tabs" role="tablist" aria-label={translate("أقسام الطلبات")}>
+      {tabs.includes("orders") && <button id="orders-tab-orders" type="button" role="tab" aria-controls="orders-panel-orders" aria-selected={tab === "orders"} className={tab === "orders" ? "active" : ""} onClick={() => selectTab("orders")}><FileText size={17} />{" "}{translate("الطلبات")}</button>}
+      {tabs.includes("production") && <button id="orders-tab-production" type="button" role="tab" aria-controls="orders-panel-production" aria-selected={tab === "production"} className={tab === "production" ? "active" : ""} onClick={() => selectTab("production")}><Factory size={17} />{" "}{translate("أوامر الإنتاج")}</button>}
     </div>
     <div id={`orders-panel-${tab}`} role="tabpanel" aria-labelledby={`orders-tab-${tab}`}>
       <EntityPage key={tab} kind={tab} user={user} refreshToken={refreshToken} showHero={false} />
@@ -995,10 +1068,10 @@ function CustomersPage({ user }: { user: Row }) {
   };
 
   return <>
-    <PageHero kicker="سجل العملاء" title="العملاء" description="إدارة العملاء ومنتجاتهم من صفحة واحدة." onRefresh={() => setRefreshToken((token) => token + 1)} />
-    <div className="customer-tabs" role="tablist" aria-label="أقسام العملاء">
-      <button id="customer-tab-customers" type="button" role="tab" aria-controls="customer-panel-customers" aria-selected={tab === "customers"} className={tab === "customers" ? "active" : ""} onClick={() => selectTab("customers")}><Users size={17} /> العملاء</button>
-      <button id="customer-tab-products" type="button" role="tab" aria-controls="customer-panel-products" aria-selected={tab === "products"} className={tab === "products" ? "active" : ""} onClick={() => selectTab("products")}><Boxes size={17} /> منتجات العملاء</button>
+    <PageHero kicker="سجل العملاء" title={translate("العملاء")} description="إدارة العملاء ومنتجاتهم من صفحة واحدة." onRefresh={() => setRefreshToken((token) => token + 1)} />
+    <div className="customer-tabs" role="tablist" aria-label={translate("أقسام العملاء")}>
+      <button id="customer-tab-customers" type="button" role="tab" aria-controls="customer-panel-customers" aria-selected={tab === "customers"} className={tab === "customers" ? "active" : ""} onClick={() => selectTab("customers")}><Users size={17} />{" "}{translate("العملاء")}</button>
+      <button id="customer-tab-products" type="button" role="tab" aria-controls="customer-panel-products" aria-selected={tab === "products"} className={tab === "products" ? "active" : ""} onClick={() => selectTab("products")}><Boxes size={17} />{" "}{translate("منتجات العملاء")}</button>
     </div>
     <div id={`customer-panel-${tab}`} role="tabpanel" aria-labelledby={`customer-tab-${tab}`}>
       <EntityPage key={tab} kind={tab} user={user} refreshToken={refreshToken} showHero={false} />
@@ -1019,11 +1092,18 @@ function CustomerDetail({ user }: { user: Row }) {
   const customerIdRef = useRef(customerId);
   customerIdRef.current = customerId;
   const requestGate = useRef(createLatestRequestGate());
-  const customer = loadedCustomerId === customerId ? loadedCustomer : null;
+  const sourceCustomer = loadedCustomerId === customerId ? loadedCustomer : null;
+  const customer: Row | null = sourceCustomer ? {
+    ...sourceCustomer,
+    name_ar: localizedName(sourceCustomer.name_ar, sourceCustomer.name),
+    name: localizedName(sourceCustomer.name, sourceCustomer.name_ar),
+    sales_rep_name_ar: localizedName(sourceCustomer.sales_rep_name_ar, sourceCustomer.sales_rep_name),
+    sales_rep_name: localizedName(sourceCustomer.sales_rep_name, sourceCustomer.sales_rep_name_ar),
+  } : null;
   const products = loadedCustomerId === customerId ? loadedProducts : [];
   const error = loadedCustomerId === customerId ? errorState : "";
   const loading = loadedCustomerId !== customerId || loadingState;
-  const productConfig: Config = { ...configs.products, lockedFields: ["customer_id"] };
+  const productConfig: Config = { ...localizeConfig(configs.products), lockedFields: ["customer_id"] };
   const load = useCallback(() => {
     const requestedCustomerId = customerId;
     if (customerIdRef.current !== requestedCustomerId) return;
@@ -1056,25 +1136,35 @@ function CustomerDetail({ user }: { user: Row }) {
   }, [load]);
   const back = () => window.history.length > 1 ? window.history.back() : setLocation("/customers");
   const writable = can(user, configs.products.write);
-  const productColumns = (configs.products.columns || []).filter((column) => column.key !== "customer_name_ar");
+  const productColumns = (configs.products.columns || []).filter((column) => column.key !== "customer_name_ar").map((column) => ({ ...column, label: translate(column.label) }));
   const productColumnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : ""].filter(Boolean).join(" ");
   const productColorIsTransparent = (row: Row, field: Column) => field.colorKey && /شفاف|transparent/i.test(`${row[`${field.key}_name_ar`] || ""} ${row[`${field.key}_name`] || ""}`);
-  const renderProductCell = (row: Row, field: Column) => field.colorKey ? <span className="color-stack">{productColorIsTransparent(row, field) ? <X className="transparent-mark" size={22} aria-label="بدون لون" /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
+  const renderProductCell = (row: Row, field: Column) => field.colorKey ? <span className="color-stack">{productColorIsTransparent(row, field) ? <X className="transparent-mark" size={22} aria-label={translate("بدون لون")} /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
   const cloneProduct = (product: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = product; if (customer) setEditingProduct({ ...copy, customer_id: customer.id, __clone_source_id: product.id }); };
-  return <><PageHero kicker="ملف العميل" title={customer ? customer.name_ar || customer.name || customer.id : "تفاصيل العميل"} description={customer?.name || (loading ? "جارٍ تحميل بيانات العميل…" : "بيانات العميل ومنتجاته المسجلة.")} onRefresh={load} refreshing={loading} actions={<button className="btn btn-muted" onClick={back}><ArrowRight size={17} /> رجوع إلى العملاء</button>} />{error && <div className="error" role="alert">{error}</div>}{loading ? <div style={{ padding: 20 }} aria-busy="true"><div className="skeleton" /></div> : !customer ? null : <><div className="page-heading customer-detail-heading">{writable && <button className="btn btn-primary" onClick={() => setEditingProduct({ customer_id: customer.id, status: "active" })}><Plus size={17} /> إضافة منتج</button>}</div><section className="panel customer-summary"><div><span>رمز العميل</span><strong>{customer.id || "—"}</strong></div><div><span>رقم الدرج</span><strong>{customer.plate_drawer_code || "—"}</strong></div><div><span>المندوب</span><strong>{customer.sales_rep_name_ar || customer.sales_rep_name || "—"}</strong></div><div><span>الهاتف</span><strong>{customer.phone || "—"}</strong></div><div><span>المدينة</span><strong>{customer.city || "—"}</strong></div><div><span>الرقم الضريبي</span><strong>{customer.tax_number || "—"}</strong></div></section><section className="panel"><div className="panel-head"><div><h3>منتجات العميل</h3><small className="muted-text">{products.length} منتج مسجل</small></div></div>{products.length === 0 ? <div className="empty"><strong>لا توجد منتجات لهذا العميل</strong>أضف أول منتج من الزر أعلاه.</div> : <div className="table-wrap"><table><thead><tr>{productColumns.map((field) => <th className={productColumnClass(field)} key={field.key}>{field.label}</th>)}{writable && <th>إجراء</th>}</tr></thead><tbody>{products.map((product) => <tr key={product.id}>{productColumns.map((field) => <td className={productColumnClass(field)} title={displayValue(product, field)} key={field.key}>{renderProductCell(product, field)}</td>)}{writable && <td><div className="actions"><button aria-label="تعديل المنتج" title="تعديل المنتج" className="btn btn-plain" onClick={() => setEditingProduct(product)}><Pencil size={16} /></button><button aria-label="استنساخ المنتج" title="استنساخ المنتج" className="btn btn-plain" onClick={() => cloneProduct(product)}><Copy size={16} /></button></div></td>}</tr>)}</tbody></table><div className="mobile-cards">{products.map((product) => { const primary = productColumns.find((column) => column.priority) || productColumns[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : productColumns.find((column) => column !== primary && column.kind === "relation"); return <article className="entity-card" key={product.id}><strong>{renderProductCell(product, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(product, primary) : displayValue(product, subtitle || productColumns.find((column) => column !== primary) || primary)}</small>{productColumns.filter((column) => column !== primary && column !== subtitle).slice(0, configs.products.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderProductCell(product, field)}</b></div>)}{writable && <div className="actions"><button className="btn btn-muted" onClick={() => setEditingProduct(product)}><Pencil size={15} /> تعديل</button><button className="btn btn-muted" onClick={() => cloneProduct(product)}><Copy size={15} /> استنساخ</button></div>}</article>; })}</div></div>}</section>{editingProduct && <EntityModal cfg={productConfig} row={editingProduct} onClose={() => setEditingProduct(null)} onSaved={() => { setEditingProduct(null); load(); }} />}</>}</>;
+  return <><PageHero kicker="ملف العميل" title={customer ? customer.name_ar || customer.name || customer.id : translate("تفاصيل العميل")} description={customer?.name || (loading ? "جارٍ تحميل بيانات العميل…" : "بيانات العميل ومنتجاته المسجلة.")} onRefresh={load} refreshing={loading} actions={<button className="btn btn-muted" onClick={back}><ArrowRight size={17} />{" "}{translate("رجوع إلى العملاء")}</button>} />{error && <div className="error" role="alert">{error}</div>}{loading ? <div style={{ padding: 20 }} aria-busy="true"><div className="skeleton" /></div> : !customer ? null : <><div className="page-heading customer-detail-heading">{writable && <button className="btn btn-primary" onClick={() => setEditingProduct({ customer_id: customer.id, status: "active" })}><Plus size={17} />{" "}{translate("إضافة منتج")}</button>}</div><section className="panel customer-summary"><div><span>{translate("رمز العميل")}</span><strong>{customer.id || "—"}</strong></div><div><span>{translate("رقم الدرج")}</span><strong>{customer.plate_drawer_code || "—"}</strong></div><div><span>{translate("المندوب")}</span><strong>{customer.sales_rep_name_ar || customer.sales_rep_name || "—"}</strong></div><div><span>{translate("الهاتف")}</span><strong>{customer.phone || "—"}</strong></div><div><span>{translate("المدينة")}</span><strong>{customer.city || "—"}</strong></div><div><span>{translate("الرقم الضريبي")}</span><strong>{customer.tax_number || "—"}</strong></div></section><section className="panel"><div className="panel-head"><div><h3>{translate("منتجات العميل")}</h3><small className="muted-text">{products.length}{" "}{translate("منتج مسجل")}</small></div></div>{products.length === 0 ? <div className="empty"><strong>{translate("لا توجد منتجات لهذا العميل")}</strong>{translate("أضف أول منتج من الزر أعلاه.")}</div> : <div className="table-wrap"><table><thead><tr>{productColumns.map((field) => <th className={productColumnClass(field)} key={field.key}>{field.label}</th>)}{writable && <th>{translate("إجراء")}</th>}</tr></thead><tbody>{products.map((product) => <tr key={product.id}>{productColumns.map((field) => <td className={productColumnClass(field)} title={displayValue(product, field)} key={field.key}>{renderProductCell(product, field)}</td>)}{writable && <td><div className="actions"><button aria-label={translate("تعديل المنتج")} title={translate("تعديل المنتج")} className="btn btn-plain" onClick={() => setEditingProduct(product)}><Pencil size={16} /></button><button aria-label={translate("استنساخ المنتج")} title={translate("استنساخ المنتج")} className="btn btn-plain" onClick={() => cloneProduct(product)}><Copy size={16} /></button></div></td>}</tr>)}</tbody></table><div className="mobile-cards">{products.map((product) => { const primary = productColumns.find((column) => column.priority) || productColumns[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : productColumns.find((column) => column !== primary && column.kind === "relation"); return <article className="entity-card" key={product.id}><strong>{renderProductCell(product, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(product, primary) : displayValue(product, subtitle || productColumns.find((column) => column !== primary) || primary)}</small>{productColumns.filter((column) => column !== primary && column !== subtitle).slice(0, configs.products.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderProductCell(product, field)}</b></div>)}{writable && <div className="actions"><button className="btn btn-muted" onClick={() => setEditingProduct(product)}><Pencil size={15} />{" "}{translate("تعديل")}</button><button className="btn btn-muted" onClick={() => cloneProduct(product)}><Copy size={15} />{" "}{translate("استنساخ")}</button></div>}</article>; })}</div></div>}</section>{editingProduct && <EntityModal cfg={productConfig} row={editingProduct} onClose={() => setEditingProduct(null)} onSaved={() => { setEditingProduct(null); load(); }} />}</>}</>;
 }
 
 function App() {
+  useTranslation();
   const auth = useAuth();
-  const branding = useBranding();
+  const { branding, ready: brandingReady } = useBranding();
+  const [languageReady, setLanguageReady] = useState(false);
   const [printMatch, printParams] = useRoute("/orders/:id/print");
-  if (auth.loading) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
+  const effectiveLanguage = normalizeLanguage(auth.user?.preferred_language, branding.defaultLanguage);
+  useEffect(() => {
+    if (auth.loading || !brandingReady) return;
+    void i18n.changeLanguage(effectiveLanguage).then(() => {
+      applyLanguage(effectiveLanguage);
+      setLanguageReady(true);
+    });
+  }, [auth.loading, auth.user?.preferred_language, brandingReady, branding.defaultLanguage, effectiveLanguage]);
+  if (auth.loading || !brandingReady || !languageReady) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
   if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
-  if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} />;
+  if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} setUser={auth.setUser} defaultLanguage={branding.defaultLanguage} />;
   if (printMatch && printParams) {
     return can(auth.user, configs.orders.read)
       ? <OrderPrintPage id={printParams.id} branding={branding} />
-      : <div className="empty" role="alert"><strong>لا تملك صلاحية عرض أو طباعة الطلب</strong><Link className="btn btn-muted" href="/">العودة للرئيسية</Link></div>;
+      : <div className="empty" role="alert"><strong>{translate("لا تملك صلاحية عرض أو طباعة الطلب")}</strong><Link className="btn btn-muted" href="/">{translate("العودة للرئيسية")}</Link></div>;
   }
   const isAdmin = can(auth.user, ["admin"]);
   return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><CustomersPage user={auth.user} /></Route><Route path="/products"><Redirect to="/customers?tab=products" replace /></Route><Route path="/orders"><OrdersPage user={auth.user} /></Route><Route path="/production"><Redirect to="/orders?tab=production" replace /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;

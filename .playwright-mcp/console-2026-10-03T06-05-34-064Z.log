@@ -1,0 +1,12 @@
+[ 2881442ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5000/@vite/client:963
+[ 2881446ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2882458ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2883462ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2884480ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2885494ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2886513ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2887541ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2888560ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2889607ms] [ERROR] WebSocket connection to 'ws://localhost:5000/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/@vite/client:1034
+[ 2911960ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5000/@fs/E:/Dev/Modern-MPS-V2-Replit/node_modules/.vite/deps/chunk-HBJ3AJOL.js?v=5c005636:21608
+[ 2911978ms] [INFO] 🌐 i18next is made possible by our own product, Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙 @ http://localhost:5000/@fs/E:/Dev/Modern-MPS-V2-Replit/node_modules/.vite/deps/chunk-HCK2NTJ4.js?v=5c005636:1802

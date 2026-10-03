@@ -1,4 +1,5 @@
 import type { OrderDetails } from "../../../shared/order-details";
+import i18n, { intlLocale, translate, translateError } from "../i18n";
 
 export class OrderDetailsError extends Error {
   status: number;
@@ -21,7 +22,7 @@ export async function fetchOrderDetails(id: string | number, signal: AbortSignal
     const message = body && typeof body === "object" && "message" in body && typeof body.message === "string"
       ? body.message
       : response.status === 404 ? "لم يتم العثور على الطلب." : "تعذر تحميل تفاصيل الطلب.";
-    throw new OrderDetailsError(message, response.status);
+    throw new OrderDetailsError(translateError(message), response.status);
   }
   const record = (value: unknown): value is Record<string, any> =>
     value !== null && typeof value === "object" && !Array.isArray(value);
@@ -36,7 +37,7 @@ export async function fetchOrderDetails(id: string | number, signal: AbortSignal
     typeof body.totals.planned_kg !== "string" ||
     !record(body.actual_production) || body.actual_production.available !== false ||
     !nullableRecord(body.customer) || !nullableRecord(body.creator) || !nullableRecord(body.sales_representative)) {
-    throw new OrderDetailsError("استجابة تفاصيل الطلب غير مكتملة.", 500);
+    throw new OrderDetailsError(translate("استجابة تفاصيل الطلب غير مكتملة."), 500);
   }
   return body as unknown as OrderDetails;
 }
@@ -55,16 +56,16 @@ export const orderStatusLabel = (status: unknown): string => {
     pending: "قيد الانتظار",
     active: "نشط",
   };
-  return typeof status === "string" && status ? labels[status] ?? status.replaceAll("_", " ") : "—";
+  return typeof status === "string" && status ? translate(labels[status] ?? status.replaceAll("_", " ")) : "—";
 };
 
 export const productionStatusLabel = (status: unknown): string =>
-  status === "active" ? "قيد الإنتاج" : orderStatusLabel(status);
+  status === "active" ? translate("قيد الإنتاج") : orderStatusLabel(status);
 
 export const displayValue = (value: unknown): string => {
   if (value == null || value === "") return "—";
-  if (typeof value === "boolean") return value ? "نعم" : "لا";
-  if (Array.isArray(value)) return value.length ? value.map((part) => String(part ?? "—")).join("، ") : "—";
+  if (typeof value === "boolean") return value ? translate("نعم") : translate("لا");
+  if (Array.isArray(value)) return value.length ? value.map((part) => String(part ?? "—")).join(intlLocale() === "ar-SA-u-nu-latn" ? "، " : ", ") : "—";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 };
@@ -78,11 +79,15 @@ export const personName = (person: { display_name?: string | null; display_name_
 export const formatOrderDate = (value: unknown): string => {
   if (value == null || value === "") return "—";
   const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("en-GB", { dateStyle: "short", timeZone: "Asia/Riyadh" }).format(date);
+  if (Number.isNaN(date.getTime())) return "—";
+  const options: Intl.DateTimeFormatOptions = i18n.language === "ar"
+    ? { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Riyadh" }
+    : { dateStyle: "short", timeZone: "Asia/Riyadh" };
+  return new Intl.DateTimeFormat(intlLocale(), options).format(date).replace(/[\u061c\u200e\u200f]/g, "");
 };
 
 export const numberText = (value: unknown): string => {
   if (value == null || value === "") return "—";
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(numeric) : "—";
+  return Number.isFinite(numeric) ? new Intl.NumberFormat(intlLocale(), { maximumFractionDigits: 4 }).format(numeric) : "—";
 };

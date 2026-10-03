@@ -1,9 +1,12 @@
+import { translateError } from "../i18n";
+
 export type Row = Record<string, unknown>;
 
 export type BrandingSnapshot = {
   companyNameAr: string;
   companyNameEn: string;
   logoSrc: string;
+  defaultLanguage: "ar" | "en";
 };
 
 const apiFetch = async (path: string) => {
@@ -12,7 +15,7 @@ const apiFetch = async (path: string) => {
     headers: { "Content-Type": "application/json" },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message || "تعذر تنفيذ الطلب");
+  if (!response.ok) throw new Error(translateError(body.message || "تعذر تنفيذ الطلب"));
   return body;
 };
 
@@ -34,6 +37,7 @@ export const brandingFromSources = (profile: Row | null | undefined, settingsRaw
     companyNameAr: firstString(profile?.name_ar, profile?.name, "MPBF"),
     companyNameEn: firstString(profile?.name, profile?.name_ar, "PLASTIC MANUFACTURING"),
     logoSrc: firstString(settingLogo, profileLogo),
+    defaultLanguage: profile?.default_language === "en" ? "en" : "ar",
   };
 };
 
@@ -46,6 +50,7 @@ export const fetchBrandingSnapshot = async (): Promise<BrandingSnapshot> => {
     companyNameAr: firstString((payload as Row).companyNameAr, fallback.companyNameAr),
     companyNameEn: firstString((payload as Row).companyNameEn, fallback.companyNameEn),
     logoSrc: firstString((payload as Row).logoSrc),
+    defaultLanguage: payload.defaultLanguage === "en" ? "en" : "ar",
   };
 };
 
@@ -53,4 +58,5 @@ export const defaultBranding: BrandingSnapshot = {
   companyNameAr: "MPBF",
   companyNameEn: "PLASTIC MANUFACTURING",
   logoSrc: "",
+  defaultLanguage: "ar",
 };

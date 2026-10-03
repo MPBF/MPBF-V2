@@ -1,3 +1,4 @@
+import { localizedName, translate, translateError } from "../i18n";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AlertCircle, Boxes, Check, ClipboardList, LoaderCircle, Plus, Trash2, X } from "lucide-react";
 import "./OrderCreateModal.css";
@@ -54,7 +55,7 @@ const readApi = async (path: string, options: RequestInit = {}) => {
       422: "تعذر التحقق من صحة البيانات.",
       500: "حدث خطأ في الخادم. حاول مرة أخرى.",
     };
-    throw new Error(body?.message || fallback[response.status] || "تعذر إكمال الطلب.");
+    throw new Error(translateError(body?.message || fallback[response.status] || "تعذر إكمال الطلب."));
   }
   return body;
 };
@@ -68,8 +69,8 @@ const readAllChoices = async (path: string): Promise<Row[]> => {
   }
 };
 
-const labelFor = (row: Row) => String(row.name_ar || row.name || row.display_name_ar || row.display_name || row.id || "");
-const customerLabel = (row: Row) => String(row.name_ar || row.display_name_ar || row.name_en || row.display_name_en || row.name || row.display_name || row.id || "");
+const labelFor = (row: Row) => localizedName(row.name_ar || row.display_name_ar, row.name || row.display_name, String(row.id || ""));
+const customerLabel = (row: Row) => localizedName(row.name_ar || row.display_name_ar, row.name_en || row.display_name_en || row.name || row.display_name, String(row.id || ""));
 const riyadhDate = (value: Date | string = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
@@ -113,14 +114,14 @@ const productLabel = (product: Row) => {
   const width = wholeMeasure(product.width);
   const thickness = wholeMeasure(product.thickness);
   const details = [
-    product.category_name_ar || product.category_name,
-    product.item_name_ar || product.item_name,
+    localizedName(product.category_name_ar, product.category_name, ""),
+    localizedName(product.item_name_ar, product.item_name, ""),
     product.size_caption,
-    width ? `عرض ${width} سم` : "",
-    thickness ? `سماكة ${thickness} µ` : "",
-    product.raw_material ? `الخام: ${product.raw_material}` : "",
+    width ? `${translate("العرض")} ${width} ${translate("سم")}` : "",
+    thickness ? `${translate("السماكة")} ${thickness} µ` : "",
+    product.raw_material ? `${translate("الخام:")} ${product.raw_material}` : "",
   ].filter(Boolean);
-  return details.join(" · ") || (product.id ? `منتج رقم ${product.id}` : "منتج جديد");
+  return details.join(" · ") || (product.id ? translate("منتج رقم {{number}}", { number: product.id }) : translate("منتج جديد"));
 };
 
 function Alert({ children, info = false }: { children: ReactNode; info?: boolean }) {
@@ -184,7 +185,7 @@ function CustomerSearchSelect({ customers, selectedId, onSelect, disabled }: {
           aria-expanded={open}
           aria-controls="order-customer-options"
           aria-activedescendant={open && visibleMatches[activeIndex] ? `order-customer-option-${visibleMatches[activeIndex].id}` : undefined}
-          aria-label="ابحث عن العميل بالاسم أو الرقم"
+          aria-label={translate("ابحث عن العميل بالاسم أو الرقم")}
           value={query}
           onFocus={() => { if (!disabled) setOpen(true); }}
           onChange={(event) => {
@@ -195,13 +196,13 @@ function CustomerSearchSelect({ customers, selectedId, onSelect, disabled }: {
           }}
           onKeyDown={handleKeyDown}
           onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-          placeholder="ابحث باسم العميل أو رقمه"
+          placeholder={translate("ابحث باسم العميل أو رقمه")}
           autoComplete="off"
           disabled={disabled}
           required={!selectedId}
         />
         {selectedId && !disabled && (
-          <button className="order-customer-clear" type="button" aria-label="مسح العميل المحدد" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+          <button className="order-customer-clear" type="button" aria-label={translate("مسح العميل المحدد")} onMouseDown={(event) => event.preventDefault()} onClick={() => {
             onSelect("");
             setQuery("");
             setOpen(true);
@@ -209,7 +210,7 @@ function CustomerSearchSelect({ customers, selectedId, onSelect, disabled }: {
         )}
       </div>
       {open && !disabled && (
-        <div className="order-customer-options" id="order-customer-options" role="listbox" aria-label="نتائج العملاء">
+        <div className="order-customer-options" id="order-customer-options" role="listbox" aria-label={translate("نتائج العملاء")}>
           {visibleMatches.length ? visibleMatches.map((customer, index) => (
             <button
               id={`order-customer-option-${customer.id}`}
@@ -224,7 +225,7 @@ function CustomerSearchSelect({ customers, selectedId, onSelect, disabled }: {
             >
               <span>{customerLabel(customer)}</span><small>#{customer.id}</small>
             </button>
-          )) : <div className="order-customer-empty" role="status">لا توجد نتائج مطابقة.</div>}
+          )) : <div className="order-customer-empty" role="status">{translate("لا توجد نتائج مطابقة.")}</div>}
         </div>
       )}
     </div>
@@ -386,16 +387,16 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     if (detailsLoading || detailsError) return;
     const normalizedLines = lines.map((line) => ({ ...line, quantityKg: normalizeDigits(line.quantityKg) }));
     if (!selectedCustomer) {
-      setError("يرجى اختيار العميل.");
+      setError(translate("يرجى اختيار العميل."));
       return;
     }
     const normalizedDeliveryDays = validDeliveryDays(deliveryDays);
     if (normalizedDeliveryDays === null) {
-      setError("أدخل مدة تسليم صحيحة من يوم واحد إلى 3650 يوماً.");
+      setError(translate("أدخل مدة تسليم صحيحة من يوم واحد إلى 3650 يوماً."));
       return;
     }
     if (normalizedLines.length < 1) {
-      setError("أضف منتجاً واحداً على الأقل إلى الطلب.");
+      setError(translate("أضف منتجاً واحداً على الأقل إلى الطلب."));
       return;
     }
     for (let index = 0; index < normalizedLines.length; index += 1) {
@@ -459,47 +460,45 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
           <div className="order-create-heading">
             <span className="order-create-mark" aria-hidden="true"><ClipboardList size={21} /></span>
             <div>
-              <h2 id="order-create-title">{editId ? "تعديل طلب العميل" : "تسجيل طلب عميل"}</h2>
-              <p>{editId ? "عدّل البنود التي لم يبدأ إنتاجها. البنود قيد العمل محفوظة دون تغيير." : "أدخل بيانات الطلب ثم أضف الأصناف والكميات بالكيلوغرام."}</p>
+              <h2 id="order-create-title">{editId ? translate("تعديل طلب العميل") : translate("تسجيل طلب عميل")}</h2>
+              <p>{editId ? translate("عدّل البنود التي لم يبدأ إنتاجها. البنود قيد العمل محفوظة دون تغيير.") : translate("أدخل بيانات الطلب ثم أضف الأصناف والكميات بالكيلوغرام.")}</p>
             </div>
           </div>
-          <button className="order-create-close" type="button" aria-label="إغلاق نافذة الطلب" title="إغلاق" disabled={saving} onClick={onClose}><X size={20} /></button>
+          <button className="order-create-close" type="button" aria-label={translate("إغلاق نافذة الطلب")} title={translate("إغلاق")} disabled={saving} onClick={onClose}><X size={20} /></button>
         </header>
 
         <form className="order-create-form" noValidate onSubmit={submit}>
           {error && <Alert>{error}</Alert>}
-          {detailsLoading && <div className="order-options-state" role="status">جارٍ تحميل بنود الطلب…</div>}
-          {detailsError && <Alert>تعذر تحميل بنود الطلب: {detailsError} <button type="button" onClick={() => setDetailsRetry((value) => value + 1)}>إعادة المحاولة</button></Alert>}
+          {detailsLoading && <div className="order-options-state" role="status">{translate("جارٍ تحميل بنود الطلب…")}</div>}
+          {detailsError && <Alert>{translate("تعذر تحميل بنود الطلب:")}{" "}{detailsError} <button type="button" onClick={() => setDetailsRetry((value) => value + 1)}>{translate("إعادة المحاولة")}</button></Alert>}
           {baseOptionErrors.length > 0 && (
-            <Alert>
-              تعذر تحميل بعض الخيارات. يمكنك إعادة المحاولة قبل المتابعة.
-              <button type="button" className="order-options-state-retry" onClick={() => setReloadOptions((value) => value + 1)}>إعادة تحميل الخيارات</button>
+            <Alert>{translate("تعذر تحميل بعض الخيارات. يمكنك إعادة المحاولة قبل المتابعة.")}<button type="button" className="order-options-state-retry" onClick={() => setReloadOptions((value) => value + 1)}>{translate("إعادة تحميل الخيارات")}</button>
             </Alert>
           )}
 
           <section className="order-create-section" aria-labelledby="order-main-heading">
-            <h3 className="order-create-section-title" id="order-main-heading"><span>01</span> بيانات الطلب</h3>
+            <h3 className="order-create-section-title" id="order-main-heading"><span>01</span>{" "}{translate("بيانات الطلب")}</h3>
             <div className="order-create-grid">
               <div className="order-create-field order-create-number">
-                <label htmlFor="order-number">رقم الطلب</label>
+                <label htmlFor="order-number">{translate("رقم الطلب")}</label>
                 <div className="order-create-field-static order-number-readonly" id="order-number" dir={editId ? "ltr" : "rtl"}>
-                  {editId ? (orderNumber || "—") : "عند الحفظ"}
+                  {editId ? (orderNumber || "—") : translate("عند الحفظ")}
                 </div>
               </div>
               <div className="order-create-field order-created-date-field">
-                <label htmlFor="order-created-date">تاريخ الطلب</label>
+                <label htmlFor="order-created-date">{translate("تاريخ الطلب")}</label>
                 <div className="order-create-field-static order-date-readonly" id="order-created-date" dir="ltr">
                   {orderCreatedDate || "—"}
                 </div>
               </div>
               <div className="order-create-field order-delivery-days-field">
-                <label htmlFor="order-delivery-days">مدة التسليم <span aria-hidden="true">*</span></label>
+                <label htmlFor="order-delivery-days">{translate("مدة التسليم")}{" "}<span aria-hidden="true">*</span></label>
                 <input
                   id="order-delivery-days"
                   type="text"
                   inputMode="numeric"
                   dir="ltr"
-                  aria-label="مدة التسليم بالأيام"
+                  aria-label={translate("مدة التسليم بالأيام")}
                   value={deliveryDays}
                   onChange={(event) => setDeliveryDays(normalizeDigits(event.target.value).replace(/[^\d]/g, ""))}
                   minLength={1}
@@ -508,11 +507,11 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                   disabled={saving}
                   required
                 />
-                <small className="order-create-hint" id="order-delivery-days-hint">1–3650 يوم</small>
+                <small className="order-create-hint" id="order-delivery-days-hint">{translate("1–3650 يوم")}</small>
               </div>
               <div className="order-create-field order-customer-field">
-                <label htmlFor="order-customer">العميل <span aria-hidden="true">*</span></label>
-                {customers.loading ? <div className="order-create-skeleton" aria-label="جارٍ تحميل العملاء" aria-busy="true"><i /><i /></div> :
+                <label htmlFor="order-customer">{translate("العميل")}{" "}<span aria-hidden="true">*</span></label>
+                {customers.loading ? <div className="order-create-skeleton" aria-label={translate("جارٍ تحميل العملاء")} aria-busy="true"><i /><i /></div> :
                   editId ? <div className="order-create-field-static">{customerLabel(customers.values.find((customer) => String(customer.id) === String(selectedCustomer)) || {}) || "—"}</div> :
                   <CustomerSearchSelect customers={customers.values} selectedId={String(selectedCustomer)} onSelect={changeCustomer} disabled={saving || Boolean(customers.error)} />}
               </div>
@@ -520,17 +519,17 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
           </section>
 
           <section className="order-create-section" aria-labelledby="order-items-heading">
-            <h3 className="order-create-section-title" id="order-items-heading"><span>02</span> منتجات الطلب</h3>
+            <h3 className="order-create-section-title" id="order-items-heading"><span>02</span>{" "}{translate("منتجات الطلب")}</h3>
             {!selectedCustomer ? (
-              <div className="order-options-state">اختر العميل أولاً لعرض منتجاته المسجلة أو إضافة منتج جديد.</div>
+              <div className="order-options-state">{translate("اختر العميل أولاً لعرض منتجاته المسجلة أو إضافة منتج جديد.")}</div>
             ) : productsLoading ? (
-              <div className="order-create-skeleton order-products-loading" aria-label="جارٍ تحميل منتجات العميل" aria-busy="true"><i /><i /><i /></div>
+              <div className="order-create-skeleton order-products-loading" aria-label={translate("جارٍ تحميل منتجات العميل")} aria-busy="true"><i /><i /><i /></div>
             ) : productsError ? (
-              <div className="order-options-state" role="alert">تعذر تحميل منتجات هذا العميل: {productsError}<button type="button" onClick={retryProducts}>إعادة المحاولة</button></div>
+              <div className="order-options-state" role="alert">{translate("تعذر تحميل منتجات هذا العميل:")}{" "}{productsError}<button type="button" onClick={retryProducts}>{translate("إعادة المحاولة")}</button></div>
             ) : null}
 
             {selectedCustomer && !productsLoading && !productsError && customerProducts.length === 0 && (
-              <div className="order-options-state order-create-inline-note">لا توجد منتجات مسجلة لهذا العميل بعد. يمكنك إضافة تفاصيل منتج جديد مباشرةً في أحد البنود.</div>
+              <div className="order-options-state order-create-inline-note">{translate("لا توجد منتجات مسجلة لهذا العميل بعد. يمكنك إضافة تفاصيل منتج جديد مباشرةً في أحد البنود.")}</div>
             )}
 
             <div className="order-lines">
@@ -538,19 +537,19 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                 return (
                   <article className="order-line-card" key={line.key} aria-label={`بند رقم ${index + 1}`}>
                     <div className="order-line-top">
-                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> {line.productionNumber || "بند المنتج"} {line.locked && <small>· بدأ الإنتاج — للعرض فقط</small>}</div>
-                      {lines.length > 1 && !line.locked && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`حذف البند ${index + 1}`}><Trash2 size={15} /> حذف البند</button>}
+                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> {line.productionNumber || "بند المنتج"} {line.locked && <small>{translate("· بدأ الإنتاج — للعرض فقط")}</small>}</div>
+                      {lines.length > 1 && !line.locked && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`حذف البند ${index + 1}`}><Trash2 size={15} />{" "}{translate("حذف البند")}</button>}
                     </div>
 
                     <div className="order-product-mode" role="group" aria-label={`مصدر المنتج للبند ${index + 1}`}>
-                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", newProduct: undefined })} disabled={saving || line.locked}>منتج مسجل</button>
-                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => openProductEditor(line.key)} disabled={saving || line.locked || !selectedCustomer}>منتج جديد</button>
+                      <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", newProduct: undefined })} disabled={saving || line.locked}>{translate("منتج مسجل")}</button>
+                      <button type="button" aria-pressed={line.mode === "new"} onClick={() => openProductEditor(line.key)} disabled={saving || line.locked || !selectedCustomer}>{translate("منتج جديد")}</button>
                     </div>
 
                     <div className="order-line-grid" style={{ marginTop: 11 }}>
                       {line.mode === "existing" ? (
                         <div className="order-line-field order-line-product">
-                          <label htmlFor={`order-product-${line.key}`}>منتج العميل <span aria-hidden="true">*</span></label>
+                          <label htmlFor={`order-product-${line.key}`}>{translate("منتج العميل")}{" "}<span aria-hidden="true">*</span></label>
                           <CustomerProductSelect
                             id={`order-product-${line.key}`}
                             products={customerProducts}
@@ -563,23 +562,23 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                         </div>
                       ) : (
                         <div className="order-line-field order-line-product">
-                          <label>منتج جديد · مسودة</label>
+                          <label>{translate("منتج جديد · مسودة")}</label>
                           <div className="order-product-draft">
                             <span>{line.newProduct ? productLabel({
                               ...line.newProduct,
                               ...deriveCustomerProductFields(line.newProduct, labelFor(categories.values.find((category) => String(category.id) === String(line.newProduct?.category_id)) || {})),
                               category_name_ar: labelFor(categories.values.find((category) => String(category.id) === String(line.newProduct?.category_id)) || {}),
-                            }) : "أكمل بيانات المنتج"}</span>
-                            <button type="button" onClick={() => openProductEditor(line.key)} disabled={saving || line.locked}>تعديل المنتج</button>
+                            }) : translate("أكمل بيانات المنتج")}</span>
+                            <button type="button" onClick={() => openProductEditor(line.key)} disabled={saving || line.locked}>{translate("تعديل المنتج")}</button>
                           </div>
-                          <small className="order-create-hint">يُحفظ المنتج مع الطلب، ويظهر بعدها ضمن منتجات العميل.</small>
+                          <small className="order-create-hint">{translate("يُحفظ المنتج مع الطلب، ويظهر بعدها ضمن منتجات العميل.")}</small>
                         </div>
                       )}
                       <div className="order-line-field order-line-quantity">
-                        <label htmlFor={`order-quantity-${line.key}`}>الكمية <span aria-hidden="true">*</span></label>
+                        <label htmlFor={`order-quantity-${line.key}`}>{translate("الكمية")}{" "}<span aria-hidden="true">*</span></label>
                         <div className="order-quantity-wrap">
                           <input id={`order-quantity-${line.key}`} type="text" inputMode="decimal" dir="ltr" value={line.quantityKg} onChange={(event) => updateLine(line.key, { quantityKg: event.target.value })} placeholder="0.00" required disabled={saving || line.locked} aria-describedby={`order-quantity-unit-${line.key}`} />
-                          <span className="order-quantity-unit" id={`order-quantity-unit-${line.key}`}>كغ</span>
+                          <span className="order-quantity-unit" id={`order-quantity-unit-${line.key}`}>{translate("كغ")}</span>
                         </div>
                       </div>
                     </div>
@@ -588,23 +587,23 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                 );
               })}
             </div>
-             <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} /> إضافة بند آخر</button>
+             <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} />{" "}{translate("إضافة بند آخر")}</button>
           </section>
 
           <section className="order-create-section order-notes-section" aria-labelledby="order-notes-heading">
-            <h3 className="order-create-section-title" id="order-notes-heading"><span>03</span> ملاحظات</h3>
+            <h3 className="order-create-section-title" id="order-notes-heading"><span>03</span>{" "}{translate("ملاحظات")}</h3>
             <div className="order-create-field">
-              <label htmlFor="order-notes">ملاحظات <span className="order-create-hint">(اختياري)</span></label>
-              <textarea id="order-notes" maxLength={5000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="أي تفاصيل تساعد فريق التخطيط أو التسليم…" disabled={saving} />
+              <label htmlFor="order-notes">{translate("ملاحظات")}{" "}<span className="order-create-hint">{translate("(اختياري)")}</span></label>
+              <textarea id="order-notes" maxLength={5000} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={translate("أي تفاصيل تساعد فريق التخطيط أو التسليم…")} disabled={saving} />
             </div>
           </section>
 
           <footer className="order-create-footer">
-             <span className="order-create-footer-note"><Boxes size={14} aria-hidden="true" /> {editId ? "البنود التي بدأ إنتاجها لا يمكن تعديلها أو حذفها" : "الحالة الأولية: بانتظار المعالجة"}</span>
+             <span className="order-create-footer-note"><Boxes size={14} aria-hidden="true" /> {editId ? translate("البنود التي بدأ إنتاجها لا يمكن تعديلها أو حذفها") : translate("الحالة الأولية: بانتظار المعالجة")}</span>
             <div className="order-create-actions">
-              <button type="button" className="order-create-cancel" onClick={onClose} disabled={saving}>إلغاء</button>
+              <button type="button" className="order-create-cancel" onClick={onClose} disabled={saving}>{translate("إلغاء")}</button>
                <button type="submit" className="order-create-save" disabled={saving || detailsLoading || Boolean(detailsError) || customers.loading || Boolean(customers.error) || productsLoading || Boolean(productsError)}>
-                 {saving ? <><LoaderCircle className="order-create-spin" size={16} /> جارٍ حفظ الطلب…</> : <><Check size={16} /> حفظ الطلب</>}
+                 {saving ? <><LoaderCircle className="order-create-spin" size={16} />{" "}{translate("جارٍ حفظ الطلب…")}</> : <><Check size={16} />{" "}{translate("حفظ الطلب")}</>}
               </button>
             </div>
           </footer>

@@ -74,6 +74,7 @@ export const users = pgTable(
     service_start_date: date("service_start_date"),
     profession: varchar("profession", { length: 100 }),
     replit_user_id: varchar("replit_user_id", { length: 255 }).unique(),
+    preferred_language: varchar("preferred_language", { length: 10 }),
     first_name: varchar("first_name", { length: 100 }),
     last_name: varchar("last_name", { length: 100 }),
     profile_image_url: varchar("profile_image_url", { length: 500 }),

@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { AlertTriangle, LoaderCircle, Printer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -20,7 +21,7 @@ export default function OrderPrintPage({ id, branding }: Props) {
 
   useEffect(() => {
     const previous = document.title;
-    document.title = orderNumber ? `أمر تشغيل إنتاج #${orderNumber}` : "معاينة طباعة الطلب";
+    document.title = orderNumber ? translate("أمر تشغيل إنتاج #{{number}}", { number: orderNumber }) : translate("معاينة طباعة الطلب");
     return () => { document.title = previous; };
   }, [orderNumber]);
 
@@ -93,31 +94,31 @@ export default function OrderPrintPage({ id, branding }: Props) {
       printLock.current = false;
       if (alive.current) {
         setPrinting(false);
-        setPrintError("تعذر تجهيز الطباعة. تأكد من تحميل شعار المصنع ثم أعد المحاولة، أو استخدم الطباعة من قائمة المتصفح.");
+        setPrintError(translate("تعذر تجهيز الطباعة. تأكد من تحميل شعار المصنع ثم أعد المحاولة، أو استخدم الطباعة من قائمة المتصفح."));
       }
     }
   }, [state.status]);
 
-  return <main className="opp-page" dir="rtl">
+  return <main className="opp-page" dir={document.documentElement.dir}>
     <div className="opp-toolbar">
-      <div className="opp-toolbar-copy"><span>معاينة مستند الإنتاج</span><strong>ورق A4 · أفقي</strong></div>
+      <div className="opp-toolbar-copy"><span>{translate("معاينة مستند الإنتاج")}</span><strong>{translate("ورق A4 · أفقي")}</strong></div>
       {state.status === "ready" && <button type="button" className="opp-print-action" onClick={handlePrint} disabled={printing}>
         {printing ? <LoaderCircle size={17} className="opp-spin" /> : <Printer size={17} />}
-        {printing ? "جارٍ تجهيز الطباعة…" : "طباعة المستند"}
+        {printing ? translate("جارٍ تجهيز الطباعة…") : translate("طباعة المستند")}
       </button>}
     </div>
     {printError && <p className="opp-print-error" role="alert">{printError}</p>}
     {state.status === "loading" && <div className="opp-page-state" role="status">
       <div className="opp-loader-sheet"><div /><div /><div /><div /></div>
-      <strong>جارٍ تجهيز المعاينة</strong><span>نحمّل بيانات الطلب ومواصفات الإنتاج…</span>
+      <strong>{translate("جارٍ تجهيز المعاينة")}</strong><span>{translate("نحمّل بيانات الطلب ومواصفات الإنتاج…")}</span>
     </div>}
     {state.status === "error" && <div className="opp-page-state opp-page-error" role="alert">
       <AlertTriangle size={27} />
-      <strong>{state.notFound ? "الطلب غير موجود" : "تعذر فتح معاينة الطباعة"}</strong>
+      <strong>{state.notFound ? translate("الطلب غير موجود") : translate("تعذر فتح معاينة الطباعة")}</strong>
       <span>{state.message}</span>
-      {!state.notFound && <button type="button" onClick={() => setAttempt((value) => value + 1)}><RefreshCw size={15} /> إعادة المحاولة</button>}
+      {!state.notFound && <button type="button" onClick={() => setAttempt((value) => value + 1)}><RefreshCw size={15} />{" "}{translate("إعادة المحاولة")}</button>}
     </div>}
-    {state.status === "ready" && <div className="opp-preview-scroll" aria-label="معاينة ورقة A4 أفقية">
+    {state.status === "ready" && <div className="opp-preview-scroll" aria-label={translate("معاينة ورقة A4 أفقية")}>
       <OrderPrintSheet data={state.data} branding={branding} />
     </div>}
   </main>;

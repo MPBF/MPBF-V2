@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { ChevronDown, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
@@ -27,7 +28,7 @@ export function CustomerPicker({ customers, value, onChange, labelFor }: Custome
   }, [customers, query]);
   const index = Math.min(active, Math.max(0, filtered.length - 1));
   const optionId = (id: unknown) => `cp-customer-option-${encodeURIComponent(String(id))}`;
-  const label = selected ? labelFor(selected) : value ? `العميل الحالي (${value}) — اختر عميلاً صالحاً` : "اختر العميل";
+  const label = selected ? labelFor(selected) : value ? translate("العميل الحالي ({{value}}) — اختر عميلاً صالحاً", { value }) : translate("اختر العميل");
 
   useEffect(() => {
     if (!open) return;
@@ -73,31 +74,31 @@ export function CustomerPicker({ customers, value, onChange, labelFor }: Custome
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
   }}>
     <button id="cp-customer" ref={triggerRef} className="cp-customer-trigger" type="button"
-      aria-label="اختر العميل" aria-haspopup="listbox" aria-expanded={open} aria-controls="cp-customer-options"
+      aria-label={translate("اختر العميل")} aria-haspopup="listbox" aria-expanded={open} aria-controls="cp-customer-options"
       onClick={() => open ? setOpen(false) : openList()}
       onKeyDown={(event) => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); openList(); }
       }}>
-      <span title={label}>{label}</span><ChevronDown size={15} />
+      <span title={label}>{translate(label)}</span><ChevronDown size={15} />
     </button>
     {open && <div className="cp-customer-menu">
       <div className="cp-searchbox">
         <Search className="cp-search-icon" size={15} />
-        <input ref={inputRef} role="combobox" aria-label="ابحث عن العميل بالاسم أو الرقم"
+        <input ref={inputRef} role="combobox" aria-label={translate("ابحث عن العميل بالاسم أو الرقم")}
           aria-expanded="true" aria-autocomplete="list" aria-required="true" aria-controls="cp-customer-options"
           aria-activedescendant={filtered[index] ? optionId(filtered[index].id) : undefined}
-          value={query} autoComplete="off" placeholder="ابحث بالاسم أو الرقم"
+          value={query} autoComplete="off" placeholder={translate("ابحث بالاسم أو الرقم")}
           onChange={(event) => { setQuery(event.target.value); setActive(0); }} onKeyDown={handleKey} />
       </div>
-      <span className="cp-result-count" role="status">{filtered.length} عميل مطابق</span>
-      <div id="cp-customer-options" className="cp-customer-options" role="listbox" aria-label="العملاء" ref={listRef}>
+      <span className="cp-result-count" role="status">{filtered.length}{" "}{translate("عميل مطابق")}</span>
+      <div id="cp-customer-options" className="cp-customer-options" role="listbox" aria-label={translate("العملاء")} ref={listRef}>
         {filtered.map((customer, i) => <button key={customer.id} id={optionId(customer.id)}
           type="button" role="option" tabIndex={-1} aria-selected={String(customer.id) === value}
           data-active={i === index} className="cp-customer-option"
           onMouseDown={(event) => event.preventDefault()} onClick={() => choose(customer)}>
           {labelFor(customer)}
         </button>)}
-        {!filtered.length && <div className="cp-customer-empty">لا يوجد عملاء مطابقون للبحث.</div>}
+        {!filtered.length && <div className="cp-customer-empty">{translate("لا يوجد عملاء مطابقون للبحث.")}</div>}
       </div>
     </div>}
   </div>;
@@ -128,12 +129,12 @@ export function ProductValueSelect({ id, label, value, values, onChange, disable
   const text = value == null ? "" : String(value);
   const selected = text === "" ? (zeroMeansUnset ? "0" : "") : values.find((option) => Number(option) === Number(text)) ?? text;
   return <div className="cp-field">
-    <label htmlFor={id}>{label}</label>
+    <label htmlFor={id}>{translate(label)}</label>
     <select id={id} value={selected} disabled={disabled}
       onChange={(event) => onChange(zeroMeansUnset && event.target.value === "0" ? "" : event.target.value)}>
-      {!zeroMeansUnset && <option value="">غير محدد</option>}
-      {values.map((option) => <option key={option} value={option}>{zeroMeansUnset && option === "0" ? "0 — غير محدد" : labelForValue ? labelForValue(option) : option}</option>)}
-      {selected && !values.includes(selected) && <option value={selected}>القيمة الحالية: {labelForValue ? labelForValue(text) : text}</option>}
+      {!zeroMeansUnset && <option value="">{translate("غير محدد")}</option>}
+      {values.map((option) => <option key={option} value={option}>{zeroMeansUnset && option === "0" ? translate("0 — غير محدد") : labelForValue ? labelForValue(option) : option}</option>)}
+      {selected && !values.includes(selected) && <option value={selected}>{translate("القيمة الحالية:")}{" "}{labelForValue ? labelForValue(text) : text}</option>}
     </select>
     {hint && <span className="cp-hint">{hint}</span>}
   </div>;
