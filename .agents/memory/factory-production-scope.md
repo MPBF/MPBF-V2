@@ -23,3 +23,13 @@ roll sharing need separate approval.
 
 **How to apply:** do not infer permission to add them from the presence of
 production inventory or QR traceability.
+
+Order release is a focused transition to ready for production, not a general
+status editor or automatic manufacturing start.
+
+**Why:** the user selected «زر تحويل للإنتاج في القائمة والتفاصيل» rather than
+adding a status selector to the order-edit form, after approving a readiness-only
+transition.
+
+**How to apply:** keep both entry points and preserve explicit production start;
+do not broaden the action into arbitrary historical-order reopening.

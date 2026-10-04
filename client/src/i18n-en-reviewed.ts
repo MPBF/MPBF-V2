@@ -1,5 +1,12 @@
 /** English coverage for indirect configuration labels and localized validation. */
 const reviewed: Record<string, string> = {
+  "تحويل للإنتاج": "Release to production",
+  "جارٍ التحويل…": "Releasing…",
+  "لا يمكن تحويل طلب ملغي أو مكتمل أو مسلّم أو مؤرشف إلى الإنتاج.": "Cancelled, completed, delivered or archived orders cannot be released to production.",
+  "تغيرت حالة الطلب؛ حدّث البيانات قبل تحويله إلى الإنتاج.": "The order status changed. Refresh the data before releasing it to production.",
+  "لا يحتوي الطلب على أوامر إنتاج قابلة للتنفيذ.": "The order has no executable production orders.",
+  "تعذر تحويل الطلب إلى الإنتاج.": "Could not release the order to production.",
+  "تعذر تأكيد تحويل الطلب؛ حدّث البيانات قبل إعادة المحاولة.": "Could not confirm the release. Refresh the data before retrying.",
   "بحث في": "Search",
   "صفحات": "Pages",
   "اختيار لون": "Choose color",

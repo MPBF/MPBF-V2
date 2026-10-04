@@ -4,8 +4,9 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { displayValue, fetchOrderDetails, fieldLabel, formatOrderDate, numberText, orderStatusLabel, personName, productionStatusLabel, type OrderDetailsError } from "../lib/order-details";
 import "./OrderDetailsModal.css";
+import OrderProductionReleaseButton from "./OrderProductionReleaseButton";
 
-type Props = { id: number; onClose: () => void; onPrint: () => void };
+type Props = { id: number; onClose: () => void; onPrint: () => void; canRelease?: boolean; onOrderChanged?: () => void };
 type LoadState = { status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: Awaited<ReturnType<typeof fetchOrderDetails>> };
 
 const orderFieldLabels: Record<string, string> = {
@@ -47,7 +48,7 @@ function DetailFields({ data, labels, omit = [] }: { data: Record<string, unknow
     </div>)}</dl>;
 }
 
-export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
+export default function OrderDetailsModal({ id, onClose, onPrint, canRelease = false, onOrderChanged }: Props) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [expanded, setExpanded] = useState<number[]>([]);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -123,6 +124,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
           {order && <span className="odm-header-sub">{order.customer_id} <span>·</span> {orderStatusLabel(order.status)}</span>}
         </div>
         <div className="odm-head-actions">
+          {order && <OrderProductionReleaseButton id={id} status={order.status} enabled={canRelease} onReleased={() => { load(); onOrderChanged?.(); }} />}
           <button className="odm-print-button" type="button" onClick={onPrint} disabled={!data} aria-label={translate("فتح معاينة الطباعة في تبويب جديد")}>
             <Printer size={17} /> <span>{translate("معاينة الطباعة")}</span>
           </button>
@@ -213,7 +215,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
         </>}
       </main>
       <footer className="odm-footer">
-        <span>{translate("عرض للقراءة فقط")}</span>
+        <span>{translate(canRelease ? "تفاصيل الطلب" : "عرض للقراءة فقط")}</span>
         <button type="button" className="odm-close-footer" onClick={onClose}>{translate("إغلاق")}</button>
       </footer>
     </section>

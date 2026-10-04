@@ -1,4 +1,6 @@
 import { Router, type Request, type Response } from "express";
+import { releaseOrderToProduction } from "./order-production-release";
+import { ORDER_PRODUCTION_RELEASE_STATUSES } from "../shared/order-production-release";
 import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { z } from "zod";
@@ -1063,6 +1065,14 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
     }
     next(error);
   }
+});
+
+router.post("/orders/:id/release-production", ordersWrite, async (req, res, next) => {
+  try {
+    const id = entityId("orders", req.params.id) as number;
+    const input = z.object({ expected_status: z.enum(ORDER_PRODUCTION_RELEASE_STATUSES) }).strict().parse(req.body);
+    res.json(await releaseOrderToProduction(id, input.expected_status));
+  } catch (error) { next(error); }
 });
 
 router.get("/orders/:id/details", ordersRead, async (req, res, next) => {

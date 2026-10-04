@@ -10,6 +10,7 @@ import { ProductionReadService } from "../server/production/read";
 import type { ProductionUser } from "../shared/production";
 import type { ConnectionPool } from "../server/production/core";
 import express from "express";
+import { releaseOrderToProduction } from "../server/order-production-release";
 const uiRequestsPath = process.argv.find(arg=>arg.startsWith("--ui-requests="))?.slice("--ui-requests=".length);
 const uiRequests: {route:string;input:{first_position:number;second_position:number}}[] | undefined =
   uiRequestsPath ? JSON.parse(readFileSync(uiRequestsPath,"utf8")) : undefined;
@@ -58,7 +59,7 @@ try {
     CREATE TABLE machines(id varchar(20) PRIMARY KEY,name text,name_ar text,type text,status text,inline_printer_id varchar(20),
       min_thickness numeric,max_thickness numeric,min_width_cm numeric,max_width_cm numeric,raw_material_type text,
       max_print_colors integer,min_cylinder_inch numeric,max_cylinder_inch numeric,min_length_cm numeric,max_length_cm numeric);
-    CREATE TABLE orders(id integer PRIMARY KEY,order_number text,customer_id varchar(20),status text);
+    CREATE TABLE orders(id integer PRIMARY KEY,order_number text,customer_id varchar(20),status text,previous_status text);
     CREATE TABLE production_orders(id integer PRIMARY KEY,order_id integer REFERENCES orders(id) ON DELETE CASCADE,
       production_order_number varchar(50),customer_product_id integer,quantity_kg numeric(14,2),final_quantity_kg numeric(14,2),
       overrun_percentage numeric DEFAULT 0,status text,batch_number varchar(50),previous_status text);
@@ -231,6 +232,20 @@ try {
     assert.ok(hall.orders.every(o => Number(o.remaining_kg) > 0));
     await query("INSERT INTO orders VALUES(90,'HISTORIC','C1','completed'); INSERT INTO production_orders(id,order_id,production_order_number,customer_product_id,quantity_kg,final_quantity_kg,status) VALUES(90,90,'HISTORIC-1',2,500,500,'completed')");
     assert.equal((await read.state(actor)).orders.find(o => o.id === 90)?.started_at, null);
+  });
+  await test("order release is concurrent-safe, leaves plans untouched and enables explicit production start", async () => {
+    await query("INSERT INTO orders(id,order_number,customer_id,status) VALUES(91,'RELEASE-91','C1','waiting')");
+    await query(`INSERT INTO production_orders(id,order_id,production_order_number,customer_product_id,quantity_kg,final_quantity_kg,status)
+      VALUES(91,91,'RELEASE-91-01',1,10,11,'pending')`);
+    const before = await query("SELECT * FROM production_orders WHERE id=91");
+    await Promise.all([releaseOrderToProduction(91,"waiting",isolated),releaseOrderToProduction(91,"waiting",isolated)]);
+    assert.deepEqual(await query("SELECT * FROM production_orders WHERE id=91"),before);
+    assert.equal((await query("SELECT * FROM orders WHERE id=91"))[0].previous_status,"waiting");
+    assert.equal((await query("SELECT * FROM factory_execution WHERE production_order_id=91")).length,0);
+    await service.start(actor,91,key());
+    await releaseOrderToProduction(91,"waiting",isolated);
+    assert.equal((await query("SELECT * FROM orders WHERE id=91"))[0].status,"in_production");
+    assert.equal((await query("SELECT * FROM factory_rolls WHERE production_order_id=91")).length,0);
   });
   await test("atomic queue reordering, stale position rejection and replay protection", async () => {
     await service.queue(actor, { ...key(), production_order_id: 9, stage: "film", machine_id: "F1", position: 1 });

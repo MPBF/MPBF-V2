@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const WebSocket = require("ws");
 const outputDir = path.join("screenshots", "order-signatures");
+const releaseOnly = process.argv.includes("--production-release-only");
 
 (async () => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "order-actions-browser-"));
@@ -46,6 +47,8 @@ const outputDir = path.join("screenshots", "order-signatures");
     let language = "ar";
     const requests = [];
     const errors = [];
+    let releaseLoad, failRelease = false;
+    const releaseWrites = [];
     const order = { id: 7, order_number: "ORD123", customer_id: "CID010", status: "in_production",
       previous_status: "waiting", notes: "تعليمات الطلب التجريبي", created_by: 42,
       created_at: "2026-10-02T22:30:00.000Z", delivery_date: "2026-10-18", delivery_days: 15 };
@@ -86,10 +89,16 @@ const outputDir = path.join("screenshots", "order-signatures");
       const { request, requestId } = event.params;
       const route = new URL(request.url).pathname.replace(/^\/api/, "");
       requests.push({ route, method: request.method });
-      if (request.method !== "GET") throw Error(`Unexpected write ${request.method} ${route}`);
+      if (request.method !== "GET" && !(releaseOnly && /^\/orders\/\d+\/release-production$/.test(route))) throw Error(`Unexpected write ${request.method} ${route}`);
       let body = [];
       let status = 200;
-      if (route === "/me") body = { user: { id: 42, display_name_ar: "مستخدم تجريبي", username: "test", preferred_language: language, permissions } };
+      if (request.method === "POST" && releaseOnly) {
+        const input=JSON.parse(request.postData);
+        releaseWrites.push(input);
+        if(failRelease){failRelease=false;status=409;body={message:"تغيرت حالة الطلب؛ حدّث البيانات قبل تحويله إلى الإنتاج."};}
+        else {order.previous_status=order.status;order.status="for_production";body={order};}
+      }
+      else if (route === "/me") body = { user: { id: 42, display_name_ar: "مستخدم تجريبي", username: "test", preferred_language: language, permissions } };
       else if (route === "/public-branding") body = { companyNameAr: "مصنع أكياس البلاستيك الحديث", companyNameEn: "Modern Plastic Bags Factory",
         logoSrc: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70"><rect width="70" height="70" rx="12" fill="#167a6d"/><text x="35" y="43" fill="white" font-size="20" text-anchor="middle">MPBF</text></svg>') };
       else if (route === "/orders") body = [{ ...order, customer_name_ar: "عميل تجريبي", production_orders_summary: [] }];
@@ -108,7 +117,8 @@ const outputDir = path.join("screenshots", "order-signatures");
         if (!handler) return;
         pending.delete(event.id);
         if (event.error) handler.reject(Error(event.error.message)); else handler.resolve(event.result);
-      } else if (event.method === "Fetch.requestPaused") intercept(event).catch((e) => errors.push(e.message));
+      } else if (event.method === "Page.loadEventFired") releaseLoad?.();
+      else if (event.method === "Fetch.requestPaused") intercept(event).catch((e) => errors.push(e.message));
       else if (event.method === "Runtime.exceptionThrown") errors.push(event.params.exceptionDetails.exception?.description || event.params.exceptionDetails.text);
     });
     const { targetId } = await send("Target.createTarget", { url: "about:blank" }, null);
@@ -139,6 +149,52 @@ const outputDir = path.join("screenshots", "order-signatures");
       const shot = await send("Page.captureScreenshot", { format: "png" });
       await fs.writeFile(path.join(outputDir, `${name}.png`), Buffer.from(shot.data, "base64"));
     };
+    if (releaseOnly) {
+      const open = async (details = false) => {
+        const loaded = new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>reject(Error("Release navigation timeout")),15000);
+          releaseLoad=()=>{clearTimeout(timer);releaseLoad=undefined;resolve();};
+        });
+        await navigate(`/orders${details?`?viewOrder=${order.id}`:""}`);await loaded;
+        await wait(details ? "!!document.querySelector('.odm-summary-strip')" : "!!document.querySelector('.entity-table tbody tr,.entity-card')");
+      };
+      for(const lang of ["ar","en"]){
+        language=lang;permissions=["manage_orders"];
+        for(const width of [390,768,1440]){
+          order.status="waiting";await send("Emulation.setDeviceMetricsOverride",{width,height:950,deviceScaleFactor:1,mobile:width<500});
+          await open(true);
+          check(`${lang} ${width} release control in details`,await evaluate("!!document.querySelector('.odm-head-actions .order-release-button')"));
+          check(`${lang} ${width} release layout fits`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1&&document.querySelector('.odm-dialog').scrollWidth<=document.querySelector('.odm-dialog').clientWidth+1"));
+          if(lang==="ar"&&width===390){
+            const shot=await send("Page.captureScreenshot",{format:"png"});
+            await fs.writeFile("/tmp/order-release-mobile.png",Buffer.from(shot.data,"base64"));
+            failRelease=true;await click(".odm-head-actions .order-release-button");
+            await wait("!!document.querySelector('.odm-head-actions [role=alert]')");
+            check("release conflict shown without changing order",order.status,"waiting");
+          }
+          const before=releaseWrites.length;
+          await evaluate("(()=>{const b=document.querySelector('.odm-head-actions .order-release-button');b.click();b.click()})()");
+          await wait("!!document.querySelector('.odm-summary-strip')&&!document.querySelector('.odm-head-actions .order-release-button')");
+          check(`${lang} ${width} details action sends one status-only request`,releaseWrites.slice(before),[{expected_status:"waiting"}]);
+          check(`${lang} ${width} details reflects ready status`,order.status,"for_production");
+          order.status="waiting";await open();
+          check(`${lang} ${width} release control in list`,await evaluate("[...document.querySelectorAll('.order-release-button')].some(b=>b.offsetParent!==null)"));
+          check(`${lang} ${width} list fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+          const beforeList=releaseWrites.length;await click(".order-release-button");
+          await wait("!document.querySelector('.order-release-button')&&!!document.querySelector('.entity-table tbody tr,.entity-card')");
+          check(`${lang} ${width} list action sends one request`,releaseWrites.length,beforeList+1);
+        }
+        permissions=["view_orders"];order.status="waiting";await open(true);
+        check(`${lang} read-only user has no release control`,await evaluate("!document.querySelector('.order-release-button')"));
+      }
+      permissions=["admin"];
+      for(const status of ["cancelled","completed","delivered","archived","for_production","in_production"]){
+        order.status=status;await open(true);
+        check(`${status} cannot be reopened from UI`,await evaluate("!document.querySelector('.order-release-button')"));
+      }
+      check("release browser has no runtime errors",errors,[]);
+      console.log(`Verified ${passed} isolated order-release browser checks.`);return;
+    }
     const pdf = async (name) => {
       await evaluate(`(async()=>{
         await document.fonts.ready;

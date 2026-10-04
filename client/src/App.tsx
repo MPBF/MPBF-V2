@@ -16,6 +16,7 @@ import CustomerModal from "./components/CustomerModal";
 import ProductionOrderModal from "./components/ProductionOrderModal";
 import FlagLanguageSelector from "./components/FlagLanguageSelector";
 import OrderDetailsModal from "./components/OrderDetailsModal";
+import OrderProductionReleaseButton from "./components/OrderProductionReleaseButton";
 import OrderPrintPage from "./components/OrderPrintPage";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 import { sortCustomerProductsByCategory } from "./lib/customer-product-sort";
@@ -350,6 +351,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     }
   };
   const rowActions = (row: Row, mobile = false) => <div className="actions">
+    {kind === "orders" && <OrderProductionReleaseButton id={Number(row.id)} status={row.status} enabled={writable} onReleased={() => latestLoad.current()} />}
     {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && translate(" عرض")}</button>}
     {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && translate(" طباعة")}</a>}
     {writable && <button aria-label={`${translate("تعديل")} ${translate(cfg.singular)}`} title={translate("تعديل")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && ` ${translate("تعديل")}`}</button>}
@@ -391,7 +393,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       </nav>}
     </section>
     {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}
-    {viewingOrder && <OrderDetailsModal id={viewingOrder} onClose={closeOrder} onPrint={() => printOrder(viewingOrder)} />}
+    {viewingOrder && <OrderDetailsModal id={viewingOrder} canRelease={writable} onOrderChanged={() => latestLoad.current()} onClose={closeOrder} onPrint={() => printOrder(viewingOrder)} />}
     {edit && (kind === "customers" ? <CustomerModal row={edit} onClose={() => setEdit(null)} onSaved={(saved) => { const created = !edit.id; setEdit(null); if (created) setLocation(`/customers/${encodeURIComponent(String(saved.id))}`); else latestLoad.current(); }} /> : kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />)}
   </>;
 }
