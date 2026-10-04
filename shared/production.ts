@@ -1,4 +1,5 @@
 export type ProductionStage = "film" | "printing" | "cutting";
+export type ProductionStateScope = "management" | ProductionStage | "hall" | "warehouse" | "roll";
 export const productionPermissions = [
   "view_production", "manage_production", "operate_film", "operate_printing", "operate_cutting",
   "view_production_hall", "receive_production", "view_finished_inventory", "manage_finished_warehouse",
@@ -21,6 +22,7 @@ export type ProductionOrderRecord = {
   started_at: string | null; film_closed_at: string | null; completed_at: string | null;
   is_printed: boolean; is_roll_product: boolean; stage: string | null;
   produced_kg: string; ready_kg: string; received_kg: string; remaining_kg: string; waste_kg: string;
+  roll_count?: number;
 };
 export type ProductionRollRecord = {
   id: number; production_order_id: number; roll_number: string; weight_kg: string;
@@ -64,6 +66,19 @@ export type ProductionState = {
   orders: ProductionOrderRecord[]; rolls: ProductionRollRecord[]; machines: ProductionMachine[];
   queues: ProductionQueue[]; locations: StorageLocation[]; receipts: ProductionReceipt[];
   inventory: InventoryRecord[]; movements: InventoryMovement[];
+  totals?: { orders: number; rolls: number; receipts: number; movements: number; inventory: number; inventory_kg: string };
+};
+export type ProductionHistoryKind = "orders" | "rolls" | "receipts" | "movements" | "inventory";
+export type ProductionHistoryRecords = {
+  orders: ProductionOrderRecord; rolls: ProductionRollRecord; receipts: ProductionReceipt;
+  movements: InventoryMovement; inventory: InventoryRecord;
+};
+export type ProductionHistoryFilter = {
+  before?: number; limit?: number; search?: string; status?: string; from?: string; to?: string;
+  order_id?: number; location_id?: number;
+};
+export type ProductionHistoryPage<K extends ProductionHistoryKind> = {
+  records: ProductionHistoryRecords[K][]; next: number | null;
 };
 export type PackagingInput = { roll_weight_grams: string; rolls_per_unit: number; units: number };
 export type ReceiptInput = {

@@ -11,6 +11,7 @@ import {
 } from "../../../../shared/production";
 import { productionApi } from "../../lib/production-api";
 import "./production.css";
+import { ProductionHistory } from "./ProductionHistory";
 
 export type ProductionView = "management" | "film" | "printing" | "cutting" | "hall" | "warehouse" | "roll";
 export type ProductionPageProps = { user: ProductionUser; view: ProductionView; rollId?: string };
@@ -59,18 +60,23 @@ const orderProduct = (order: ProductionOrderRecord, language: string) =>
 const customerName = (order: ProductionOrderRecord, language: string) => localized(order.product?.customer_name_ar, order.product?.customer_name, language);
 const machineName = (machine: ProductionMachine | undefined, language: string) => machine ? localized(machine.name_ar, machine.name, language, machine.id) : "—";
 
-function useProductionState(allowed: boolean) {
-  const [state, setState] = useState<ProductionState | null>(null);
+function useProductionState(allowed: boolean, view: ProductionView) {
+  const [snapshot, setSnapshot] = useState<{ view: ProductionView; state: ProductionState } | null>(null);
+  const generation = useRef(0);
   const [loading, setLoading] = useState(allowed);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
+    const request = ++generation.current;
     if (!allowed) { setLoading(false); return; }
     setLoading(true); setError("");
-    try { setState(await productionApi.state()); } catch (cause) { setError(cause instanceof Error ? cause.message : ""); }
-    finally { setLoading(false); }
-  }, [allowed]);
-  useEffect(() => { void load(); }, [load]);
-  return { state, loading, error, reload: load, setState };
+    try {
+      const state = await productionApi.state(view);
+      if (request === generation.current) setSnapshot({ view, state });
+    } catch (cause) { if (request === generation.current) setError(cause instanceof Error ? cause.message : ""); }
+    finally { if (request === generation.current) setLoading(false); }
+  }, [allowed, view]);
+  useEffect(() => { void load(); return () => { generation.current++; }; }, [load]);
+  return { state: allowed && snapshot?.view === view ? snapshot.state : null, loading, error, reload: load };
 }
 
 function Header({ view, language }: { view: ProductionView; language: string }) {
@@ -204,9 +210,9 @@ function Management({ state, user, language, reload }: { state: ProductionState;
   return <>
     {(write.error || write.success) && (write.error ? <ErrorBanner message={write.error} language={language} retry={() => void write.retry()} /> : <div className="prod-success" role="status">{write.success}</div>)}
     <div className="prod-grid">
-      <Metric label={text("order", language)} value={number(state.orders.length, language, 0)} unit={text("ordersUnit",language)} />
+      <Metric label={text("order", language)} value={number(state.totals?.orders ?? state.orders.length, language, 0)} unit={text("ordersUnit",language)} />
       <Metric label={text("running", language)} value={number(activeOrders.filter(order => !order.completed_at).length, language, 0)} unit={text("ordersUnit",language)} />
-      <Metric label={text("rolls", language)} value={number(state.rolls.length, language, 0)} unit={text("rollsUnitCount",language)} />
+      <Metric label={text("rolls", language)} value={number(state.totals?.rolls ?? state.rolls.length, language, 0)} unit={text("rollsUnitCount",language)} />
       <Metric label={text("queue", language)} value={number(state.queues.length, language, 0)} unit={text("queueEntries",language)} />
     </div>
     <div className="prod-section-title"><h3>{text("started", language)} · {text("order", language)}</h3></div>
@@ -215,12 +221,7 @@ function Management({ state, user, language, reload }: { state: ProductionState;
         <OrderSummary order={order} language={language} />
         <OrderActuals order={order} language={language} />
         <div className="prod-measure"><span>{text("filmClosed", language)}</span><strong>{order.film_closed_at ? text("completed", language) : text("running", language)}</strong><small className="prod-muted">{date(order.film_closed_at, language, true)}</small></div>
-        <details className="prod-roll-trace">
-          <summary>{text("allRolls",language)} · {number(state.rolls.filter(roll=>roll.production_order_id===order.id).length,language,0)}</summary>
-          {state.rolls.some(roll=>roll.production_order_id===order.id)
-            ? <div className="prod-roll-list">{state.rolls.filter(roll=>roll.production_order_id===order.id).map(roll=><Link key={roll.id} href={`/production/rolls/${roll.id}`}><span className="prod-number">{roll.roll_number}</span><span>{text(roll.stage,language)}</span><span>{number(roll.weight_kg,language)} kg</span></Link>)}</div>
-            : <p className="prod-muted">{text("noOrderRolls",language)}</p>}
-        </details>
+        <ProductionHistory kind="rolls" title={`${text("allRolls",language)} · ${number(order.roll_count??0,language,0)}`} orderId={order.id} language={language} refresh={state}/>
       </article>) : <Empty title={text("noRows", language)} />}
     </div>
     <div className="prod-section-title"><h3>{text("start", language)} · {text("order", language)}</h3></div>
@@ -233,6 +234,8 @@ function Management({ state, user, language, reload }: { state: ProductionState;
         {canManage && order.status === "pending" && executableOrder(order.order_status) && !order.batch_number && <button className="prod-btn" disabled={write.saving} onClick={() => start(order)}><Factory />{text("start", language)}</button>}
       </article>) : <Empty title={text("noRows", language)} />}
     </div>
+    <ProductionHistory kind="orders" title={language==="en"?"Order history":"تاريخ أوامر الإنتاج"} language={language} refresh={state}/>
+    <ProductionHistory kind="rolls" title={text("allRolls",language)} language={language} refresh={state}/>
     <Card title={text("queue", language)}>
       {canManage ? <form onSubmit={assign} className="prod-form-grid">
         <div className="prod-field"><label htmlFor="queue-order">{text("order", language)}</label><select id="queue-order" required value={queueOrder} onChange={event => setQueueOrder(event.target.value)}><option value="">{text("chooseOrder", language)}</option>{assignable.map(order => <option key={order.id} value={order.id}>{order.production_order_number} · {order.order_number}</option>)}</select></div>
@@ -331,13 +334,13 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
         <OrderSummary order={order} language={language}/>
         <div className="prod-measure"><span>{text("planned",language)}</span><strong>{number(order.final_quantity_kg,language)} kg</strong></div>
         <div className="prod-measure"><span>{text("produced",language)}</span><strong>{number(order.produced_kg,language)} kg</strong></div>
-        <div className="prod-measure"><span>{text("rolls",language)}</span><strong>{state.rolls.filter(roll=>roll.production_order_id===order.id).length}</strong></div>
+        <div className="prod-measure"><span>{text("rolls",language)}</span><strong>{number(order.roll_count??0,language,0)}</strong></div>
         <div className="prod-inline"><div className="prod-field"><label htmlFor={`weight-${order.id}`}>{text("weight",language)}</label><input id={`weight-${order.id}`} inputMode="decimal" min="0.01" step="0.01" type="number" value={weights[order.id]??""} onChange={event=>setWeights(values=>({...values,[order.id]:event.target.value}))}/></div>
           <div className="prod-field"><label htmlFor={`minutes-${order.id}`}>{text("minutes",language)}</label><input id={`minutes-${order.id}`} inputMode="numeric" min="1" step="1" type="number" value={minutes[order.id]??""} onChange={event=>setMinutes(values=>({...values,[order.id]:event.target.value}))}/></div>
           {order.is_printed&&inlinePrinter(selectedMachine)&&<label className="prod-label-inline"><input type="checkbox" checked={!!inline[order.id]} onChange={event=>setInline(values=>({...values,[order.id]:event.target.checked}))}/>{text("inline",language)}</label>}
           <label className="prod-label-inline"><input type="checkbox" checked={!!last[order.id]} onChange={event=>setLast(values=>({...values,[order.id]:event.target.checked}))}/>{text("lastRoll",language)}</label>
           <button className="prod-btn" disabled={!canOperate||write.saving||!selectedMachine} onClick={()=>recordFilm(order)}><Plus/>{text("addRoll",language)}</button>
-          {!!state.rolls.filter(roll=>roll.production_order_id===order.id).length&&<button className="prod-btn secondary" disabled={!canOperate||write.saving} onClick={()=>closeFilm(order)}><Check/>{text("closeFilm",language)}</button>}
+          {!!order.roll_count&&<button className="prod-btn secondary" disabled={!canOperate||write.saving} onClick={()=>closeFilm(order)}><Check/>{text("closeFilm",language)}</button>}
         </div>
       </article>)}</div>:<Empty title={text("noEligible",language)}/>}</>:
     <><div className="prod-section-title"><h3>{text("rolls",language)} · {text(stage,language)}</h3></div>
@@ -377,7 +380,7 @@ function Hall({state,user,language,reload}:{state:ProductionState;user:Productio
   const locationOptions=state.locations.filter(location=>location.is_active);
   return <>
     {(write.error||write.success)&&(write.error?<ErrorBanner message={write.error} language={language} retry={()=>void write.retry()}/>:<div className="prod-success" role="status">{write.success}</div>)}
-    <div className="prod-grid"><Metric label={text("eligibleWeight",language)} value={`${number(eligible.reduce((total,order)=>total+Number(order.remaining_kg),0),language)} kg`}/><Metric label={text("order",language)} value={number(eligible.length,language,0)} unit={text("ordersUnit",language)}/><Metric label={text("locations",language)} value={number(locationOptions.length,language,0)} unit={text("activeLocations",language)}/><Metric label={text("vouchers",language)} value={number(state.receipts.length,language,0)} unit={text("voucherUnits",language)}/></div>
+    <div className="prod-grid"><Metric label={text("eligibleWeight",language)} value={`${number(eligible.reduce((total,order)=>total+Number(order.remaining_kg),0),language)} kg`}/><Metric label={text("order",language)} value={number(eligible.length,language,0)} unit={text("ordersUnit",language)}/><Metric label={text("locations",language)} value={number(locationOptions.length,language,0)} unit={text("activeLocations",language)}/><Metric label={text("vouchers",language)} value={number(state.totals?.receipts??0,language,0)} unit={text("voucherUnits",language)}/></div>
     <Card title={text("receiveBatch",language)}>
       {canReceive ? <form onSubmit={submit}>
         {!locationOptions.length&&<div className="prod-callout">{text("noLocations",language)}</div>}
@@ -417,7 +420,8 @@ function Warehouse({state,user,language,reload}:{state:ProductionState;user:Prod
   const edit=(location:StorageLocation)=>{setEditing(location.id);setName(location.name);setNameAr(location.name_ar);setActive(location.is_active);};
   return <>
     {(write.error||write.success)&&(write.error?<ErrorBanner message={write.error} language={language} retry={()=>void write.retry()}/>:<div className="prod-success" role="status">{write.success}</div>)}
-    <div className="prod-grid"><Metric label={text("balances",language)} value={number(state.inventory.length,language,0)} unit={text("balanceUnits",language)}/><Metric label={text("movements",language)} value={number(state.movements.length,language,0)} unit={text("movementUnits",language)}/><Metric label={text("vouchers",language)} value={number(state.receipts.length,language,0)} unit={text("voucherUnits",language)}/><Metric label={text("locations",language)} value={number(locations.length,language,0)} unit={text("locations",language)}/></div>
+    <div className="prod-grid"><Metric label={text("balances",language)} value={number(state.totals?.inventory??0,language,0)} unit={text("balanceUnits",language)}/><Metric label={text("movements",language)} value={number(state.totals?.movements??0,language,0)} unit={text("movementUnits",language)}/><Metric label={text("vouchers",language)} value={number(state.totals?.receipts??0,language,0)} unit={text("voucherUnits",language)}/><Metric label={text("locations",language)} value={number(locations.length,language,0)} unit={text("locations",language)}/></div>
+    <Metric label={language==="en"?"Total inventory weight":"إجمالي وزن المخزون"} value={`${number(state.totals?.inventory_kg??0,language)} kg`}/>
     <Card title={text("locations",language)}>
       {canWrite&&<form className="prod-form-grid" onSubmit={saveLocation} style={{marginBottom:14}}>
         <div className="prod-field"><label htmlFor="location-name">{text("locationEn",language)}</label><input id="location-name" value={name} onChange={event=>setName(event.target.value)} required/></div>
@@ -427,15 +431,9 @@ function Warehouse({state,user,language,reload}:{state:ProductionState;user:Prod
       </form>}
       {locations.length?locations.map(location=><div className="prod-location-row" key={location.id}><div><strong>{localized(location.name_ar,location.name,language)}</strong><small className="prod-muted">{location.name} · {location.name_ar}</small></div><span className={`prod-chip ${location.is_active?"":"muted"}`}>{location.is_active?text("active",language):text("inactive",language)}</span>{canWrite&&<button className="prod-btn secondary" onClick={()=>edit(location)}><Settings2/>{text("edit",language)}</button>}</div>):<Empty title={text("noLocations",language)}/>}
     </Card>
-    <Card title={text("balances",language)}>
-      {state.inventory.length?<div className="prod-table-wrap"><table className="prod-table"><thead><tr><th>{text("product",language)}</th><th>{text("order",language)} / {text("batch",language)}</th><th>{text("location",language)}</th><th>{text("quantity",language)}</th><th>{text("productionStatus",language)}</th></tr></thead><tbody>{state.inventory.map((balance,index)=>{const order=state.orders.find(item=>item.id===balance.production_order_id);return <tr key={`${balance.production_order_id}-${balance.location_id}-${index}`}><td>{localized(balance.product.name_ar,balance.product.name,language)}<small className="prod-muted">{localized(balance.product.customer_name_ar,balance.product.customer_name,language)}</small></td><td className="prod-number">{balance.production_order_number}<small>{balance.batch_number??"—"}</small></td><td>{localized(balance.location_name_ar,balance.location_name,language)}</td><td>{number(balance.quantity_kg,language)} kg</td><td>{text(balance.production_order_status??order?.status??"—",language)}</td></tr>;})}</tbody></table></div>:<Empty title={text("noRows",language)}/>}
-    </Card>
-    <Card title={text("vouchers",language)}>
-      {state.receipts.length?[...state.receipts].sort((a,b)=>b.id-a.id).map(receipt=><details className="prod-voucher" key={receipt.id}><summary><strong className="prod-number">{receipt.voucher_number}</strong> · {date(receipt.created_at,language,true)} · {receipt.items.length} {text("order",language)}</summary><div style={{paddingTop:12}}>{receipt.notes&&<p className="prod-muted">{receipt.notes}</p>}{receipt.items.map(item=><div className="prod-measure" key={item.id}><span>{item.production_order_number} · #{item.customer_product_id}{item.item_id?` · ${item.item_id}`:""} · {localized(item.location_name_ar,item.location_name,language)}</span><strong>{number(item.quantity_kg,language)} kg</strong>{item.packaging&&<small className="prod-muted">{number(item.packaging.roll_weight_grams,language,4)} g × {number(item.packaging.rolls_per_unit,language,0)} × {number(item.packaging.units,language,0)}</small>}</div>)}</div></details>):<Empty title={text("noRows",language)}/>}
-    </Card>
-    <Card title={text("movements",language)}>
-      {state.movements.length?<div className="prod-table-wrap"><table className="prod-table"><thead><tr><th>{text("historyStatus",language)}</th><th>{text("order",language)}</th><th>{text("location",language)}</th><th>{text("quantity",language)}</th><th>{text("movementDate",language)}</th></tr></thead><tbody>{[...state.movements].sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)).map(movement=><tr key={`${movement.receipt_id}-${movement.receipt_item_id}`}><td className="prod-number">{movement.voucher_number}</td><td>{movement.production_order_number??state.orders.find(order=>order.id===movement.production_order_id)?.production_order_number??movement.production_order_id}</td><td>{localized(locations.find(location=>location.id===movement.location_id)?.name_ar,locations.find(location=>location.id===movement.location_id)?.name,language)}</td><td>{number(movement.quantity_kg,language)} kg</td><td>{date(movement.created_at,language,true)}</td></tr>)}</tbody></table></div>:<Empty title={text("noRows",language)}/>}
-    </Card>
+    <ProductionHistory kind="inventory" title={text("balances",language)} language={language} locations={locations} refresh={state}/>
+    <ProductionHistory kind="receipts" title={text("vouchers",language)} language={language} locations={locations} refresh={state}/>
+    <ProductionHistory kind="movements" title={text("movements",language)} language={language} locations={locations} refresh={state}/>
   </>;
 }
 
@@ -495,7 +493,7 @@ export default function ProductionPage({user,view,rollId}:ProductionPageProps) {
     : view==="hall" ? hasProductionPermission(user,"view_production_hall","receive_production")
     : view==="warehouse" ? hasProductionPermission(user,"view_finished_inventory","receive_production","manage_finished_warehouse")
     : hasProductionPermission(user,"view_production","manage_production","operate_film","operate_printing","operate_cutting","view_production_hall","receive_production","view_finished_inventory","manage_finished_warehouse");
-  const data=useProductionState(allowed);
+  const data=useProductionState(allowed,view);
   const state=data.state;
   return <section className="production production-app">
     <Header view={view} language={language}/>

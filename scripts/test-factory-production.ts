@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { pool, sessionPool } from "../server/db";
+import { pool as appPool, sessionPool } from "../server/db";
+import { Pool as LocalPool } from "pg";
 import { ProductionExecutionService } from "../server/production/execution";
 import { ProductionWarehouseService } from "../server/production/warehouse";
 import { ProductionReadService } from "../server/production/read";
@@ -15,8 +16,14 @@ const uiRequestsPath = process.argv.find(arg=>arg.startsWith("--ui-requests="))?
 const uiRequests: {route:string;input:{first_position:number;second_position:number}}[] | undefined =
   uiRequestsPath ? JSON.parse(readFileSync(uiRequestsPath,"utf8")) : undefined;
 import { createProductionRouter } from "../server/production/routes";
+import { verifyProductionHistory } from "./verify-production-history";
 
 if (process.env.NODE_ENV === "production") throw Error("Integration tests are development-only.");
+if (process.argv.includes("--large") && !process.argv.includes("--local")) throw Error("Large fixtures require --local and a disposable database.");
+// --local never connects to the application's database.
+const pool = process.argv.includes("--local")
+  ? new LocalPool({ host: "127.0.0.1", port: 55439, user: "runner", database: "factory_isolated_test" })
+  : appPool;
 const schema = `factory_test_${randomUUID().replace(/-/g, "")}`;
 const isolated: ConnectionPool = { async connect() {
   const tx = await pool.connect();
@@ -231,7 +238,8 @@ try {
     assert.equal(hall.inventory.length, 0); assert.equal(hall.rolls.length, 0);
     assert.ok(hall.orders.every(o => Number(o.remaining_kg) > 0));
     await query("INSERT INTO orders VALUES(90,'HISTORIC','C1','completed'); INSERT INTO production_orders(id,order_id,production_order_number,customer_product_id,quantity_kg,final_quantity_kg,status) VALUES(90,90,'HISTORIC-1',2,500,500,'completed')");
-    assert.equal((await read.state(actor)).orders.find(o => o.id === 90)?.started_at, null);
+    assert.equal((await read.state(actor)).orders.find(o => o.id === 90), undefined);
+    assert.equal((await read.history(actor, "orders", { search: "HISTORIC-1" })).records[0]?.started_at, null);
   });
   await test("order release is concurrent-safe, leaves plans untouched and enables explicit production start", async () => {
     await query("INSERT INTO orders(id,order_number,customer_id,status) VALUES(91,'RELEASE-91','C1','waiting')");
@@ -282,6 +290,16 @@ try {
       assert.equal((await call("/state")).status, 401);
       assert.equal((await call("/state", "view_orders")).status, 403);
       assert.equal((await call("/state", "view_production")).status, 200);
+      assert.equal((await call("/state?scope=invalid", "view_production")).status, 400);
+      assert.equal((await call("/history/orders")).status, 401);
+      assert.equal((await call("/history/orders", "view_finished_inventory")).status, 403);
+      assert.equal((await call("/history/receipts", "operate_film")).status, 403);
+      assert.equal((await call("/history/receipts", "view_finished_inventory")).status, 200);
+      for (const query of ["limit=101", "limit=0", "before=-1", "search=a&search=b", "from=invalid", "from=2026-02-30", "from=2026-10-02&to=2026-10-01", "status=unknown", "location_id=0"]) {
+        assert.equal((await call(`/history/orders?${query}`, "view_production")).status, 400, query);
+      }
+      assert.equal((await call("/history/receipts?status=done", "view_finished_inventory")).status, 400);
+      assert.equal((await call("/history/rolls?status=completed", "operate_film")).status, 400);
       assert.equal((await call("/orders/9/rolls", "view_production", { ...key(), machine_id: "F1", weight_kg: "1" })).status, 403);
       for (const extra of [{ stage: "done" }, { printed_at: "2026-10-01" }, { printing_machine_id: "P1" }, { request_id: "bad-key" }, { weight_kg: "-1" }, { weight_kg: "1.001" }]) {
         assert.equal((await call("/orders/9/rolls", "operate_film", { ...key(), machine_id: "F1", weight_kg: "1", ...extra })).status, 400);
@@ -308,6 +326,7 @@ try {
       assert.ok(qr.image.startsWith("data:image/png;base64,"));
     } finally { await new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve())); }
   });
+  await verifyProductionHistory(isolated, query, process.argv.includes("--large"));
   console.log(`Verified ${passed} PostgreSQL factory production integration scenarios.`);
 } catch (error) {
   console.error(error);
@@ -317,5 +336,6 @@ try {
   setup?.release();
   await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
   await pool.end();
+  if (pool !== appPool) await appPool.end();
   await sessionPool.end();
 }

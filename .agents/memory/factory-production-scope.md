@@ -33,3 +33,11 @@ transition.
 
 **How to apply:** keep both entry points and preserve explicit production start;
 do not broaden the action into arbitrary historical-order reopening.
+لا تحذف تاريخاً أو تغير قاعدة الإنتاج المنشورة دون موافقة مستقلة.
+
+**Why:** the user explicitly required this boundary when approving archive
+performance work; optimization is not permission to discard factory history
+or migrate the published database.
+
+**How to apply:** use disposable local databases for volume benchmarks.
+Any published-database change needs separate approval.

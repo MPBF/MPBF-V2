@@ -12,15 +12,15 @@ const QRCode = require("qrcode");
   const chrome = spawn(process.env.CHROMIUM_PATH || execFileSync("which", ["chromium"], { encoding: "utf8" }).trim(),
     ["--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"],
     { stdio: ["ignore", "ignore", "pipe"] });
-  let ws, session, onLoad, serial = 0, language = "en", permissions = ["admin"], failure = false, failWrite = false, passed = 0;
-  const pending = new Map(), errors = [], writes = [], committed = new Map();
+  let ws, session, onLoad, serial = 0, language = "en", permissions = ["admin"], failure = false, failWrite = false, historyFailure = false, passed = 0;
+  const pending = new Map(), errors = [], writes = [], committed = new Map(), historyCalls = [], stateScopes = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Plastic bag", name_ar: "كيس بلاستيك", customer_name: "Fixture customer", customer_name_ar: "عميل الاختبار",
     width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: "16", punching: "بنانة", notes: null, front_print_colors: [], back_print_colors: [] };
   const order = (id, changes = {}) => ({ id, order_id: id, order_number: `ORDER-${id}`, production_order_number: `PO-${id}`, customer_product_id: 1,
     quantity_kg: "100.00", final_quantity_kg: "110.00", status: "active", order_status: "in_production", batch_number: null, product,
     started_at: "2026-10-03T05:00:00Z", film_closed_at: null, completed_at: null, is_printed: true, is_roll_product: false, stage: "film",
-    produced_kg: "10.00", ready_kg: "0.00", received_kg: "0.00", remaining_kg: "0.00", waste_kg: "0.00", ...changes });
+    produced_kg: "10.00", ready_kg: "0.00", received_kg: "0.00", remaining_kg: "0.00", waste_kg: "0.00", roll_count: 1, ...changes });
   const roll = (id, po, changes = {}) => ({ id, production_order_id: po, production_order_number: `PO-${po}`, roll_number: `PO-${po}-R001`, weight_kg: "10.00",
     stage: "film", film_machine_id: "F1", created_by: 42, created_at: "2026-10-03T05:30:00Z", production_minutes: 10, is_last_roll: false,
     printing_machine_id: null, printed_by: null, printed_at: null, cutting_machine_id: null, cut_by: null, cut_completed_at: null, net_weight_kg: null,
@@ -42,6 +42,14 @@ const QRCode = require("qrcode");
     inventory: [{ id: 1, production_order_id: 4, customer_product_id: 1, item_id: "ITM01", location_id: 1, quantity_kg: "3.00",
       production_order_number: "PO-4", batch_number: null, product, location_name: "Hall A", location_name_ar: "الموقع أ" }],
     movements: [{ id: 1, receipt_id: 1, receipt_item_id: 1, quantity_kg: "3.00", created_at: "2026-10-03T06:00:00Z", voucher_number: "FR-00000001", production_order_id: 4, location_id: 1 }] };
+  const archives = {
+    orders: [...state.orders, ...Array.from({length:121}, (_, index) => order(index+100, { status:"completed", order_status:"completed",
+      completed_at:"2026-10-03T06:00:00Z",film_closed_at:"2026-10-03T06:00:00Z",roll_count:121,ready_kg:"1000",received_kg:"999",remaining_kg:"1" }))],
+    rolls: [...state.rolls,...Array.from({length:121},(_,index)=>roll(index+100,2,{roll_number:`HISTORY-R-${index+100}`,stage:"done"}))],
+    receipts: [...state.receipts,...Array.from({length:121},(_,index)=>({...state.receipts[0],id:index+100,voucher_number:`HISTORY-V-${index+100}`}))],
+    inventory: state.inventory, movements: state.movements.map(item=>({...item,production_order_number:"PO-4"})),
+  };
+  state.totals={orders:archives.orders.length,rolls:archives.rolls.length,receipts:archives.receipts.length,movements:archives.movements.length,inventory:state.inventory.length,inventory_kg:"3.00"};
   try {
     const address = await new Promise((resolve, reject) => {
       let output = "";
@@ -92,8 +100,25 @@ const QRCode = require("qrcode");
             return;
           }
         } else if (route === "/production/state") {
+          const scope=new URL(request.url).searchParams.get("scope");
+          stateScopes.push(scope);
           if (failure) { status = 500; body = { message: "خطأ تحميل تجريبي", message_en: "Fixture loading failure" }; }
-          else body = state;
+          else body = {...state,receipts:[],inventory:[],movements:[],rolls:state.rolls.filter(roll=>roll.stage!=="done"),
+            orders:scope==="warehouse"?[]:scope==="hall"?state.orders.filter(order=>Number(order.remaining_kg)>0):state.orders.filter(order=>order.id!==6)};
+        } else if (route.startsWith("/production/history/")) {
+          const url=new URL(request.url), kind=route.split("/").pop(), params=url.searchParams;
+          historyCalls.push({kind,params:Object.fromEntries(params)});
+          if(historyFailure){historyFailure=false;status=500;body={message:"تعذر تحميل التاريخ",message_en:"Fixture history failure"};}
+          else {
+            let records=archives[kind]||[];
+            if(params.get("order_id"))records=records.filter(record=>record.production_order_id===Number(params.get("order_id")));
+            if(params.get("before"))records=records.filter(record=>record.id<Number(params.get("before")));
+            if(params.get("status"))records=records.filter(record=>(kind==="rolls"?record.stage:record.status)===params.get("status"));
+            if(params.get("search"))records=records.filter(record=>JSON.stringify(record).toLowerCase().includes(params.get("search").toLowerCase()));
+            records=[...records].sort((a,b)=>b.id-a.id);
+            const limit=Number(params.get("limit")||50), more=records.length>limit;
+            records=records.slice(0,limit);body={records,next:more?records.at(-1).id:null};
+          }
         } else if (/\/production\/rolls\/\d+\/qr$/.test(route)) {
           const rollId = route.split("/").at(-2);
           const url = new URL(`/production/rolls/${rollId}`, request.url).href;
@@ -144,6 +169,24 @@ const QRCode = require("qrcode");
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     await navigate("/production");
     check("historical records explicitly unrecorded", await evaluate("document.body.innerText.includes('Unrecorded')"));
+    check("history is not fetched before opening",historyCalls.length,0);
+    await evaluate("[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()==='Order history').click()");
+    await wait("document.body.innerText.includes('PO-220')");
+    check("history first page is limited and includes full-source actuals",await evaluate("document.querySelectorAll('details[open] .prod-record').length===50&&document.body.innerText.includes('1,000 kg')"));
+    await clickText("Next");await wait("document.body.innerText.includes('PO-170')");
+    check("history sends a keyset cursor",historyCalls.at(-1).params.before,"171");
+    await clickText("Previous");await wait("document.body.innerText.includes('PO-220')");
+    await setInput("details[open] input:not([type])","PO-100");
+    await evaluate("document.querySelector('details[open] form').requestSubmit()");
+    await wait("document.body.innerText.includes('PO-100')&&!document.body.innerText.includes('PO-220')");
+    check("search resets page cursor",historyCalls.at(-1).params.before===undefined);
+    check("search preserves complete summary counts",await evaluate("document.querySelector('.prod-grid .prod-stat strong').textContent"),String(state.totals.orders));
+    await setInput("details[open] input:not([type])","");historyFailure=true;
+    await evaluate("document.querySelector('details[open] form').requestSubmit()");
+    await wait("!!document.querySelector('details[open] .prod-error')");
+    await clickText("Retry");await wait("document.body.innerText.includes('PO-220')");
+    check("failed history request can be retried",await evaluate("!document.querySelector('details[open] .prod-error')"));
+    await navigate("/production");
     await evaluate("document.querySelector('button[aria-label=\"Move down\"]').click()");
     await wait("!!document.querySelector('.prod-success')");
     check("queue reorder single atomic request with UUID", writes.at(-1).route, "/production/queues/reorder");
@@ -190,6 +233,8 @@ const QRCode = require("qrcode");
     await navigate("/production");
     await wait("location.pathname==='/production/warehouse'");
     check("warehouse-only navigation opens inventory", await evaluate("location.pathname"), "/production/warehouse");
+    await evaluate("[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()==='Saved receipt vouchers').click()");
+    await wait("!!document.querySelector('.prod-voucher')");
     await evaluate("document.querySelectorAll('.prod-voucher').forEach(voucher=>voucher.open=true)");
     check("all saved voucher items displayed", await evaluate("document.querySelector('.production-app').innerText.includes('PO-4')&&document.querySelector('.production-app').innerText.includes('PO-2')"));
     check("inventory reader cannot edit locations", await evaluate("![...document.querySelectorAll('.production-app button')].some(b=>/Save location|Edit/.test(b.textContent))"));
@@ -228,6 +273,25 @@ const QRCode = require("qrcode");
     failure = false;
     await clickText("Retry"); await wait("!document.querySelector('.prod-error')");
     check("load failure retry restores data", await evaluate("document.querySelector('.production-app').innerText.includes('PO-2')"));
+    permissions=["admin"];
+    for(const lang of ["en","ar"]){
+      language=lang;
+      for(const width of [390,768,1440]){
+        await send("Emulation.setDeviceMetricsOverride",{width,height:900,deviceScaleFactor:1,mobile:width<500});
+        await navigate("/production");
+        await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${JSON.stringify(lang==="en"?"Order history":"تاريخ أوامر الإنتاج")}).click()`);
+        await wait("document.body.innerText.includes('PO-220')");
+        check(`${lang} ${width} expanded history fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+        await navigate("/production/warehouse");
+        for(const title of (lang==="en"?["Finished-goods balances","Saved receipt vouchers","Inventory movements"]:["أرصدة المواد التامة","سندات الاستلام المحفوظة","حركات المخزون"])){
+          await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${JSON.stringify(title)}).click()`);
+        }
+        await wait("!!document.querySelector('.prod-voucher')");
+        await evaluate("document.querySelectorAll('.prod-voucher').forEach(item=>item.open=true)");
+        check(`${lang} ${width} expanded warehouse history fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+      }
+    }
+    check("each board requests its own scope",["management","film","printing","cutting","hall","warehouse","roll"].every(scope=>stateScopes.includes(scope)));
     check("no runtime exceptions", errors, []);
     await fs.writeFile("/tmp/factory-ui-requests.json",JSON.stringify(writes));
     console.log(`Verified ${passed} browser assertions with isolated API fixtures.`);

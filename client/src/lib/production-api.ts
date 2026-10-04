@@ -1,5 +1,5 @@
 import i18n from "../i18n";
-import type { FilmInput, ProductionRollRecord, ProductionState, ReceiptInput } from "../../../shared/production";
+import type { FilmInput, ProductionRollRecord, ProductionState, ReceiptInput, ProductionHistoryKind, ProductionHistoryFilter, ProductionHistoryPage, ProductionStateScope } from "../../../shared/production";
 
 export type ProductionRollLabel = {
   roll: ProductionRollRecord;
@@ -21,7 +21,12 @@ export async function productionRequest<T>(path: string, body?: unknown, method 
   return data;
 }
 export const productionApi = {
-  state: () => productionRequest<ProductionState>("/state"),
+  state: (scope: ProductionStateScope = "management") => productionRequest<ProductionState>(`/state?scope=${scope}`),
+  history: <K extends ProductionHistoryKind>(kind: K, filters: ProductionHistoryFilter = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
+    return productionRequest<ProductionHistoryPage<K>>(`/history/${kind}?${params}`);
+  },
   roll: (id: string | number) => productionRequest<ProductionState["rolls"][number]>(`/rolls/${encodeURIComponent(id)}`),
   qr: (id: number) => productionRequest<{ url: string; image: string }>(`/rolls/${id}/qr`),
   labels: (rollIds: number[]) => productionRequest<{ labels: ProductionRollLabel[] }>("/labels", { roll_ids: rollIds }),

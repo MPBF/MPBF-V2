@@ -45,7 +45,26 @@ router.use(requireAuth);
 const execution = new ProductionExecutionService(connectionPool);
 const warehouse = new ProductionWarehouseService(connectionPool);
 const read = new ProductionReadService(connectionPool);
-router.get("/state", handler(async (req, res) => { res.json(await read.state(req.user!)); }));
+router.get("/state", handler(async (req, res) => {
+  const scope = z.enum(["management", "film", "printing", "cutting", "hall", "warehouse", "roll"]).default("management").parse(req.query.scope);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json(await read.state(req.user!, scope));
+}));
+const historyFilters = z.object({
+  before: id.optional(), limit: z.coerce.number().int().min(1).max(100).optional(),
+  search: safeText(120).optional(), status: z.enum(["pending","active","in_production","completed","cancelled","archived","film","printing","done"]).optional(),
+  from: z.string().date().optional(), to: z.string().date().optional(),
+  order_id: id.optional(), location_id: id.optional(),
+}).strict().refine(value => !value.from || !value.to || value.from <= value.to);
+router.get("/history/:kind", handler(async (req, res) => {
+  const kind = z.enum(["orders", "rolls", "receipts", "movements", "inventory"]).parse(req.params.kind);
+  const filters = historyFilters.parse(req.query);
+  if (filters.status && !["orders", "rolls"].includes(kind)) throw new z.ZodError([]);
+  if (filters.status && !(kind === "rolls" ? ["film","printing","done"] : ["pending","active","in_production","completed","cancelled","archived"]).includes(filters.status)) throw new z.ZodError([]);
+  if (filters.location_id && ["orders", "rolls"].includes(kind)) throw new z.ZodError([]);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json(await read.history(req.user!, kind, filters));
+}));
 router.get("/rolls/:id", handler(async (req, res) => { res.json(await read.roll(req.user!, id.parse(req.params.id))); }));
 router.get("/rolls/:id/qr", handler(async (req, res) => {
   const roll = await read.roll(req.user!, id.parse(req.params.id));
