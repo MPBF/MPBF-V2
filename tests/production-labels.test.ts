@@ -20,8 +20,8 @@ describe("private factory roll label endpoint", () => {
   const query = jest.fn<(sql: string, values?: any[]) => Promise<{ rows: any[] }>>();
   const connect = jest.fn<ConnectionPool["connect"]>();
   const records = [
-    { id: 1, roll_number: "R-1", production_order_number: "PO-1", weight_kg: "57.25", batch_number: "B-1" },
-    { id: 2, roll_number: "R-2", production_order_number: "PO-2", weight_kg: "19.50", batch_number: null },
+    { id: 1, roll_number: "R-1", production_order_number: "PO-1", weight_kg: "57.25", batch_number: "B-1", stage: "done" },
+    { id: 2, roll_number: "R-2", production_order_number: "PO-2", weight_kg: "19.50", batch_number: null, stage: "done" },
   ];
   beforeAll(async () => {
     const app = express();
@@ -43,8 +43,19 @@ describe("private factory roll label endpoint", () => {
     query.mockReset(); connect.mockReset(); release.mockClear();
     connect.mockResolvedValue({ query, release });
     query.mockImplementation(async (sql, values) => {
-      expect(sql).toMatch(/^SELECT /);
       expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
+      if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return { rows: [] };
+      if (sql.startsWith("WITH selected")) {
+        expect(sql).toContain("ORDER BY r.id DESC LIMIT");
+        expect(sql).not.toContain("r.stage=");
+        const before = sql.includes("r.id<") ? values![0] : Infinity;
+        const search = values?.find(value => typeof value === "string") as string | undefined;
+        const literal = search?.slice(1, -1).replace(/\\([\\%_])/g, "$1").toLowerCase();
+        return { rows: records.filter(record => record.id < before && (!literal ||
+          `${record.roll_number} ${record.production_order_number}`.toLowerCase().includes(literal)))
+          .sort((a, b) => b.id - a.id).slice(0, values!.at(-1)) };
+      }
+      expect(sql).toMatch(/^SELECT /);
       const ids = Array.isArray(values?.[0]) ? values![0] : [values?.[0]];
       return { rows: records.filter(record => ids.includes(record.id)) };
     });
@@ -70,7 +81,7 @@ describe("private factory roll label endpoint", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     const data = await response.json();
     expect(data.labels.map((label: any) => label.roll)).toEqual([records[1], records[0]]);
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.filter(([sql]) => sql.startsWith("SELECT "))).toHaveLength(1);
     expect(release).toHaveBeenCalledTimes(1);
     for (const label of data.labels) {
       expect(label.qr.image).toMatch(/^data:image\/png;base64,/);
@@ -83,6 +94,34 @@ describe("private factory roll label endpoint", () => {
       expect(url.password).toBe("");
     }
   });
+  it("requires login and label permissions to discover rolls", async () => {
+    expect((await fetch(`${origin}/api/production/labels`)).status).toBe(401);
+    for (const value of ["", "*", "view_orders"]) {
+      expect((await fetch(`${origin}/api/production/labels`, { headers: { "x-test-permissions": value } })).status).toBe(403);
+    }
+    expect(connect).not.toHaveBeenCalled();
+  });
+  it.each([...productionPermissions, "admin"])("allows bounded completed-roll discovery for %s", async permissions => {
+    const response = await fetch(`${origin}/api/production/labels?limit=1`, { headers: { "x-test-permissions": permissions } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ records: [records[1]], next: 2 });
+    expect(query.mock.calls.find(([sql]) => sql.startsWith("WITH selected"))?.[1]).toEqual([2]);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+  it("paginates and searches completed rolls without changing general history permissions", async () => {
+    const headers = { "x-test-permissions": "view_finished_inventory" };
+    const response = await fetch(`${origin}/api/production/labels?before=2&limit=1&search=R-1`, { headers });
+    expect(await response.json()).toEqual({ records: [records[0]], next: null });
+    expect(query.mock.calls.find(([sql]) => sql.startsWith("WITH selected"))?.[1]).toEqual([2, "%R-1%", 2]);
+    expect((await fetch(`${origin}/api/production/history/rolls`, { headers })).status).toBe(403);
+  });
+  it.each(["limit=101", "limit=0", "before=0", "before=1.5", "status=done", `search=${"x".repeat(121)}`])(
+    "rejects invalid discovery filters %s before storage", async filters => {
+      expect((await fetch(`${origin}/api/production/labels?${filters}`, { headers: { "x-test-permissions": "admin" } })).status).toBe(400);
+      expect(connect).not.toHaveBeenCalled();
+    },
+  );
   it("fails the entire selection if any roll has disappeared", async () => {
     const response = await labels([1, 99], "operate_film");
     expect(response.status).toBe(404);

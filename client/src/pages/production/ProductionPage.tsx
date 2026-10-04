@@ -520,7 +520,7 @@ export default function ProductionPage({user,view,rollId}:ProductionPageProps) {
         {(view==="film"||view==="printing"||view==="cutting")&&<OperatorBoard state={state} user={user} stage={view} language={language} reload={data.reload}/>}
         {view==="hall"&&<HallView state={state} user={user} language={language} reload={data.reload}/>}
         {view==="warehouse"&&<Warehouse state={state} user={user} language={language} reload={data.reload}/>}
-        <RollLabelControls rolls={state.rolls} language={language} />
+        <RollLabelControls refresh={state} language={language} />
       </>}
   </section>;
 }

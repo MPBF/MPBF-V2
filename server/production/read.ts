@@ -71,6 +71,12 @@ export class ProductionReadService {
     permission(actor, ...productionPermissions);
     return this.read(tx => one(tx, `${rollSelect} WHERE r.id=$1`, [id]));
   }
+  async labelPage(actor: ProductionUser, filters: Pick<ProductionHistoryFilter, "before" | "limit" | "search">): Promise<ProductionHistoryPage<"rolls">> {
+    // Label discovery has the same access rules as labels and roll detail,
+    // including hall/warehouse viewers. Do not broaden general history access.
+    permission(actor, ...productionPermissions);
+    return this.read(tx => historyPage(tx, "rolls", filters));
+  }
   async labelRolls(actor: ProductionUser, ids: number[]): Promise<ProductionRollRecord[]> {
     // The same permissions as roll detail; one bounded, read-only query supplies
     // current data even when the operator's board has changed since selection.

@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { AlertTriangle, Check, Printer, RefreshCw, Search, X } from "lucide-react";
 import type { ProductionRollRecord } from "../../../../shared/production";
 import { productionApi, type ProductionRollLabel } from "../../lib/production-api";
 import { formatNumber } from "../../lib/format-number";
 import { buildRollLabelDocument, rollLabelPreviewCopy, type RollLabelLanguage } from "./roll-label-document";
+import { useRollLabelHistory } from "./useRollLabelHistory";
 
-type Props = { rolls: ProductionRollRecord[]; language: string; single?: boolean };
+type Props = { rolls?: ProductionRollRecord[]; language: string; single?: boolean; refresh?: unknown };
 
 const messages = {
   ar: {
     title: "ملصقات تعريف الرولات", hint: "اختر رولات مسجلة؛ تُجلب بياناتها ورموزها المحدثة معاً قبل المعاينة.",
     printOne: "طباعة ملصق الرول", search: "ابحث برقم الرول أو أمر الإنتاج", selectAll: "تحديد النتائج", clear: "مسح التحديد", retry: "إعادة المحاولة",
-    selected: "محدد", print: "تجهيز المعاينة", limit: "يمكن تحديد 100 رول كحد أقصى لكل دفعة. استخدم البحث لتضييق النتائج؛ يُعرض أول 100 تطابق.",
+    selected: "محدد", print: "تجهيز المعاينة", limit: "يمكن تحديد 100 رول لكل دفعة، بما فيها المكتملة. يُعرض 50 رولًا في الصفحة ويُحفظ التحديد بين الصفحات ونتائج البحث.",
+    searchAction: "بحث", previous: "السابق", next: "التالي", page: "صفحة", loading: "جارٍ تحميل الرولات…",
     noRolls: "لا توجد رولات مسجلة متاحة.", noMatches: "لا توجد نتائج مطابقة.", fetchError: "تعذر جلب الملصقات. لم تُعرض أي ملصقات؛ أعد المحاولة.",
     popupBlocked: "حُظر فتح نافذة المعاينة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم أعد المحاولة.",
     invalidResponse: "استجابة الملصقات غير مكتملة أو غير متطابقة؛ لم تُعرض أي ملصقات.",
@@ -19,7 +21,8 @@ const messages = {
   en: {
     title: "Roll identification labels", hint: "Select registered rolls. Current roll data and QR images are fetched together before preview.",
     printOne: "Print this roll label", search: "Search roll or production order", selectAll: "Select results", clear: "Clear selection", retry: "Retry",
-    selected: "selected", print: "Prepare preview", limit: "Select up to 100 rolls per batch. Search to narrow results; the first 100 matches are shown.",
+    selected: "selected", print: "Prepare preview", limit: "Select up to 100 rolls per batch, including completed rolls. Each page shows 50 rolls; selections are kept across pages and searches.",
+    searchAction: "Search", previous: "Previous", next: "Next", page: "Page", loading: "Loading rolls…",
     noRolls: "No registered rolls are available.", noMatches: "No matching rolls.", fetchError: "Labels could not be fetched. No labels were shown; retry.",
     popupBlocked: "The preview window was blocked. Allow pop-ups for this site, then retry.",
     invalidResponse: "The label response was incomplete or mismatched. No labels were shown.",
@@ -121,7 +124,7 @@ async function preparePreview(ids: number[], language: RollLabelLanguage, popup:
   }
 }
 
-export default function RollLabelControls({ rolls, language, single = false }: Props) {
+export default function RollLabelControls({ rolls = [], language, single = false, refresh }: Props) {
   const lang: RollLabelLanguage = language === "en" ? "en" : "ar";
   const text = messages[lang];
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -129,18 +132,8 @@ export default function RollLabelControls({ rolls, language, single = false }: P
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [retryIds, setRetryIds] = useState<number[]>([]);
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filtered = useMemo(() => rolls.filter(roll =>
-    `${roll.roll_number} ${roll.production_order_number}`.toLocaleLowerCase().includes(normalizedQuery)
-  ), [rolls, normalizedQuery]);
-  const visibleRolls = filtered.slice(0, 100);
-  const rollIdsKey = useMemo(() => rolls.map(roll => roll.id).join(","), [rolls]);
-
-  useEffect(() => {
-    if (single) return;
-    const allowed = new Set(rollIdsKey.split(",").filter(Boolean).map(Number));
-    setSelected(previous => new Set([...previous].filter(id => allowed.has(id))));
-  }, [rollIdsKey, single]);
+  const history = useRollLabelHistory(!single, refresh, lang);
+  const visibleRolls = history.page?.records ?? [];
 
   const launch = async (ids: number[]) => {
     if (busy || !ids.length || ids.length > 100 || new Set(ids).size !== ids.length) return;
@@ -191,19 +184,27 @@ export default function RollLabelControls({ rolls, language, single = false }: P
     </div>
     <div className="prod-card-body">
       {error && <div className="roll-label-error" role="alert"><AlertTriangle aria-hidden="true" /><span>{error}</span><button type="button" onClick={() => void launch(retryIds)}><RefreshCw />{text.retry}</button><button type="button" aria-label={lang === "ar" ? "إغلاق التنبيه" : "Dismiss alert"} onClick={() => setError("")}><X /></button></div>}
-      <div className="roll-label-toolbar">
-        <label className="roll-label-search"><Search aria-hidden="true" /><span className="sr-only">{text.search}</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder={text.search} /></label>
-        <button type="button" className="prod-btn quiet" onClick={toggleFiltered} disabled={!filtered.length}>{allVisibleSelected ? <X /> : <Check />}{text.selectAll}</button>
+      <form className="roll-label-toolbar" onSubmit={event => { event.preventDefault(); history.search(query); }}>
+        <label className="roll-label-search"><Search aria-hidden="true" /><span className="sr-only">{text.search}</span><input value={query} maxLength={120} onChange={event => setQuery(event.target.value)} placeholder={text.search} /></label>
+        <button type="submit" className="prod-btn secondary">{text.searchAction}</button>
+        <button type="button" className="prod-btn quiet" onClick={toggleFiltered} disabled={history.loading || !visibleRolls.length}>{allVisibleSelected ? <X /> : <Check />}{text.selectAll}</button>
         <button type="button" className="prod-btn quiet" onClick={() => setSelected(new Set())} disabled={!selected.size}><X />{text.clear}</button>
-      </div>
+      </form>
       <p className="roll-label-limit">{text.limit}</p>
-      {rolls.length ? filtered.length ? <div className="roll-label-list" role="group" aria-label={text.title}>
+      {history.loading && <p role="status">{text.loading}</p>}
+      {history.error && <div className="roll-label-error" role="alert"><AlertTriangle aria-hidden="true" /><span>{history.error}</span><button type="button" onClick={history.retry}><RefreshCw />{text.retry}</button></div>}
+      {history.page && (visibleRolls.length ? <div className="roll-label-list" role="group" aria-label={text.title}>
         {visibleRolls.map(roll => <label className="roll-label-option" key={roll.id}>
           <input type="checkbox" checked={selected.has(roll.id)} disabled={!selected.has(roll.id) && selected.size >= 100} onChange={() => toggle(roll.id)} />
           <span className="roll-label-option-main"><strong className="prod-number">{roll.roll_number}</strong><small>{roll.production_order_number}</small></span>
            <span className="roll-label-option-weight">{formatNumber(roll.weight_kg)} kg</span>
         </label>)}
-      </div> : <div className="roll-label-empty">{text.noMatches}</div> : <div className="roll-label-empty">{text.noRolls}</div>}
+      </div> : <div className="roll-label-empty">{text.noMatches}</div>)}
+      <div className="roll-label-toolbar" style={{ marginTop: 12 }}>
+        <button type="button" className="prod-btn secondary" onClick={history.previous} disabled={history.loading || history.pageNumber === 1}>{text.previous}</button>
+        <span>{text.page} {formatNumber(history.pageNumber)}</span>
+        <button type="button" className="prod-btn secondary" onClick={history.next} disabled={history.loading || history.page?.next == null}>{text.next}</button>
+      </div>
       <div className="roll-label-footer">
         <span>{selected.size} {text.selected}</span>
         <button type="button" className="prod-btn" onClick={() => void launch([...selected])} disabled={!selected.size || busy}>

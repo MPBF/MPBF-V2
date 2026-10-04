@@ -29,6 +29,11 @@ export const productionApi = {
   },
   roll: (id: string | number) => productionRequest<ProductionState["rolls"][number]>(`/rolls/${encodeURIComponent(id)}`),
   qr: (id: number) => productionRequest<{ url: string; image: string }>(`/rolls/${id}/qr`),
+  labelPage: (filters: Pick<ProductionHistoryFilter, "before" | "limit" | "search"> = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
+    return productionRequest<ProductionHistoryPage<"rolls">>(`/labels?${params}`);
+  },
   labels: (rollIds: number[]) => productionRequest<{ labels: ProductionRollLabel[] }>("/labels", { roll_ids: rollIds }),
   start: (id: number, request_id: string) => productionRequest(`/orders/${id}/start`, { request_id }),
   film: (id: number, input: FilmInput) => productionRequest(`/orders/${id}/rolls`, input),

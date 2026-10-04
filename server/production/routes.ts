@@ -71,6 +71,14 @@ router.get("/rolls/:id/qr", handler(async (req, res) => {
   res.setHeader("Cache-Control", "private, no-store");
   res.json(await rollQR(req, roll.id));
 }));
+router.get("/labels", handler(async (req, res) => {
+  const filters = z.object({
+    before: id.optional(), limit: z.coerce.number().int().min(1).max(100).optional(),
+    search: safeText(120).optional(),
+  }).strict().parse(req.query);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json(await read.labelPage(req.user!, filters));
+}));
 router.post("/labels", handler(async (req, res) => {
   res.setHeader("Cache-Control", "private, no-store");
   const { roll_ids } = labelSelection.parse(req.body);

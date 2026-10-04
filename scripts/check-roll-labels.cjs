@@ -22,13 +22,13 @@ const jsQR = require("jsqr");
     ["--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${path.join(temp, "profile")}`, "about:blank"],
     { stdio: ["ignore", "ignore", "pipe"] });
   let ws, serial = 0, passed = 0, language = "en", failure = "", permissions = ["operate_film"];
-  const pending = new Map(), errors = [], requests = [];
+  const pending = new Map(), errors = [], requests = [], historyRequests = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Film bag", name_ar: "كيس بلاستيك", customer_name: "Fixture", customer_name_ar: "اختبار" };
   const rolls = Array.from({ length: 105 }, (_, index) => ({
     id: index + 1, production_order_id: 1, roll_number: `PO-00001-R${String(index + 1).padStart(3, "0")}`,
     production_order_number: "PO-00001", weight_kg: index ? "19.50" : "57.25", batch_number: index ? null : "BATCH-001",
-    stage: "film", film_machine_id: "F1", created_by: 42, created_at: "2026-10-04T03:00:00Z",
+    stage: "done", film_machine_id: "F1", created_by: 42, created_at: "2026-10-04T03:00:00Z",
     production_minutes: 10, is_last_roll: false, printing_machine_id: null, printed_by: null, printed_at: null,
     cutting_machine_id: null, cut_by: null, cut_completed_at: null, net_weight_kg: null, waste_kg: "0.00",
     product, is_printed: false, is_roll_product: false,
@@ -37,7 +37,8 @@ const jsQR = require("jsqr");
     width: 600, margin: 4, errorCorrectionLevel: "M", color: { dark: "#000000", light: "#ffffff" },
   })));
   const label = roll => ({ roll, qr: { url: `https://factory.example.test/production/rolls/${roll.id}`, image: images[roll.id - 1] } });
-  const state = { orders: [], rolls, machines: [], queues: [], locations: [], inventory: [], movements: [], receipts: [] };
+  // Completed rolls never come from active/scoped state feeds.
+  const state = { orders: [], rolls: [], machines: [], queues: [], locations: [], inventory: [], movements: [], receipts: [] };
   try {
     const address = await new Promise((resolve, reject) => {
       let output = "";
@@ -68,7 +69,16 @@ const jsQR = require("jsqr");
         if (route === "/api/me") body = { user: { id: 42, username: "fixture", display_name: "Fixture", display_name_ar: "اختبار", preferred_language: language, permissions } };
         else if (route === "/api/public-branding") body = {};
         else if (route === "/api/production/state") body = state;
-        else if (route === "/api/production/labels") {
+        else if (route === "/api/production/labels" && request.method === "GET") {
+          const params = new URL(request.url).searchParams;
+          historyRequests.push(Object.fromEntries(params));
+          const before = Number(params.get("before") || Infinity), limit = Number(params.get("limit") || 50);
+          assert.ok(limit <= 100, "Label discovery must remain bounded");
+          const search = (params.get("search") || "").toLowerCase();
+          const records = rolls.filter(roll => roll.id < before &&
+            `${roll.roll_number} ${roll.production_order_number}`.toLowerCase().includes(search)).sort((a,b) => b.id-a.id);
+          body = { records: records.slice(0, limit), next: records.length > limit ? records[limit - 1].id : null };
+        } else if (route === "/api/production/labels") {
           const input = JSON.parse(request.postData || "{}");
           requests.push(input.roll_ids);
           body = { labels: input.roll_ids.map(id => label(rolls.find(roll => roll.id === id))) };
@@ -192,12 +202,23 @@ const jsQR = require("jsqr");
       for (const width of [390, 768, 1440]) {
         await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 }, ui.sessionId);
         await navigate("/production/film");
-        await wait("!!document.querySelector('.roll-label-controls')", ui.sessionId);
+        await wait("document.querySelectorAll('.roll-label-list input').length===50", ui.sessionId);
         check(`${lang} ${width} selection UI fits`, await evaluate("document.documentElement.scrollWidth<=innerWidth+1", ui.sessionId));
         check(`${lang} ${width} available without management permission`, await evaluate("document.querySelector('.roll-label-controls').innerText.length>80", ui.sessionId));
       }
       await click(lang === "en" ? "Select results" : "تحديد النتائج");
-      check(`${lang} group selection capped at 100`, await evaluate("document.querySelectorAll('.roll-label-list input:checked').length", ui.sessionId), 100);
+      check(`${lang} only first bounded page selected`, await evaluate("document.querySelectorAll('.roll-label-list input:checked').length", ui.sessionId), 50);
+      await click(lang === "en" ? "Next" : "التالي");
+      await wait("document.querySelector('.roll-label-list')?.innerText.includes('R055')", ui.sessionId);
+      await click(lang === "en" ? "Select results" : "تحديد النتائج");
+      await wait("document.querySelector('.roll-label-count').innerText.startsWith('100')", ui.sessionId);
+      await click(lang === "en" ? "Next" : "التالي");
+      await wait("document.querySelectorAll('.roll-label-list input').length===5", ui.sessionId);
+      check(`${lang} group selection capped at 100 across pages`, await evaluate("document.querySelectorAll('.roll-label-list input:disabled').length", ui.sessionId), 5);
+      await click(lang === "en" ? "Previous" : "السابق");
+      await wait("document.querySelectorAll('.roll-label-list input:checked').length===50", ui.sessionId);
+      await click(lang === "en" ? "Previous" : "السابق");
+      await wait("document.querySelector('.roll-label-list')?.innerText.includes('R105')", ui.sessionId);
       await click(lang === "en" ? "Clear selection" : "مسح التحديد");
       await wait("document.querySelectorAll('.roll-label-list input:checked').length===0", ui.sessionId);
       await evaluate("[...document.querySelectorAll('.roll-label-list input')].slice(0,2).forEach(i=>i.click())", ui.sessionId);
@@ -206,7 +227,7 @@ const jsQR = require("jsqr");
       await click(lang === "en" ? "Prepare preview" : "تجهيز المعاينة");
       const popup = await popupAfter(before);
       await wait("!!document.querySelector('#print-labels')&&!document.querySelector('#print-labels').disabled", popup.sessionId);
-      check(`${lang} exact selected IDs fetched`, requests.at(-1), [1, 2]);
+      check(`${lang} exact completed-roll IDs fetched from empty work board`, requests.at(-1), [105, 104]);
       check(`${lang} two fresh labels ready`, await evaluate("document.querySelectorAll('.label-sheet').length", popup.sessionId), 2);
       check(`${lang} printer instructions included`, await evaluate("document.querySelector('.preview-toolbar').innerText.includes('Zebra')", popup.sessionId));
       // Clicking Print invokes the browser printing API, never a stage transition.
@@ -215,6 +236,22 @@ const jsQR = require("jsqr");
       await send("Target.closeTarget", { targetId: popup.targetId });
     }
     language = "en";
+    for (const [route, grant] of [["hall", "view_production_hall"], ["warehouse", "view_finished_inventory"]]) {
+      permissions = [grant];
+      await navigate(`/production/${route}`);
+      await wait("document.querySelectorAll('.roll-label-list input').length===50", ui.sessionId);
+      await evaluate("[...document.querySelectorAll('.roll-label-list input')].slice(0,2).forEach(i=>i.click())", ui.sessionId);
+      await wait("document.querySelectorAll('.roll-label-list input:checked').length===2", ui.sessionId);
+      const before = await targetIds();
+      await click("Prepare preview");
+      const popup = await popupAfter(before);
+      await wait("!!document.querySelector('#print-labels')&&!document.querySelector('#print-labels').disabled", popup.sessionId);
+      check(`${route} preserves batch browser labels with its own permission`, requests.at(-1), [105, 104]);
+      await send("Target.closeTarget", { targetId: popup.targetId });
+    }
+    permissions = ["operate_film"];
+    language = "en";
+    const historyBeforeSingle = historyRequests.length;
     await navigate("/production/rolls/1");
     await wait("!!document.querySelector('.roll-label-single button')", ui.sessionId);
     const before = await targetIds();
@@ -222,8 +259,10 @@ const jsQR = require("jsqr");
     const single = await popupAfter(before);
     await wait("!!document.querySelector('#print-labels')&&!document.querySelector('#print-labels').disabled", single.sessionId);
     check("single roll detail fetches one ID", requests.at(-1), [1]);
+    check("single label needs no archive discovery", historyRequests.length, historyBeforeSingle);
     await send("Target.closeTarget", { targetId: single.targetId });
     await navigate("/production/film");
+    await wait("document.querySelectorAll('.roll-label-list input').length===50", ui.sessionId);
     await evaluate("[...document.querySelectorAll('.roll-label-list input')].slice(0,2).forEach(i=>i.click())", ui.sessionId);
     await wait("document.querySelectorAll('.roll-label-list input:checked').length===2", ui.sessionId);
     for (const mode of ["fetch", "missing", "duplicate", "image"]) {
@@ -241,7 +280,7 @@ const jsQR = require("jsqr");
     await click("Retry");
     const retry = await popupAfter(retryBefore);
     await wait("!!document.querySelector('#print-labels')&&!document.querySelector('#print-labels').disabled", retry.sessionId);
-    check("retry preserves selection", requests.at(-1), [1, 2]);
+    check("retry preserves selection", requests.at(-1), [105, 104]);
     await send("Target.closeTarget", { targetId: retry.targetId });
     const requestsBefore = requests.length;
     await evaluate("window.open=()=>null", ui.sessionId);
