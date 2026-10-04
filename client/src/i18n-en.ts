@@ -648,6 +648,7 @@ const english: Record<string, string> = {
   "رمز لون الماستر باتش": "Masterbatch color code",
   "رمز لون النص": "Text color code",
   "عينة اللون": "Color swatch",
+  "شفاف": "Transparent",
   "كتالوج مكونات الصيانة": "Maintenance component catalog",
   "ماكينة": "Machine",
   "ماكينة الطباعة المدمجة": "Inline printer",

@@ -66,6 +66,15 @@ const releaseOnly = process.argv.includes("--production-release-only");
     const first = { id: 9, order_id: 7, production_order_number: "ORD123-01", customer_product_id: 11,
       quantity_kg: "300.00", final_quantity_kg: "330.00", overrun_percentage: "10.00", status: "active",
       previous_status: "pending", batch_number: "BATCH01", created_at: "2026-10-03T06:00:00.000Z", product };
+    const palette = [
+      { id: "PT02", name_ar: "شفاف", name: "Transparent", color_hex: "#ffffff", text_color: "#000000", is_active: true },
+      { id: "PT01", name_ar: "أبيض", name: "White", color_hex: "#ffffff", text_color: "#000000", is_active: true },
+    ];
+    const paletteProducts = () => palette.map((color, index) => ({
+      ...product, id: 11 + index, master_batch_id: color.id, master_batch_name_ar: color.name_ar,
+      master_batch_name: color.name, master_batch_color_hex: color.color_hex,
+      category_name_ar: "أكياس", category_name: "Bags", item_name_ar: "بنانة - S", item_name: "Banana S",
+    }));
     const detail = () => {
       const lines = noLines ? [] : large ? Array.from({ length: largeRowCount }, (_, i) => ({
         ...first, id: 100 + i, production_order_number: `ORD123-${i + 1}`,
@@ -102,6 +111,14 @@ const releaseOnly = process.argv.includes("--production-release-only");
       else if (route === "/public-branding") body = { companyNameAr: "مصنع أكياس البلاستيك الحديث", companyNameEn: "Modern Plastic Bags Factory",
         logoSrc: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70"><rect width="70" height="70" rx="12" fill="#167a6d"/><text x="35" y="43" fill="white" font-size="20" text-anchor="middle">MPBF</text></svg>') };
       else if (route === "/orders") body = [{ ...order, customer_name_ar: "عميل تجريبي", production_orders_summary: [] }];
+      else if (route === "/orders/display-folders") body = { counts: { new: 1, production: 0, urgent: 0, archive: 0 }, total: 1 };
+      else if (route === "/master-batch-colors") body = palette;
+      else if (route === "/customer-products") body = paletteProducts();
+      else if (route === "/customers") body = [detail().customer];
+      else if (route === "/categories") body = [product.category];
+      else if (route === "/items") body = [{ ...product.item, category_id: product.category_id, status: "active" }];
+      else if (route === "/customer-products/form-options") body = { printing_cylinders: ["16.5"] };
+      else if (route === "/customers/CID010/detail") body = { customer: detail().customer, products: paletteProducts() };
       else if (/^\/orders\/\d+\/details$/.test(route)) {
         status = route.includes("/999/") ? 404 : detailStatus;
         body = status === 200 ? detail() : { message: status === 404 ? "الطلب غير موجود" : "تعذر التحميل التجريبي" };
@@ -195,12 +212,12 @@ const releaseOnly = process.argv.includes("--production-release-only");
       check("release browser has no runtime errors",errors,[]);
       console.log(`Verified ${passed} isolated order-release browser checks.`);return;
     }
-    const pdf = async (name) => {
+    const pdf = async (name, printBackground = true) => {
       await evaluate(`(async()=>{
         await document.fonts.ready;
         await Promise.all([...document.querySelectorAll('.opp-sheet img')].map(img=>img.decode()));
       })()`);
-      const result = await send("Page.printToPDF", { preferCSSPageSize: true, printBackground: true, displayHeaderFooter: false });
+      const result = await send("Page.printToPDF", { preferCSSPageSize: true, printBackground, displayHeaderFooter: false });
       await fs.mkdir(outputDir, { recursive: true });
       const file = path.join(outputDir, `${name}.pdf`);
       await fs.writeFile(file, Buffer.from(result.data, "base64"));
@@ -290,6 +307,7 @@ const releaseOnly = process.argv.includes("--production-release-only");
       finally { await send("Emulation.setEmulatedMedia", { media: "" }); }
     };
 
+    if (!process.argv.includes("--header-transparent-only")) {
     for (const width of (process.argv.includes("--print-only") ? [1280] : [390, 768, 1280])) {
       await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });
       await navigate("/orders?tab=orders");
@@ -311,6 +329,20 @@ const releaseOnly = process.argv.includes("--production-release-only");
       check(`${width}: bilingual 12-column document and creator signature`, await evaluate("document.querySelectorAll('.opp-spec-table thead th').length===12&&document.querySelector('.opp-signatures').textContent.includes('منشئ تجريبي')&&document.querySelector('.opp-sheet').textContent.includes('PRODUCTION ORDER')"));
       await capture(`order-print-${width}`);
       check(`${width}: correct universal thickness, logo, QR and localized Riyadh date`, await evaluate("({thickness:document.querySelector('.opp-sheet').textContent.includes('25 MIC'),logo:!!document.querySelector('.opp-logo'),qr:!!document.querySelector('.opp-qr'),date:document.querySelector('.opp-order-id div:nth-child(2) span').textContent.trim()===new Intl.DateTimeFormat('ar-SA-u-nu-latn',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'Asia/Riyadh'}).format(new Date('2026-10-02T22:30:00.000Z')).replace(/[\\u061c\\u200e\\u200f]/g,'')})"), { thickness: true, logo: true, qr: true, date: true });
+      check(`${width}: larger logo and QR, bilingual names centered beside logo`, await evaluate(`(()=>{
+        const logo=document.querySelector('.opp-logo'),qr=document.querySelector('.opp-qr'),names=document.querySelector('.opp-brand-names');
+        const ar=names.querySelector('h1'),en=names.querySelector('p'),l=logo.getBoundingClientRect(),n=names.getBoundingClientRect();
+        return l.width===80&&l.height===80&&qr.getBoundingClientRect().width===88
+          &&getComputedStyle(ar).textAlign==='center'&&getComputedStyle(en).textAlign==='center'
+          &&ar.lang==='ar'&&ar.dir==='rtl'&&en.lang==='en'&&en.dir==='ltr'
+          &&ar.getBoundingClientRect().bottom<=en.getBoundingClientRect().top
+          &&Math.min(l.bottom,n.bottom)>Math.max(l.top,n.top)
+          &&names.scrollWidth<=names.clientWidth+1;
+      })()`));
+      check(`${width}: header columns do not overlap`, await evaluate(`(()=>{
+        const rects=[...document.querySelector('.opp-sheet-header').children].map(e=>e.getBoundingClientRect()).sort((a,b)=>a.left-b.left);
+        return rects.every((r,i)=>!i||r.left>=rects[i-1].right-1);
+      })()`));
       check(`${width}: one rounded total uses the original planned sum`, await evaluate("document.querySelectorAll('.opp-total-cell strong').length===1&&document.querySelector('.opp-total-cell').textContent.trim()==='436 كجم'"));
       check(`${width}: rounded planned quantities, including missing-product rows`, await evaluate("[...document.querySelectorAll('.opp-spec-row')].map(r=>r.cells[10].textContent.trim())"), ["330 kg", "106 kg"]);
       check(`${width}: item cell contains only Arabic and English names`, await evaluate("[...document.querySelector('.opp-item-cell').children].map(e=>e.textContent.trim())"), ["بنانة - S", "Banana S"]);
@@ -439,7 +471,72 @@ const releaseOnly = process.argv.includes("--production-release-only");
         await pdf(`order-print-a4-${count}-rows-${language}`);
       }
     }
+    }
+    large = false;
+    noLines = false;
+    const originalColor = product.color;
+    const originalBatch = product.master_batch_id;
+    const stripeCheck = async (context, selector) => check(context, await evaluate(`(()=>{
+      const swatch=document.querySelector(${JSON.stringify(selector)});
+      const pattern=swatch?.querySelector('pattern');
+      return !!swatch&&swatch.dataset.transparent==='true'
+        &&pattern?.querySelector('rect')?.getAttribute('fill')==='#ffffff'
+        &&pattern?.querySelector('path')?.getAttribute('stroke')==='#000000'
+        &&swatch.querySelector('circle')?.getAttribute('fill')==='url(#'+pattern.id+')';
+    })()`));
+    product.color = palette[0];
+    product.master_batch_id = "PT02";
+    for (const selectedLanguage of ["ar", "en"]) {
+      language = selectedLanguage;
+      permissions = ["view_orders"];
+      await navigate("/orders/7/print");
+      await wait(`!!document.querySelector('.opp-sheet')&&document.documentElement.lang==='${language}'`);
+      await stripeCheck(`${language}: order printing has white circle with black SVG stripes`, ".opp-color-swatch");
+      check(`${language}: all four header labels remain visible, including literal-colon date labels`, await evaluate(
+        "[...document.querySelectorAll('.opp-order-id b')].length===4&&[...document.querySelectorAll('.opp-order-id b')].every(e=>e.textContent.trim().length>0)"
+      ));
+      check(`${language}: centered Arabic/English factory names remain unchanged`, await evaluate(
+        "[...document.querySelectorAll('.opp-brand-names h1,.opp-brand-names p')].map(e=>e.textContent)"
+      ), ["مصنع أكياس البلاستيك الحديث", "Modern Plastic Bags Factory"]);
+      if (language === "ar") {
+        await capture("order-print-striped-header");
+        await pdf("order-print-transparent-no-background", false);
+      }
+      await navigate("/orders?viewOrder=7");
+      await wait("!!document.querySelector('.odm-production-toggle')");
+      await click(".odm-production-toggle");
+      await stripeCheck(`${language}: order-details sample uses the same striped circle`, ".odm-color-chip");
+    }
+    product.color = originalColor;
+    product.master_batch_id = originalBatch;
     language = "ar";
+    permissions = ["manage_customers"];
+    await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
+    await navigate("/customers?tab=products");
+    await wait("!!document.querySelector('.color-stack .master-batch-swatch')");
+    await stripeCheck("product list uses the shared striped swatch", ".color-stack .master-batch-swatch[data-transparent=true]");
+    check("solid white product remains a plain white circle", await evaluate(
+      "!!document.querySelector('.color-stack .master-batch-swatch[data-transparent=false] circle[fill=\"#ffffff\"]')&&!document.querySelector('.color-stack .master-batch-swatch[data-transparent=false] pattern')"
+    ));
+    await click('[aria-label="تعديل منتج"]');
+    await wait("!!document.querySelector('#cp-master-batch')");
+    await stripeCheck("selected customer-product color uses black stripes", "#cp-master-batch .master-batch-swatch");
+    await click("#cp-master-batch");
+    await wait("!!document.querySelector('.cp-color-menu')");
+    await stripeCheck("color chooser options use black stripes", ".cp-color-menu .master-batch-swatch[data-transparent=true]");
+    check("mobile color selector does not overflow the page", await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+    await capture("transparent-color-selector-390");
+    await navigate("/customers/CID010");
+    await wait("!!document.querySelector('.color-stack .master-batch-swatch')");
+    await stripeCheck("customer profile also uses the shared striped swatch", ".color-stack .master-batch-swatch[data-transparent=true]");
+    permissions = ["manage_master_batch"];
+    await navigate("/admin");
+    await wait("!!document.querySelector('.color-cell .master-batch-swatch')");
+    await stripeCheck("color definitions use black stripes", ".color-cell .master-batch-swatch[data-transparent=true]");
+    await click('[aria-label="تعديل لون"]');
+    await wait("!!document.querySelector('.color-preview.master-batch-swatch')");
+    await stripeCheck("color-definition edit preview uses black stripes", ".color-preview.master-batch-swatch");
+    check("all currently rendered pattern IDs are unique", await evaluate("(()=>{const ids=[...document.querySelectorAll('.master-batch-swatch pattern')].map(e=>e.id);return new Set(ids).size===ids.length})()"));
     permissions = ["manage_customers"];
     const priorDetails = requests.filter((r) => r.route.endsWith("/details")).length;
     await navigate("/orders/7/print");

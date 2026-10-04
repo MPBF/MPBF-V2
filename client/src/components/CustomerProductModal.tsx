@@ -7,6 +7,7 @@ import { PRINTING_CYLINDERS, customerProductFacingNotice, deriveCustomerProductF
 import { buildCustomerProductDirtyPayload, buildCustomerProductPayload, customerProductSourcesChanged, initializeCustomerProductForm, validateCustomerProductForm } from "./customer-product-form";
 import { CustomerPicker, ProductValueSelect, PRODUCT_SELECT_VALUES, unitWeightLabel } from "./customer-product-controls";
 import "./CustomerProductModal.css";
+import MasterBatchSwatch from "./MasterBatchSwatch";
 
 type Row = Record<string, any>;
 type Props = {
@@ -29,7 +30,7 @@ function normalizeColors(value: unknown): string[] {
 }
 const name = (row: Row) => localizedName(row?.name_ar || row?.display_name_ar, row?.name || row?.display_name, "");
 const customerName = (row: Row) => localizedName(row.name_ar || row.display_name_ar, row.name || row.display_name, name(row));
-const validHex = (v: string) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v);
+const validHex = (v: string) => /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v);
 const safeColor = (value: string) => {
   if (validHex(value)) return value;
   const known: Record<string, string> = { red: "#c94a43", blue: "#477da8", green: "#568566", yellow: "#dbb54f", black: "#333333", white: "#f8f8f3", orange: "#dd7849", transparent: "transparent", شفاف: "transparent", أحمر: "#c94a43", أزرق: "#477da8", أخضر: "#568566", أصفر: "#dbb54f", أسود: "#333333", أبيض: "#f8f8f3" };
@@ -37,7 +38,6 @@ const safeColor = (value: string) => {
 };
 const batchSwatch = (row: Row | undefined) => {
   if (!row) return "";
-  if (/شفاف|transparent/i.test(`${row.id ?? ""} ${row.name_ar ?? ""} ${row.name ?? ""}`)) return "transparent";
   return safeColor(String(row.color_hex ?? row.color ?? row.hex ?? ""));
 };
 async function getJson(path: string, signal: AbortSignal) {
@@ -312,7 +312,25 @@ export default function CustomerProductModal({ row, onClose, onSaved, fixedCusto
           <section className="cp-section"><h3 className="cp-section-title"><span>04</span>{translate("المواد والخامات")}</h3>
             <div className="cp-grid cp-three">
               <div className="cp-field"><label htmlFor="cp-material">{translate("المادة الخام")}</label><select id="cp-material" value={String(form.raw_material || "")} onChange={(e) => set("raw_material", e.target.value)}><option value="">{translate("اختر المادة")}</option>{["HDPE", "LDPE", "Regrind"].map((v) => <option key={v} value={v}>{v}</option>)}{form.raw_material && !["HDPE", "LDPE", "Regrind"].includes(String(form.raw_material)) && <option value={String(form.raw_material)}>{translate("القيمة الحالية:")}{" "}{String(form.raw_material)}</option>}</select></div>
-              <div className="cp-field"><label htmlFor="cp-master-batch">{translate("لون الماستر باتش")}</label><div className="cp-color-select"><button id="cp-master-batch" type="button" className="cp-color-trigger" aria-haspopup="listbox" aria-expanded={colorOpen} onClick={() => setColorOpen((v) => !v)}><span className={`cp-color-dot ${batchSwatch(selectedBatch) === "transparent" ? "transparent" : ""}`} style={batchSwatch(selectedBatch) && batchSwatch(selectedBatch) !== "transparent" ? { backgroundImage: "none", backgroundColor: batchSwatch(selectedBatch) } : undefined} />{selectedBatch ? name(selectedBatch) : form.master_batch_id ? `القيمة الحالية (${form.master_batch_id})` : translate("بدون لون")}<ChevronDown size={15} /></button>{colorOpen && <div className="cp-color-menu" role="listbox" aria-label={translate("ألوان الماستر باتش")}><button type="button" className="cp-color-option" role="option" aria-selected={!form.master_batch_id} onClick={() => { set("master_batch_id", ""); setColorOpen(false); }}><span className="cp-color-dot" />{translate("بدون لون")}</button>{activeColors.map((c) => { const swatch = batchSwatch(c); return <button type="button" className="cp-color-option" role="option" aria-selected={String(c.id) === String(form.master_batch_id)} key={c.id} onClick={() => { set("master_batch_id", String(c.id)); setColorOpen(false); }}><span className={`cp-color-dot ${swatch === "transparent" ? "transparent" : ""}`} style={swatch && swatch !== "transparent" ? { backgroundImage: "none", backgroundColor: swatch } : undefined} />{name(c)}<small className="cp-color-id">{c.id}{c.is_active ? "" : translate(" · غير نشط")}</small></button>; })}{form.master_batch_id && !selectedBatch && <button type="button" className="cp-color-option" role="option" aria-selected="true" onClick={() => { setColorOpen(false); }}>{`اللون الحالي (${form.master_batch_id})`}</button>}</div>}</div></div>
+              <div className="cp-field">
+                <label htmlFor="cp-master-batch">{translate("لون الماستر باتش")}</label>
+                <div className="cp-color-select">
+                  <button id="cp-master-batch" type="button" className="cp-color-trigger" aria-haspopup="listbox" aria-expanded={colorOpen} onClick={() => setColorOpen((v) => !v)}>
+                    <MasterBatchSwatch color={selectedBatch ? { ...selectedBatch, color_hex: batchSwatch(selectedBatch) } : null} size={20} className="cp-color-dot" />
+                    {selectedBatch ? name(selectedBatch) : form.master_batch_id ? `القيمة الحالية (${form.master_batch_id})` : translate("بدون لون")}<ChevronDown size={15} />
+                  </button>
+                  {colorOpen && <div className="cp-color-menu" role="listbox" aria-label={translate("ألوان الماستر باتش")}>
+                    <button type="button" className="cp-color-option" role="option" aria-selected={!form.master_batch_id} onClick={() => { set("master_batch_id", ""); setColorOpen(false); }}>
+                      <MasterBatchSwatch size={20} className="cp-color-dot" label={translate("بدون لون")} />{translate("بدون لون")}
+                    </button>
+                    {activeColors.map((c) => <button type="button" className="cp-color-option" role="option" aria-selected={String(c.id) === String(form.master_batch_id)} key={c.id} onClick={() => { set("master_batch_id", String(c.id)); setColorOpen(false); }}>
+                      <MasterBatchSwatch color={{ ...c, color_hex: batchSwatch(c) }} size={20} className="cp-color-dot" />
+                      {name(c)}<small className="cp-color-id">{c.id}{c.is_active ? "" : translate(" · غير نشط")}</small>
+                    </button>)}
+                    {form.master_batch_id && !selectedBatch && <button type="button" className="cp-color-option" role="option" aria-selected="true" onClick={() => { setColorOpen(false); }}>{`اللون الحالي (${form.master_batch_id})`}</button>}
+                  </div>}
+                </div>
+              </div>
             </div>
           </section>
           <section className="cp-section"><h3 className="cp-section-title"><span>05</span>{translate("الأوزان والتعبئة")}</h3>

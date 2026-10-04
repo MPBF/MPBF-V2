@@ -29,3 +29,12 @@ answered «نعم، جميع القيم الرقمية بما فيها المق�
 
 **How to apply:** preserve precise saved values and calculations; apply rounding
 only to print display, never to identifiers, dates or free-text notes.
+
+The print header keeps the Arabic factory name above the English name, both
+centered beside the logo, even when the application is in English.
+
+**Why:** the user explicitly requested and approved this bilingual factory
+identity layout; it is an intentional exception to English-only UI fallbacks.
+
+**How to apply:** preserve both factory names in header refinements rather
+than switching the brand identity to only the current UI language.

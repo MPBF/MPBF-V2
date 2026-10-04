@@ -1,5 +1,6 @@
 import i18n, { intlLocale, localizedName, translate } from "../i18n";
 import QRCode from "react-qr-code";
+import MasterBatchSwatch from "./MasterBatchSwatch";
 
 import type { BrandingSnapshot } from "../lib/branding";
 import { displayValue, formatOrderDate, orderStatusLabel, personName } from "../lib/order-details";
@@ -66,7 +67,7 @@ function SpecificationRow({ row, index }: { row: OrderDetailProduction; index: n
     <td>{safeText(product?.raw_material)}</td>
     <td>
       <div className="opp-color-cell">
-        <span className="opp-color-swatch" style={{ backgroundColor: color?.color_hex || "transparent" }} aria-label={localizedName(color?.name_ar, color?.name, translate("لون غير محدد"))} />
+        <MasterBatchSwatch color={color} className="opp-color-swatch" label={localizedName(color?.name_ar, color?.name, translate("لون غير محدد"))} />
         <strong>{localizedName(color?.name_ar, color?.name)}</strong>
         {color?.id && <small dir="ltr">#{color.id}</small>}
         {!!printColors.length && <small className="opp-print-colors">{translate("ألوان الطباعة:")}{" "}{printColors.join("، ")}</small>}
@@ -90,16 +91,19 @@ export default function OrderPrintSheet({ data, branding }: { data: OrderDetails
     <header className="opp-sheet-header">
       <div className="opp-brand">
         {branding.logoSrc ? <img className="opp-logo" src={branding.logoSrc} alt={`شعار ${branding.companyNameAr}`} /> : <div className="opp-logo-fallback" aria-hidden="true"><span>{branding.companyNameAr.slice(0, 2)}</span></div>}
-        <div className="opp-brand-names"><h1>{branding.companyNameAr || "—"}</h1><p dir="ltr">{branding.companyNameEn || "—"}</p></div>
+        <div className="opp-brand-names">
+          <h1 lang="ar" dir="rtl">{branding.companyNameAr || "—"}</h1>
+          <p lang="en" dir="ltr">{branding.companyNameEn || "—"}</p>
+        </div>
       </div>
       <div className="opp-document-title"><h2>{translate("أمر تشغيل إنتاج")}</h2><span>PRODUCTION ORDER</span></div>
       <div className="opp-order-id">
         <div><b>{translate("رقم الطلب:")}</b> <span dir="auto">{safeText(order.order_number)}</span></div>
-        <div><b>{translate("التاريخ:")}</b> <span>{formatOrderDate(order.created_at)}</span></div>
-        <div><b>{translate("التسليم:")}</b> <span>{formatOrderDate(order.delivery_date)}</span></div>
+        <div><b>{translate("التاريخ:", { nsSeparator: false })}</b> <span>{formatOrderDate(order.created_at)}</span></div>
+        <div><b>{translate("التسليم:", { nsSeparator: false })}</b> <span>{formatOrderDate(order.delivery_date)}</span></div>
         <div><b>{translate("مدة التسليم:")}</b> <span>{roundedWithUnit(order.delivery_days, translate("يوم"))}</span></div>
       </div>
-      {qrValue && <QRCode className="opp-qr" value={qrValue} size={74} level="M" title={translate("رابط الطلب داخل النظام")} />}
+      {qrValue && <QRCode className="opp-qr" value={qrValue} size={88} level="M" title={translate("رابط الطلب داخل النظام")} />}
     </header>
 
     <table className="opp-overview" aria-label={translate("ملخص أمر الإنتاج")}><colgroup>

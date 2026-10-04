@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { displayValue, fetchOrderDetails, fieldLabel, formatOrderDate, numberText, orderStatusLabel, personName, productionStatusLabel, type OrderDetailsError } from "../lib/order-details";
 import "./OrderDetailsModal.css";
 import OrderProductionReleaseButton from "./OrderProductionReleaseButton";
+import MasterBatchSwatch from "./MasterBatchSwatch";
 
 type Props = { id: number; onClose: () => void; onPrint: () => void; canRelease?: boolean; onOrderChanged?: () => void };
 type LoadState = { status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: Awaited<ReturnType<typeof fetchOrderDetails>> };
@@ -205,7 +206,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint, canRelease = f
                         <div><span>{translate("الفئة")}</span><strong>{localizedName(product.category?.name_ar, product.category?.name)} {product.category?.code ? `· ${product.category.code}` : ""}</strong></div>
                         <div><span>{translate("الصنف")}</span><strong>{localizedName(product.item?.name_ar, product.item?.name)} {product.item?.code ? `· ${product.item.code}` : ""}</strong></div>
                         <div><span>{translate("لون الخلطة")}</span><strong>{localizedName(product.color?.name_ar, product.color?.name)} {product.color?.brand ? `· ${product.color.brand}` : ""}</strong></div>
-                        <div><span>{translate("اللون (عينة)")}</span><i className="odm-color-chip" style={{ backgroundColor: product.color?.color_hex || "transparent" }} aria-label={localizedName(product.color?.name_ar, product.color?.name, translate("غير محدد"))} /></div>
+                        <div><span>{translate("اللون (عينة)")}</span><MasterBatchSwatch color={product.color} size={20} className="odm-color-chip" label={localizedName(product.color?.name_ar, product.color?.name, translate("غير محدد"))} /></div>
                       </div>
                     </> : <p className="odm-no-product">{translate("لم يعد المنتج المرتبط متاحاً.")}</p>}
                   </div>}
