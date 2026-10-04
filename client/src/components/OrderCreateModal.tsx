@@ -535,13 +535,13 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
             <div className="order-lines">
               {lines.map((line, index) => {
                 return (
-                  <article className="order-line-card" key={line.key} aria-label={`بند رقم ${index + 1}`}>
+                  <article className="order-line-card" key={line.key} aria-label={`${translate("بند رقم")} ${index + 1}`}>
                     <div className="order-line-top">
-                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> {line.productionNumber || "بند المنتج"} {line.locked && <small>{translate("· بدأ الإنتاج — للعرض فقط")}</small>}</div>
-                      {lines.length > 1 && !line.locked && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`حذف البند ${index + 1}`}><Trash2 size={15} />{" "}{translate("حذف البند")}</button>}
+                      <div className="order-line-title"><span className="order-line-index">{String(index + 1).padStart(2, "0")}</span> {line.productionNumber || translate("بند المنتج")} {line.locked && <small>{translate("· بدأ الإنتاج — للعرض فقط")}</small>}</div>
+                      {lines.length > 1 && !line.locked && <button className="order-line-remove" type="button" onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} disabled={saving} aria-label={`${translate("حذف البند")} ${index + 1}`}><Trash2 size={15} />{" "}{translate("حذف البند")}</button>}
                     </div>
 
-                    <div className="order-product-mode" role="group" aria-label={`مصدر المنتج للبند ${index + 1}`}>
+                    <div className="order-product-mode" role="group" aria-label={`${translate("مصدر المنتج للبند")} ${index + 1}`}>
                       <button type="button" aria-pressed={line.mode === "existing"} onClick={() => updateLine(line.key, { mode: "existing", newProduct: undefined })} disabled={saving || line.locked}>{translate("منتج مسجل")}</button>
                       <button type="button" aria-pressed={line.mode === "new"} onClick={() => openProductEditor(line.key)} disabled={saving || line.locked || !selectedCustomer}>{translate("منتج جديد")}</button>
                     </div>

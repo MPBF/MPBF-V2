@@ -5,15 +5,24 @@ import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams }
 import { availableOrderTabs, selectedOrderTab, type OrderPageTab } from "./lib/order-tabs";
 import UserDashboard from "./pages/UserDashboard";
 import HumanResources from "./pages/HumanResources";
+import ProductionPage from "./pages/production/ProductionPage";
+import { productionPermissions } from "../../shared/production";
+import { initialProductionPath } from "./lib/production-navigation";
 import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
 import PageHero from "./components/PageHero";
 import OrderCreateModal from "./components/OrderCreateModal";
 import CustomerProductModal from "./components/CustomerProductModal";
 import CustomerModal from "./components/CustomerModal";
 import ProductionOrderModal from "./components/ProductionOrderModal";
+import FlagLanguageSelector from "./components/FlagLanguageSelector";
 import OrderDetailsModal from "./components/OrderDetailsModal";
+import OrderWorkspaceControls, { OrderRowActionMenu, OrderSelectionBox, type WorkspaceOrder } from "./components/OrderWorkspaceControls";
 import OrderPrintPage from "./components/OrderPrintPage";
+import MasterBatchSwatch from "./components/MasterBatchSwatch";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
+import { sortCustomerProductsByCategory } from "./lib/customer-product-sort";
+import type { OrderWorkspaceAction } from "../../shared/order-workspace";
+import type { OrderDisplayFolder } from "./lib/order-workspace";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
 import i18n, { applyLanguage, localizedName, normalizeLanguage, translate, translateError } from "./i18n";
 
@@ -44,15 +53,16 @@ const api = async (path: string, options: RequestInit = {}) => {
       429: "عدد المحاولات كبير. حاول مرة أخرى لاحقاً",
       500: "حدث خطأ داخلي في الخادم",
     };
-    throw new Error(translateError(body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب"));
+    throw new Error(translateError((i18n.language === "en" ? body.message_en : body.message) || body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب"));
   }
   return normalizePayload(body);
 };
-const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE) => {
+const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE, displayFolder?: OrderDisplayFolder) => {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (search) query.set("search", search);
+  if (displayFolder) query.set("display_folder", displayFolder);
   return api(`${path}?${query.toString()}`).then((value) => {
-    if (!Array.isArray(value)) throw new Error("تعذر تحميل قائمة البيانات");
+    if (!Array.isArray(value)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
     return value as Row[];
   });
 };
@@ -61,7 +71,7 @@ const list = (path: string, search = "") => {
   if (path === "/roles" || path === "/sections") {
     const query = search ? `?search=${encodeURIComponent(search)}` : "";
     return api(`${path}${query}`).then((value) => {
-      if (!Array.isArray(value)) throw new Error("تعذر تحميل قائمة البيانات");
+      if (!Array.isArray(value)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
       return value as Row[];
     });
   }
@@ -83,9 +93,10 @@ const dictionaries: Record<string, string> = new Proxy(statusLabels, {
 const relationLabel = (row: Row, key: string) => {
   const arabicName = row[`${key}_name_ar`];
   const englishName = row[`${key}_name`];
-  return (i18n.language === "en" ? englishName || arabicName : arabicName || englishName) ||
+  return localizedName(arabicName, englishName, "") ||
     (key === "order" ? row.order_number : null) ||
-    (key === "production_order" ? row.production_order_number : null) || row[key] || null;
+    (key === "production_order" ? row.production_order_number : null) || row[`${key}_id`] ||
+    (typeof row[key] === "string" ? localizedName(row[key], row[key], "") : row[key]) || null;
 };
 const latinDigits = (value: string) => value
   .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
@@ -116,14 +127,16 @@ const fmtOrderDate = (value: any) => value ? new Intl.DateTimeFormat(formatLocal
 const displayValue = (row: Row, col: Column) => {
   if (col.key === "production_orders_summary") {
     const entries = row.production_orders_summary as OrderProductionSummary[] | undefined;
-    return entries?.length ? entries.map((entry) => `${entry.production_order_number} - ${(i18n.language === "en" ? entry.item_name || entry.item_name_ar : entry.item_name_ar || entry.item_name) || entry.item_id || "—"} - ${fmtNumber(entry.quantity_kg, 2, "كجم")}`).join(i18n.language === "ar" ? "؛ " : "; ") : translate("لا توجد أوامر إنتاج");
+    return entries?.length ? entries.map((entry) => `${entry.production_order_number} - ${localizedName(entry.item_name_ar, entry.item_name, entry.item_id || "—")} - ${fmtNumber(entry.quantity_kg, 2, "كجم")}`).join(i18n.language === "ar" ? "؛ " : "; ") : translate("لا توجد أوامر إنتاج");
   }
-  const raw = row[col.key] ?? (col.fallbackKey ? row[col.fallbackKey] : undefined);
+  const raw = i18n.language === "en" && col.key.endsWith("_ar") && col.label !== translate("الاسم العربي") && col.label !== translate("الاسم بالعربية")
+    ? localizedName(row[col.key], row[col.key.replace(/_ar$/, "")], String(row[col.key.replace(/_name_ar$/, "_id")] || row.id || "—"))
+    : row[col.key] ?? (col.fallbackKey ? row[col.fallbackKey] : undefined);
   const value = col.kind === "relation" ? relationLabel(row, col.key) : raw;
   if (col.joinKey) {
     const first = value === null || value === undefined || value === "" ? "" : latinDigits(String(value));
     const joinedRaw = row[col.joinKey];
-    const second = joinedRaw === null || joinedRaw === undefined || joinedRaw === "" ? "" : `${latinDigits(String(joinedRaw))}${col.joinUnit ? ` ${col.joinUnit}` : ""}`;
+    const second = joinedRaw === null || joinedRaw === undefined || joinedRaw === "" ? "" : `${latinDigits(String(joinedRaw))}${col.joinUnit ? ` ${translate(col.joinUnit)}` : ""}`;
     if (!first && !second) return "X";
     if (!first) return second;
     if (!second) return first;
@@ -139,12 +152,14 @@ const displayValue = (row: Row, col: Column) => {
 const secondaryValue = (row: Row, col: Column) => {
   if (col.secondaryRelation) return relationLabel(row, col.secondaryRelation) || "—";
   if (!col.secondaryKey) return "";
-  const value = row[col.secondaryKey];
+  const value = i18n.language === "en" && (col.secondaryKey.endsWith("_name") || col.secondaryKey === "name")
+    ? localizedName("", row[col.secondaryKey], "")
+    : row[col.secondaryKey];
   return value === null || value === undefined || value === "" ? "—" : latinDigits(String(value));
 };
 function OrderProductionCell({ entries }: { entries: OrderProductionSummary[] }) {
   if (!entries.length) return <span className="muted-text">{translate("لا توجد أوامر إنتاج")}</span>;
-  return <div className="order-production-list">{entries.map((entry) => <div className="order-production-item" key={entry.id}><strong>{entry.production_order_number}</strong><span>{translate("الصنف:")}{" "}{entry.item_name_ar || entry.item_name || entry.item_id || "—"}</span><span className="order-production-quantity">{fmtNumber(entry.quantity_kg, 2, "كجم")}</span></div>)}</div>;
+  return <div className="order-production-list">{entries.map((entry) => <div className="order-production-item" key={entry.id}><strong>{entry.production_order_number}</strong><span>{translate("الصنف:")}{" "}{localizedName(entry.item_name_ar, entry.item_name, entry.item_id || "—")}</span><span className="order-production-quantity">{fmtNumber(entry.quantity_kg, 2, "كجم")}</span></div>)}</div>;
 }
 const renderCell = (row: Row, col: Column) => {
   const value = displayValue(row, col);
@@ -184,6 +199,7 @@ const localizeConfig = (config: Config): Config => ({
 const nav = [
   ["/", "لوحة الإدارة", Gauge, ["admin"]], ["/my-dashboard", "لوحة المستخدم", Users, []], ["/customers", "العملاء", Users, configs.customers.read],
   ["/orders", "الطلبات", FileText, [...configs.orders.read, ...configs.production.read]],
+  ["/production", "الإنتاج والتشغيل", Factory, ["admin", ...productionPermissions]],
   ["/hr", "الموارد البشرية", UsersRound, ["manage_hr", "manage_attendance", "admin"]],
   ["/admin", "الإدارة", Shield, ["manage_users", "manage_roles", "manage_sections", "manage_settings", "manage_machines", "manage_maintenance", "manage_categories", "manage_items", "manage_master_batch", "manage_definitions", "view_orders", "manage_customers", "manage_orders", "admin"]],
 ] as const;
@@ -209,7 +225,7 @@ function useBranding() {
 }
 
 function BrandIdentity({ branding }: { branding: BrandingSnapshot }) {
-  const companyName = i18n.language === "en" ? branding.companyNameEn || branding.companyNameAr : branding.companyNameAr || branding.companyNameEn;
+  const companyName = localizedName(branding.companyNameAr, branding.companyNameEn, "MPBF");
   return <div className="brand">{branding.logoSrc ? <img src={branding.logoSrc} alt={translate("شعار الشركة")} style={{ width: 38, height: 38, borderRadius: 10, objectFit: "cover", border: "1px solid var(--line)" }} /> : <div className="brand-mark">{translate("م")}</div>}<div><strong>{companyName || "MPBF"}</strong><small>{i18n.language === "en" ? "PLASTIC MANUFACTURING" : "MPBF"}</small></div></div>;
 }
 
@@ -219,13 +235,11 @@ function PublicLanguageSwitcher() {
     await i18n.changeLanguage(language);
     applyLanguage(language);
   };
-  return <div className="language-switcher public-language-switcher">
-    <label className="sr-only" htmlFor="public-language-switcher">{translate("اللغة")}</label>
-    <select id="public-language-switcher" aria-label={translate("اللغة")} value={normalizeLanguage(i18n.language)} onChange={(event) => void changeLanguage(event.target.value)}>
-      <option value="ar">{translate("العربية")}</option>
-      <option value="en">English</option>
-    </select>
-  </div>;
+  return <div className="language-switcher public-language-switcher"><FlagLanguageSelector
+    value={normalizeLanguage(i18n.language)}
+    effectiveLanguage={normalizeLanguage(i18n.language)}
+    onChange={(value) => void changeLanguage(value)}
+  /></div>;
 }
 
 function PasswordChange({ user, onComplete, setUser, defaultLanguage }: { user: Row; onComplete: (user: Row) => void; setUser: (user: Row | null) => void; defaultLanguage: "ar" | "en" }) {
@@ -261,21 +275,17 @@ function LanguageSwitcher({ user, setUser, defaultLanguage }: { user: Row; setUs
     }
   };
   return <div className="language-switcher">
-    <label className="sr-only" htmlFor="language-switcher">{translate("اللغة")}</label>
-    <select id="language-switcher" aria-label={translate("اللغة")} value={preference} disabled={saving} onChange={(event) => void changeLanguage(event.target.value)}>
-      <option value="">{translate("استخدم لغة الشركة")}</option>
-      <option value="ar">{translate("العربية")}</option>
-      <option value="en">English</option>
-    </select>
+    <FlagLanguageSelector value={preference} effectiveLanguage={normalizeLanguage(preference, defaultLanguage)}
+      allowDefault disabled={saving} onChange={(value) => void changeLanguage(value)} />
     {error && <span className="language-error" role="alert">{error}</span>}
   </div>;
 }
 
 function Layout({ children, user, setUser, branding }: { children: ReactNode; user: Row; setUser: (user: Row | null) => void; branding: BrandingSnapshot }) {
-  user = { ...user, display_name_ar: i18n.language === "en" ? user.display_name || user.display_name_ar : user.display_name_ar || user.display_name };
-  const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([, , , permissions]) => !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
+  const displayName = localizedName(user.display_name_ar, user.display_name, user.username || "—");
+  const [loc, setLoc] = useLocation(); const visibleNav = nav.filter(([href, , , permissions]) => href === "/production" ? !!initialProductionPath({ id: user.id, permissions: user.permissions ?? [] }) : !permissions.length || can(user, permissions)); const adminNav = visibleNav.find(([href]) => href === "/admin"); const mobileNav = visibleNav.length <= 5 ? visibleNav : [...visibleNav.slice(0, 4), adminNav || visibleNav[4]]; const title = loc === "/" && !can(user, ["admin"]) ? "لوحة المستخدم" : nav.find(([href]) => href === loc)?.[1] || "الإدارة التشغيلية";
   const logout = async () => { try { await api("/logout", { method: "POST" }); } finally { setUser(null); setLoc("/"); } };
-  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav><div className="side-foot">{translate("نظام تشغيل المصنع")}<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{translate(title)}</h1><p>{translate("مركز التحكم التشغيلي · بيانات مباشرة")}</p></div><div className="top-actions"><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={branding.defaultLanguage} /><div className="user-chip"><div className="avatar">{String(user.display_name_ar || user.display_name || user.username || "م").slice(0, 1)}</div><span>{user.display_name_ar || user.display_name || user.username}</span></div><button aria-label={translate("تسجيل الخروج")} className="btn btn-plain" onClick={logout} title={translate("تسجيل الخروج")}><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav></main></div>;
+  return <div className="shell"><aside className="sidebar"><BrandIdentity branding={branding} /><nav className="nav">{visibleNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav><div className="side-foot">{translate("نظام تشغيل المصنع")}<br /><span className="mono">MPBF / CORE 01</span></div></aside><main className="main"><header className="topbar"><div><h1>{translate(title)}</h1><p>{translate("مركز التحكم التشغيلي · بيانات مباشرة")}</p></div><div className="top-actions"><LanguageSwitcher user={user} setUser={setUser} defaultLanguage={branding.defaultLanguage} /><div className="user-chip"><div className="avatar">{String(displayName).slice(0, 1)}</div><span>{displayName}</span></div><button aria-label={translate("تسجيل الخروج")} className="btn btn-plain" onClick={logout} title={translate("تسجيل الخروج")}><LogOut size={18} /></button></div></header><div className="content">{children}</div><nav className="mobile-nav">{mobileNav.map(([href, label, Icon]) => <Link key={href} href={href} className={loc === href ? "active" : ""}><Icon /><span>{translate(label)}</span></Link>)}</nav></main></div>;
 }
 
 function Dashboard({ user }: { user: Row }) {
@@ -283,7 +293,7 @@ function Dashboard({ user }: { user: Row }) {
   const load = () => { setRefreshing(true); setError(""); api("/dashboard").then(setData).catch((e) => setError(e.message)).finally(() => setRefreshing(false)); };
   useEffect(load, []);
   const cards = [["customers", "العملاء", "عملاء مسجلون"], ["orders", "الطلبات", "إجمالي الطلبات"], ["production_orders", "أوامر الإنتاج", "قيد المتابعة"], ["machines", "الماكينات", "أصول المصنع"], ["users", "المستخدمون", "حسابات النظام"]];
-  const shortcuts = nav.filter(([href, , , permissions]) => !["/", "/my-dashboard", "/admin"].includes(href) && can(user, permissions));
+  const shortcuts = nav.filter(([href, , , permissions]) => !["/", "/my-dashboard", "/admin"].includes(href) && (href === "/production" ? !!initialProductionPath({ id: user.id, permissions: user.permissions ?? [] }) : can(user, permissions)));
   return <><PageHero kicker="نظرة تشغيلية · اليوم" title={translate("لوحة الإدارة")} description="ملخص مباشر لأداء المصنع ومحطات العمل." onRefresh={load} refreshing={refreshing} actions={<span className="tag">{translate("اتصال مباشر بالبيانات")}</span>} />{error && <div className="error">{error}</div>}<div className="stats">{cards.map(([key, label, sub]) => <div className="stat" key={key}><label>{translate(label)}</label><strong>{data ? data[key] ?? 0 : <span className="skeleton" style={{ display: "inline-block", width: 55 }} />}</strong><small>{translate(sub)}</small></div>)}</div><div className="panel"><div className="panel-head"><h3>{translate("محطات العمل")}</h3><span className="eyebrow">{translate("اختصارات سريعة")}</span></div><div style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>{shortcuts.map(([href, label, Icon]) => <Link className="btn btn-muted" href={href} key={href}><Icon size={17} />{translate(label)}</Link>)}</div></div></>;
 }
 
@@ -299,11 +309,18 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     setViewingOrder(viewOrderQuery && /^\d+$/.test(viewOrderQuery) && Number.isSafeInteger(id) && id > 0 ? id : null);
   }, [kind, viewOrderQuery]);
   const cfg = useMemo(() => localizeConfig(configs[kind]), [kind, i18n.language]); const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
+  const [displayFolder, setDisplayFolder] = useState<OrderDisplayFolder | "all">("all");
+  const [folderCounts, setFolderCounts] = useState<Record<OrderDisplayFolder, number>>({ new: 0, production: 0, urgent: 0, archive: 0 });
+  const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [folderCountsVersion, setFolderCountsVersion] = useState(0);
   const readable = can(user, cfg.read); const writable = can(user, cfg.write); const deletable = can(user, cfg.del || ["admin"]); const clonable = Boolean(cfg.clone && writable);
   const viewable = kind === "production" || kind === "orders";
   const showActions = viewable || writable || deletable || clonable;
   const requestGate = useRef(createLatestRequestGate());
-  const activeKey = `${cfg.path}|${search}|${page}|${refreshToken}`;
+  const activeFolder = kind === "orders" && displayFolder !== "all" ? displayFolder : undefined;
+  const activeKey = `${cfg.path}|${search}|${page}|${activeFolder || "all"}|${refreshToken}`;
   const rows = resultKey === activeKey ? loadedRows : [];
   const busy = busyState || resultKey !== activeKey;
   const load = useCallback(() => {
@@ -312,7 +329,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     setBusy(true);
     setResultKey("");
     setError("");
-    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE), {
+    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE, LIST_PAGE_SIZE, activeFolder), {
       onSuccess: (value) => {
         setRows(value.map((row, index) => ({ ...row, __sequence: page * LIST_PAGE_SIZE + index + 1 })));
         setResultKey(requestKey);
@@ -324,7 +341,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       },
       onSettled: () => setBusy(false),
     });
-  }, [activeKey, cfg.path, page, search]);
+  }, [activeKey, activeFolder, cfg.path, page, search]);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   useEffect(() => {
@@ -332,10 +349,56 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     load();
     return () => gate.invalidate();
   }, [load]);
+  useEffect(() => {
+    if (kind !== "orders") return;
+    let active = true;
+    void api("/orders/display-folders").then((response) => {
+      if (!active || !response?.counts) return;
+      setFolderCounts({
+        new: Number(response.counts.new || 0),
+        production: Number(response.counts.production || 0),
+        urgent: Number(response.counts.urgent || 0),
+        archive: Number(response.counts.archive || 0),
+      });
+    }).catch((countError) => {
+      if (active) setWorkspaceError((countError as Error).message || translate("تعذر تحميل مجلدات الطلبات"));
+    });
+    return () => { active = false; };
+  }, [kind, folderCountsVersion]);
   if (!readable) return <div className="empty"><strong>{translate("لا تملك صلاحية العرض")}</strong>{translate("تواصل مع مدير النظام.")}</div>;
   const remove = async (id: any) => { if (!deletable || !confirm(translate("تأكيد حذف السجل؟"))) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
   const printOrder = (id: number) => window.open(`/orders/${encodeURIComponent(String(id))}/print`, "_blank", "noopener,noreferrer");
+  const performWorkspaceAction = async (action: OrderWorkspaceAction, items: { id: number; expected_status: string }[]) => {
+    if (!writable || !items.length || items.length > 100) return;
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    try {
+      await api("/orders/actions", { method: "POST", body: JSON.stringify({ action, items }) });
+      setSelectedOrderIds((selected) => selected.filter((id) => !items.some((item) => item.id === id)));
+      latestLoad.current();
+      setFolderCountsVersion((version) => version + 1);
+    } catch (actionError) {
+      setWorkspaceError((actionError as Error).message);
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
+  const moveWorkspaceOrders = async (folder: OrderDisplayFolder, items: { id: number; expected_folder: OrderDisplayFolder }[]) => {
+    if (!writable || !items.length || items.length > 100) return;
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    try {
+      await api("/orders/display-folders/move", { method: "POST", body: JSON.stringify({ folder, items }) });
+      setSelectedOrderIds((selected) => selected.filter((id) => !items.some((item) => item.id === id)));
+      latestLoad.current();
+      setFolderCountsVersion((version) => version + 1);
+    } catch (moveError) {
+      setWorkspaceError((moveError as Error).message);
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
   const closeOrder = () => {
     setViewingOrder(null);
     if (viewOrderQuery) {
@@ -345,48 +408,62 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     }
   };
   const rowActions = (row: Row, mobile = false) => <div className="actions">
-    {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && " عرض"}</button>}
-    {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && " طباعة"}</a>}
+    {kind === "orders" && writable && <OrderRowActionMenu row={row as WorkspaceOrder} enabled={writable && !workspaceBusy} onAction={performWorkspaceAction} />}
+    {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && translate(" عرض")}</button>}
+    {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && translate(" طباعة")}</a>}
     {writable && <button aria-label={`${translate("تعديل")} ${translate(cfg.singular)}`} title={translate("تعديل")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && ` ${translate("تعديل")}`}</button>}
     {clonable && <button aria-label={`${translate("استنساخ")} ${translate(cfg.singular)}`} title={translate("استنساخ")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => clone(row)}><Copy size={16} />{mobile && ` ${translate("استنساخ")}`}</button>}
     {deletable && <button aria-label={`${translate("حذف")} ${translate(cfg.singular)}`} title={translate("حذف")} className={mobile ? "btn btn-danger" : "btn btn-plain"} onClick={() => remove(row.id)}><Trash2 size={16} />{mobile && ` ${translate("حذف")}`}</button>}
   </div>;
   const cols = cfg.columns || cfg.fields.slice(0, 5).map((field) => ({ key: field.key, label: field.label, kind: field.type === "date" ? "date" : field.type === "decimal" || field.type === "integer" ? "number" : field.key === "status" ? "status" : "text" } as Column));
   const columnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : "", kind === "orders" && field.key === "order_number" ? "order-number-column" : ""].filter(Boolean).join(" ");
-  const isTransparentColor = (row: Row, field: Column) => field.colorKey && /شفاف|transparent/i.test(`${row[`${field.key}_name_ar`] || ""} ${row[`${field.key}_name`] || ""}`);
   const renderCell = (row: Row, field: Column) => {
     if (kind === "orders" && field.key === "order_number") return <span className="order-number-stack"><span className="order-number-code">{displayValue(row, field)}</span><small className="order-number-date">{fmtOrderDate(row.created_at)}</small></span>;
     if (field.key === "production_orders_summary") return <OrderProductionCell entries={Array.isArray(row.production_orders_summary) ? row.production_orders_summary : []} />;
-    const content = field.colorKey ? <span className="color-stack">{isTransparentColor(row, field) ? <X className="transparent-mark" size={22} aria-label={translate("بدون لون")} /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
+    const content = field.colorKey ? <span className="color-stack"><MasterBatchSwatch color={{ color_hex: row[field.colorKey], name_ar: row[`${field.key}_name_ar`], name: row[`${field.key}_name`], id: row[`${field.key}_id`] }} size={22} /><span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><MasterBatchSwatch color={{ ...row, color_hex: row[field.key] }} size={20} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
     return field.customerLink ? <Link className="customer-link" href={`/customers/${encodeURIComponent(String(row.id))}`}>{content}</Link> : content;
   };
   return <>
     {showHero ? <PageHero kicker={translate("سجل البيانات · {{count}} سجل معروض", { count: rows.length })} title={translate(cfg.title)} description={translate("استعرض وأدر سجلات {{title}}.", { title: translate(cfg.title) })} onRefresh={load} refreshing={busy} actions={writable && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة")}{" "}{translate(cfg.singular)}</button>} /> : writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة")}{" "}{translate(cfg.singular)}</button></div>}
     {error && <div className="error" role="alert">{error}</div>}
     <section className="panel">
+      {kind === "orders" && <OrderWorkspaceControls
+        rows={rows as WorkspaceOrder[]}
+        folder={displayFolder}
+        counts={folderCounts}
+        selected={selectedOrderIds}
+        canManage={writable}
+        busy={workspaceBusy}
+        error={workspaceError}
+        onFolderChange={(folder) => { setDisplayFolder(folder); setPage(0); setSelectedOrderIds([]); setEdit(null); setWorkspaceError(""); }}
+        onSelectPage={(checked) => setSelectedOrderIds((selected) => checked ? Array.from(new Set([...selected, ...rows.map((row) => Number(row.id))])) : selected.filter((id) => !rows.some((row) => Number(row.id) === id)))}
+        onClear={() => setSelectedOrderIds([])}
+        onAction={performWorkspaceAction}
+        onMove={moveWorkspaceOrders}
+      />}
       <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
         <div className="tools">
           <Search size={17} aria-hidden="true" />
           <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
-          <input id={`${kind}-search`} aria-label={`بحث في ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
+          <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setSelectedOrderIds([]); setEdit(null); }} />
         </div>
       </div>
       {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>{translate("لا توجد سجلات مطابقة")}</strong>{translate("ابدأ بإضافة أول سجل لهذا القسم.")}</div> : <div className="table-wrap">
         <table>
-          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
+          <thead><tr>{kind === "orders" && writable && <th className="order-row-select"><span className="sr-only">{translate("حدد الصفحة الحالية")}</span></th>}{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
+          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{kind === "orders" && writable && <td className="order-row-select"><OrderSelectionBox label={`${translate("حدد")} ${displayValue(row, cols[0])}`} checked={selectedOrderIds.includes(Number(row.id))} onChange={() => setSelectedOrderIds((selected) => selected.includes(Number(row.id)) ? selected.filter((id) => id !== Number(row.id)) : [...selected, Number(row.id)])} /></td>}{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
         </table>
-        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
+        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}>{kind === "orders" && writable && <OrderSelectionBox label={`${translate("حدد")} ${displayValue(row, cols[0])}`} checked={selectedOrderIds.includes(Number(row.id))} onChange={() => setSelectedOrderIds((selected) => selected.includes(Number(row.id)) ? selected.filter((id) => id !== Number(row.id)) : [...selected, Number(row.id)])} />}<strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
       </div>}
-      {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`صفحات ${cfg.title}`}>
-        <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{translate("السابق")}</button>
+      {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`${translate("صفحات")} ${cfg.title}`}>
+         <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => { setPage((current) => Math.max(0, current - 1)); setSelectedOrderIds([]); }}>{translate("السابق")}</button>
         <span>{translate("صفحة")}{" "}{page + 1}</span>
-        <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>{translate("التالي")}</button>
+         <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => { setPage((current) => current + 1); setSelectedOrderIds([]); }}>{translate("التالي")}</button>
       </nav>}
     </section>
     {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}
-    {viewingOrder && <OrderDetailsModal id={viewingOrder} onClose={closeOrder} onPrint={() => printOrder(viewingOrder)} />}
+    {viewingOrder && <OrderDetailsModal id={viewingOrder} canRelease={writable} onOrderChanged={() => latestLoad.current()} onClose={closeOrder} onPrint={() => printOrder(viewingOrder)} />}
     {edit && (kind === "customers" ? <CustomerModal row={edit} onClose={() => setEdit(null)} onSaved={(saved) => { const created = !edit.id; setEdit(null); if (created) setLocation(`/customers/${encodeURIComponent(String(saved.id))}`); else latestLoad.current(); }} /> : kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />)}
   </>;
 }
@@ -519,7 +596,7 @@ function EntityFormModal({ cfg, row, onClose, onSaved }: { cfg: Config; row: Row
           </select> : field.type === "select" || field.type === "percentage" ? <select id={`field-${field.key}`} required={field.required} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}>{field.type !== "percentage" && <option value="">{translate("اختر")}</option>}{field.options?.map((option) => <option key={option} value={option}>{field.type === "percentage" ? `${option}%` : dictionaries[option] || option}</option>)}{form[field.key] && !field.options?.includes(String(form[field.key])) && <option value={form[field.key]}>{translate("القيمة الحالية المحفوظة:")}{" "}{dictionaries[String(form[field.key])] || dictionaries[canonicalMachineType(form[field.key])] || String(form[field.key])}</option>}</select>
             : field.type === "textarea" ? <textarea id={`field-${field.key}`} required={field.required} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })} />
             : field.type === "boolean" ? <label className="check-row"><input id={`field-${field.key}`} type="checkbox" checked={Boolean(form[field.key] ?? true)} onChange={(e) => setForm({ ...form, [field.key]: e.target.checked })} />{form[field.key] === false ? translate("غير مفعّل") : translate("مفعّل")}</label>
-            : <div className="input-with-preview"><input id={`field-${field.key}`} required={field.required} type={field.type === "date" ? "date" : field.type === "integer" || field.type === "decimal" ? "number" : "text"} min={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : undefined} max={cfg.path === "/customer-products" && field.key === "width" ? "999999" : cfg.path === "/customer-products" && field.key === "thickness" ? "99999" : undefined} step={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : field.type === "decimal" ? (cfg.path === "/machines" && field.key.endsWith("_thickness") ? "0.001" : "0.01") : undefined} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })} />{(field.key === "color_hex" || field.key === "text_color") && <i className="color-preview" aria-label={translate("معاينة اللون")} style={{ background: form[field.key] || "#ddd" }} />}</div>}
+            : <div className="input-with-preview"><input id={`field-${field.key}`} required={field.required} type={field.type === "date" ? "date" : field.type === "integer" || field.type === "decimal" ? "number" : "text"} min={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : undefined} max={cfg.path === "/customer-products" && field.key === "width" ? "999999" : cfg.path === "/customer-products" && field.key === "thickness" ? "99999" : undefined} step={cfg.path === "/customer-products" && (field.key === "width" || field.key === "thickness") ? "1" : field.type === "decimal" ? (cfg.path === "/machines" && field.key.endsWith("_thickness") ? "0.001" : "0.01") : undefined} value={form[field.key] ?? ""} onChange={(e) => setForm({ ...form, [field.key]: e.target.value })} />{(field.key === "color_hex" || field.key === "text_color") && <MasterBatchSwatch className="color-preview" size={20} label={translate("معاينة اللون")} color={{ color_hex: form[field.key], name_ar: field.key === "color_hex" ? form.name_ar : undefined, name: field.key === "color_hex" ? form.name : undefined }} />}</div>}
         </div>;
       })}
     </div>
@@ -540,8 +617,8 @@ function CompanyProfile({ user }: { user: Row }) {
 const permissionGroups = [
   { label: "النظام والإدارة", items: [["admin","مدير النظام"],["manage_users","إدارة المستخدمين"],["manage_roles","إدارة الأدوار والصلاحيات"],["manage_sections","إدارة الأقسام"],["manage_settings","إدارة الإعدادات"],["manage_definitions","إدارة التعريفات"],["view_system_health","صحة النظام"],["view_system_monitoring","مراقبة النظام"]] },
   { label: "الصيانة والآلات", items: [["manage_machines","إدارة الماكينات"],["manage_maintenance","إدارة الصيانة"],["manage_maintenance_actions","إجراءات الصيانة"],["create_maintenance_requests","إنشاء طلبات الصيانة"],["view_maintenance","عرض الصيانة"],["view_maintenance_reports","تقارير الصيانة"],["view_maintenance_requests","طلبات الصيانة"],["view_maintenance_stats_reports","إحصاءات الصيانة"]] },
-  { label: "الإنتاج والتشغيل", items: [["manage_production","إدارة الإنتاج"],["delete_production","حذف سجلات الإنتاج"],["manage_production_hall","إدارة صالة الإنتاج"],["view_production","عرض الإنتاج"],["view_production_monitoring","مراقبة الإنتاج"],["view_production_reports","تقارير الإنتاج"],["view_today_production","إنتاج اليوم"],["view_cutting_dashboard","لوحة القص"],["view_film_dashboard","لوحة الفيلم"],["view_printing_dashboard","لوحة الطباعة"],["manage_mixing","إدارة الخلط"],["view_mixing","عرض الخلط"]] },
-  { label: "المخزون والمستودع", items: [["manage_inventory","إدارة المخزون"],["view_inventory","عرض المخزون"],["manage_warehouse","إدارة المستودع"],["view_warehouse","عرض المستودع"],["manage_warehouse_vouchers","إدارة سندات المستودع"],["view_warehouse_vouchers","عرض سندات المستودع"],["view_warehouse_reports","تقارير المستودع"],["manage_spare_parts","قطع الغيار"],["manage_consumable_parts","المواد المستهلكة"],["manage_items","إدارة الأصناف"],["manage_categories","إدارة التصنيفات"]] },
+  { label: "الإنتاج والتشغيل", items: [["manage_production","إدارة الإنتاج"],["operate_film","تشغيل الفيلم"],["operate_printing","تشغيل الطباعة"],["operate_cutting","تشغيل القص"],["view_production_hall","عرض صالة الإنتاج"],["delete_production","حذف سجلات الإنتاج"],["manage_production_hall","إدارة صالة الإنتاج"],["view_production","عرض الإنتاج"],["view_production_monitoring","مراقبة الإنتاج"],["view_production_reports","تقارير الإنتاج"],["view_today_production","إنتاج اليوم"],["view_cutting_dashboard","لوحة القص"],["view_film_dashboard","لوحة الفيلم"],["view_printing_dashboard","لوحة الطباعة"],["manage_mixing","إدارة الخلط"],["view_mixing","عرض الخلط"]] },
+  { label: "المخزون والمستودع", items: [["receive_production","استلام الإنتاج التام"],["view_finished_inventory","عرض مخزون الإنتاج التام"],["manage_finished_warehouse","إدارة مواقع الإنتاج التام"],["manage_inventory","إدارة المخزون"],["view_inventory","عرض المخزون"],["manage_warehouse","إدارة المستودع"],["view_warehouse","عرض المستودع"],["manage_warehouse_vouchers","إدارة سندات المستودع"],["view_warehouse_vouchers","عرض سندات المستودع"],["view_warehouse_reports","تقارير المستودع"],["manage_spare_parts","قطع الغيار"],["manage_consumable_parts","المواد المستهلكة"],["manage_items","إدارة الأصناف"],["manage_categories","إدارة التصنيفات"]] },
   { label: "الجودة والطلبات والعملاء", items: [["manage_quality","إدارة الجودة"],["manage_quality_settings","إعدادات الجودة"],["create_quality_inspections","إنشاء فحوص الجودة"],["view_quality","عرض الجودة"],["view_quality_reports","تقارير الجودة"],["view_quality_control_reports","تقارير ضبط الجودة"],["manage_orders","إدارة الطلبات"],["view_orders","عرض الطلبات"],["view_my_orders","طلباتي"],["update_order_status","تحديث حالة الطلب"],["manage_customers","إدارة العملاء"]] },
   { label: "الموارد البشرية والحضور", items: [["manage_hr","إدارة الموارد البشرية"],["view_hr","عرض الموارد البشرية"],["view_hr_reports","تقارير الموارد البشرية"],["manage_attendance","إدارة الحضور"],["view_attendance","عرض الحضور"],["view_attendance_reports","تقارير الحضور"],["manage_leaves","إدارة الإجازات"],["manage_training","إدارة التدريب"],["view_training","عرض التدريب"],["manage_negligence","إدارة الإهمال"],["manage_work_violations","إدارة مخالفات العمل"],["record_work_violations","تسجيل مخالفات العمل"],["view_work_violations","عرض مخالفات العمل"]] },
   { label: "التحليلات والعرض", items: [["view_dashboard","لوحة المتابعة"],["view_user_dashboard","لوحة المستخدم"],["view_home","الرئيسية"],["view_reports","التقارير"],["manage_analytics","التحليلات"],["view_financial_reports","التقارير المالية"],["manage_alerts","إدارة التنبيهات"],["view_alerts","عرض التنبيهات"],["view_notifications","الإشعارات"],["manage_display_screen","إدارة شاشة العرض"],["view_display_screen","عرض الشاشة"]] },
@@ -608,21 +685,21 @@ function UserModal({ row, user, onClose, onSaved }: { row: Row; user: Row; onClo
     body.status = form.status || "active";
     const validRole = roles.some((role) => String(role.id) === String(form.role_id));
     const currentRoleMissing = row.id && String(form.role_id ?? "") === String(row.role_id ?? "") && !validRole;
-    if (!validRole && !currentRoleMissing) throw new Error("اختر دوراً صالحاً من القائمة");
+    if (!validRole && !currentRoleMissing) throw new Error(translate("اختر دوراً صالحاً من القائمة"));
     if (!currentRoleMissing) body.role_id = Number(form.role_id);
     const validSection = !form.section_id || sections.some((section) => String(section.id) === String(form.section_id));
     const currentSectionMissing = row.id && String(form.section_id ?? "") === String(row.section_id ?? "") && !validSection;
-    if (!validSection && !currentSectionMissing) throw new Error("اختر قسماً صالحاً من القائمة");
+    if (!validSection && !currentSectionMissing) throw new Error(translate("اختر قسماً صالحاً من القائمة"));
     if (!currentSectionMissing) body.section_id = form.section_id || null;
     if (form.password) body.password = form.password;
-    if (form.birth_date && Number.isNaN(Date.parse(`${form.birth_date}T00:00:00`))) throw new Error("تاريخ الميلاد غير صالح");
-    if (form.service_start_date && Number.isNaN(Date.parse(`${form.service_start_date}T00:00:00`))) throw new Error("تاريخ بدء الخدمة غير صالح");
-    if (form.birth_date && new Date(`${form.birth_date}T00:00:00`).getTime() > Date.now()) throw new Error("تاريخ الميلاد لا يمكن أن يكون في المستقبل");
-    if (form.birth_date && form.service_start_date && form.service_start_date < form.birth_date) throw new Error("تاريخ بدء الخدمة يجب أن يكون بعد تاريخ الميلاد");
+    if (form.birth_date && Number.isNaN(Date.parse(`${form.birth_date}T00:00:00`))) throw new Error(translate("تاريخ الميلاد غير صالح"));
+    if (form.service_start_date && Number.isNaN(Date.parse(`${form.service_start_date}T00:00:00`))) throw new Error(translate("تاريخ بدء الخدمة غير صالح"));
+    if (form.birth_date && new Date(`${form.birth_date}T00:00:00`).getTime() > Date.now()) throw new Error(translate("تاريخ الميلاد لا يمكن أن يكون في المستقبل"));
+    if (form.birth_date && form.service_start_date && form.service_start_date < form.birth_date) throw new Error(translate("تاريخ بدء الخدمة يجب أن يكون بعد تاريخ الميلاد"));
     body.must_change_password = Boolean(form.must_change_password);
     body.include_in_attendance = Boolean(form.include_in_attendance);
     if (isAdmin) body.is_system_user = Boolean(form.is_system_user);
-    if (!row.id && !form.password) throw new Error("كلمة المرور مطلوبة عند إنشاء مستخدم");
+    if (!row.id && !form.password) throw new Error(translate("كلمة المرور مطلوبة عند إنشاء مستخدم"));
     setSaving(true);
     await api(row.id ? `/users/${row.id}` : "/users", { method: row.id ? "PUT" : "POST", body: JSON.stringify(body) }); onSaved();
   } catch (e) { setError((e as Error).message); } finally { setSaving(false); } };
@@ -748,7 +825,7 @@ function RolesAdmin({ user, refreshToken = 0 }: { user: Row; refreshToken?: numb
     return () => gate.invalidate();
   }, [load, refreshToken]);
   const remove = async (r: Row) => { if (!deletable || !confirm(translate("تأكيد حذف الدور؟"))) return; try { await api(`/roles/${r.id}`, { method: "DELETE" }); load(); } catch (e) { setError((e as Error).message); } };
-  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} />{" "}{translate("إضافة دور")}</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{r.name_ar || r.name}</strong><span className="cell-sub">{r.name}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0}{" "}{translate("صلاحية")}</div></div><div className="actions">{writable && <button aria-label={`تعديل دور ${r.name_ar || r.name}`} title={translate("تعديل")} className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`حذف دور ${r.name_ar || r.name}`} title={translate("حذف")} className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>{translate("لا توجد أدوار")}</strong>{writable ? translate("أنشئ أول سياسة وصول للنظام.") : translate("لا توجد أدوار مسجلة.")}</div>}</div>{edit && writable && <RoleModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
+  return <>{writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({ permissions: [] })}><Plus size={17} />{" "}{translate("إضافة دور")}</button></div>}{error && <div className="error" role="alert">{error}</div>}<div className="role-cards">{rows.map((r) => <article className="role-card" key={r.id}><div className="role-icon"><Shield size={19} /></div><div className="role-card-main"><strong>{localizedName(r.name_ar, r.name, String(r.id))}</strong><span className="cell-sub">{localizedName("", r.name, "")}</span><div className="role-count">{Array.isArray(r.permissions) ? r.permissions.length : 0}{" "}{translate("صلاحية")}</div></div><div className="actions">{writable && <button aria-label={`${translate("تعديل")} ${translate("دور")} ${localizedName(r.name_ar, r.name, String(r.id))}`} title={translate("تعديل")} className="btn btn-plain" onClick={() => setEdit(r)}><Pencil size={16} /></button>}{deletable && <button aria-label={`${translate("حذف")} ${translate("دور")} ${localizedName(r.name_ar, r.name, String(r.id))}`} title={translate("حذف")} className="btn btn-plain" onClick={() => remove(r)}><Trash2 size={16} /></button>}</div></article>)}{!rows.length && <div className="empty panel"><strong>{translate("لا توجد أدوار")}</strong>{writable ? translate("أنشئ أول سياسة وصول للنظام.") : translate("لا توجد أدوار مسجلة.")}</div>}</div>{edit && writable && <RoleModal row={edit} user={user} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}</>;
 }
 
 function SettingsAdmin({ refreshToken = 0 }: { refreshToken?: number }) {
@@ -1095,11 +1172,15 @@ function CustomerDetail({ user }: { user: Row }) {
   const customer: Row | null = sourceCustomer ? {
     ...sourceCustomer,
     name_ar: localizedName(sourceCustomer.name_ar, sourceCustomer.name),
-    name: localizedName(sourceCustomer.name, sourceCustomer.name_ar),
+    name: localizedName(sourceCustomer.name_ar, sourceCustomer.name),
     sales_rep_name_ar: localizedName(sourceCustomer.sales_rep_name_ar, sourceCustomer.sales_rep_name),
-    sales_rep_name: localizedName(sourceCustomer.sales_rep_name, sourceCustomer.sales_rep_name_ar),
+    sales_rep_name: localizedName(sourceCustomer.sales_rep_name_ar, sourceCustomer.sales_rep_name),
   } : null;
-  const products = loadedCustomerId === customerId ? loadedProducts : [];
+  const sortedProducts = useMemo(() =>
+    sortCustomerProductsByCategory<Row>(loadedProducts, normalizeLanguage(i18n.language))
+      .map<Row>((product, index) => ({ ...product, __sequence: index + 1 })),
+  [loadedProducts, i18n.language]);
+  const products = loadedCustomerId === customerId ? sortedProducts : [];
   const error = loadedCustomerId === customerId ? errorState : "";
   const loading = loadedCustomerId !== customerId || loadingState;
   const productConfig: Config = { ...localizeConfig(configs.products), lockedFields: ["customer_id"] };
@@ -1116,7 +1197,7 @@ function CustomerDetail({ user }: { user: Row }) {
     api(`/customers/${encodeURIComponent(requestedCustomerId)}/detail`).then((data) => {
       if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
       setCustomer(data.customer || null);
-      setProducts(Array.isArray(data.products) ? data.products.map((product: Row, index: number) => ({ ...product, __sequence: index + 1 })) : []);
+      setProducts(Array.isArray(data.products) ? data.products : []);
       setLoadedCustomerId(requestedCustomerId);
     }).catch((err) => {
       if (!requestGate.current.isCurrent(request) || customerIdRef.current !== requestedCustomerId) return;
@@ -1137,8 +1218,7 @@ function CustomerDetail({ user }: { user: Row }) {
   const writable = can(user, configs.products.write);
   const productColumns = (configs.products.columns || []).filter((column) => column.key !== "customer_name_ar").map((column) => ({ ...column, label: translate(column.label) }));
   const productColumnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : ""].filter(Boolean).join(" ");
-  const productColorIsTransparent = (row: Row, field: Column) => field.colorKey && /شفاف|transparent/i.test(`${row[`${field.key}_name_ar`] || ""} ${row[`${field.key}_name`] || ""}`);
-  const renderProductCell = (row: Row, field: Column) => field.colorKey ? <span className="color-stack">{productColorIsTransparent(row, field) ? <X className="transparent-mark" size={22} aria-label={translate("بدون لون")} /> : <i style={{ background: row[field.colorKey] || "#fff" }} />}<span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><i style={{ background: row[field.key] || "#ddd" }} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
+  const renderProductCell = (row: Row, field: Column) => field.colorKey ? <span className="color-stack"><MasterBatchSwatch color={{ color_hex: row[field.colorKey], name_ar: row[`${field.key}_name_ar`], name: row[`${field.key}_name`], id: row[`${field.key}_id`] }} size={22} /><span>{displayValue(row, field)}</span></span> : field.kind === "color" ? <span className="color-cell"><MasterBatchSwatch color={{ ...row, color_hex: row[field.key] }} size={20} />{row[field.key] || "—"}</span> : field.kind === "status" ? <span className={`tag ${!dictionaries[row[field.key]] ? "neutral" : ""}`}>{displayValue(row, field)}</span> : field.secondaryKey || field.secondaryRelation ? <><strong>{displayValue(row, field)}</strong><small className="cell-sub">{secondaryValue(row, field)}</small></> : displayValue(row, field);
   const cloneProduct = (product: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = product; if (customer) setEditingProduct({ ...copy, customer_id: customer.id, __clone_source_id: product.id }); };
   return <><PageHero kicker="ملف العميل" title={customer ? customer.name_ar || customer.name || customer.id : translate("تفاصيل العميل")} description={customer?.name || (loading ? "جارٍ تحميل بيانات العميل…" : "بيانات العميل ومنتجاته المسجلة.")} onRefresh={load} refreshing={loading} actions={<button className="btn btn-muted" onClick={back}><ArrowRight size={17} />{" "}{translate("رجوع إلى العملاء")}</button>} />{error && <div className="error" role="alert">{error}</div>}{loading ? <div style={{ padding: 20 }} aria-busy="true"><div className="skeleton" /></div> : !customer ? null : <><div className="page-heading customer-detail-heading">{writable && <button className="btn btn-primary" onClick={() => setEditingProduct({ customer_id: customer.id, status: "active" })}><Plus size={17} />{" "}{translate("إضافة منتج")}</button>}</div><section className="panel customer-summary"><div><span>{translate("رمز العميل")}</span><strong>{customer.id || "—"}</strong></div><div><span>{translate("رقم الدرج")}</span><strong>{customer.plate_drawer_code || "—"}</strong></div><div><span>{translate("المندوب")}</span><strong>{customer.sales_rep_name_ar || customer.sales_rep_name || "—"}</strong></div><div><span>{translate("الهاتف")}</span><strong>{customer.phone || "—"}</strong></div><div><span>{translate("المدينة")}</span><strong>{customer.city || "—"}</strong></div><div><span>{translate("الرقم الضريبي")}</span><strong>{customer.tax_number || "—"}</strong></div></section><section className="panel"><div className="panel-head"><div><h3>{translate("منتجات العميل")}</h3><small className="muted-text">{products.length}{" "}{translate("منتج مسجل")}</small></div></div>{products.length === 0 ? <div className="empty"><strong>{translate("لا توجد منتجات لهذا العميل")}</strong>{translate("أضف أول منتج من الزر أعلاه.")}</div> : <div className="table-wrap"><table><thead><tr>{productColumns.map((field) => <th className={productColumnClass(field)} key={field.key}>{field.label}</th>)}{writable && <th>{translate("إجراء")}</th>}</tr></thead><tbody>{products.map((product) => <tr key={product.id}>{productColumns.map((field) => <td className={productColumnClass(field)} title={displayValue(product, field)} key={field.key}>{renderProductCell(product, field)}</td>)}{writable && <td><div className="actions"><button aria-label={translate("تعديل المنتج")} title={translate("تعديل المنتج")} className="btn btn-plain" onClick={() => setEditingProduct(product)}><Pencil size={16} /></button><button aria-label={translate("استنساخ المنتج")} title={translate("استنساخ المنتج")} className="btn btn-plain" onClick={() => cloneProduct(product)}><Copy size={16} /></button></div></td>}</tr>)}</tbody></table><div className="mobile-cards">{products.map((product) => { const primary = productColumns.find((column) => column.priority) || productColumns[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : productColumns.find((column) => column !== primary && column.kind === "relation"); return <article className="entity-card" key={product.id}><strong>{renderProductCell(product, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(product, primary) : displayValue(product, subtitle || productColumns.find((column) => column !== primary) || primary)}</small>{productColumns.filter((column) => column !== primary && column !== subtitle).slice(0, configs.products.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderProductCell(product, field)}</b></div>)}{writable && <div className="actions"><button className="btn btn-muted" onClick={() => setEditingProduct(product)}><Pencil size={15} />{" "}{translate("تعديل")}</button><button className="btn btn-muted" onClick={() => cloneProduct(product)}><Copy size={15} />{" "}{translate("استنساخ")}</button></div>}</article>; })}</div></div>}</section>{editingProduct && <EntityModal cfg={productConfig} row={editingProduct} onClose={() => setEditingProduct(null)} onSaved={() => { setEditingProduct(null); load(); }} />}</>}</>;
 }
@@ -1166,7 +1246,26 @@ function App() {
       : <div className="empty" role="alert"><strong>{translate("لا تملك صلاحية عرض أو طباعة الطلب")}</strong><Link className="btn btn-muted" href="/">{translate("العودة للرئيسية")}</Link></div>;
   }
   const isAdmin = can(auth.user, ["admin"]);
-  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch><Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route><Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route><Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route><Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route><Route path="/customers"><CustomersPage user={auth.user} /></Route><Route path="/products"><Redirect to="/customers?tab=products" replace /></Route><Route path="/orders"><OrdersPage user={auth.user} /></Route><Route path="/production"><Redirect to="/orders?tab=production" replace /></Route><Route path="/admin"><Admin user={auth.user} /></Route><Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route></Switch></Layout>;
+  const productionUser = { id: Number(auth.user.id), permissions: auth.user.permissions ?? [] };
+  const productionHome = initialProductionPath(productionUser);
+  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch>
+    <Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route>
+    <Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route>
+    <Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route>
+    <Route path="/customers/:id"><CustomerDetail user={auth.user} /></Route>
+    <Route path="/customers"><CustomersPage user={auth.user} /></Route>
+    <Route path="/products"><Redirect to="/customers?tab=products" replace /></Route>
+    <Route path="/orders"><OrdersPage user={auth.user} /></Route>
+    <Route path="/production/rolls/:id">{params => <ProductionPage user={productionUser} view="roll" rollId={params.id} />}</Route>
+    <Route path="/production/film"><ProductionPage user={productionUser} view="film" /></Route>
+    <Route path="/production/printing"><ProductionPage user={productionUser} view="printing" /></Route>
+    <Route path="/production/cutting"><ProductionPage user={productionUser} view="cutting" /></Route>
+    <Route path="/production/hall"><ProductionPage user={productionUser} view="hall" /></Route>
+    <Route path="/production/warehouse"><ProductionPage user={productionUser} view="warehouse" /></Route>
+    <Route path="/production">{productionHome && productionHome !== "/production" ? <Redirect to={productionHome} replace /> : <ProductionPage user={productionUser} view="management" />}</Route>
+    <Route path="/admin"><Admin user={auth.user} /></Route>
+    <Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route>
+  </Switch></Layout>;
 }
 
 export default App;

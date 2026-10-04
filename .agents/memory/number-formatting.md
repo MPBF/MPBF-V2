@@ -9,9 +9,11 @@ Displayed numbers across the app must use Latin/English digits and thousands sep
 
 Decimal values show 0–2 fractional digits: omit the decimal point for whole numbers, strip trailing zeros, and retain up to two meaningful decimal places.
 
-The canonical display formatters all apply grouping via `toLocaleString("en-US", ...)`:
-- `formatNumber` / `formatNumberWithCommas` in `client/src/lib/formatNumber.ts` (max 2 decimals, trailing zeros stripped).
-- `formatNumberAr(value, decimals)` in `shared/number-utils.ts` — keeps EXACTLY `decimals` places **and** groups. This is the preferred replacement for a display `EXPR.toFixed(n)` because it preserves fixed precision. Pass `Number(EXPR)` if the source is a DB decimal string; it safely returns `"0"` for non-finite input.
+Use the current central display helper when available; do not assume the
+historical camel-case helper filenames still exist. Display formatting must
+group thousands, keep Latin digits, and handle DB decimal strings without
+changing the raw numeric value. Use a deliberate fixed-precision formatter
+only for values whose display explicitly requires that precision.
 
 **Why:** the user explicitly confirmed app-wide English numerals and a maximum of two decimals, shown only when the value has a fractional part. Central helpers prevent inconsistent screens.
 

@@ -31,6 +31,7 @@
 - [Multer fileFilter error handling](multer-filefilter-errors.md) — multer fileFilter/limit errors fire in middleware before the route try/catch; wrap upload.single in a callback to return a clean 400 instead of crashing.
 - [Worker-thread offload](worker-thread-offload.md) — offload CPU parsing via inline eval Worker (not a separate file); esbuild won't copy a worker file into dist; transfer ArrayBuffer, terminate on timeout.
 - [i18n duplicate translation blocks](i18n-duplicate-keys.md) — ar.json/en.json have duplicate sibling keys (e.g. two warehouse.print blocks); only the LAST wins, edit that one or new keys silently don't resolve.
+- [Literal-colon labels](i18n-literal-colons.md) — single-word colon labels can disappear through namespace parsing; check actual label text in both languages.
 - [gpt-5 temperature constraint](gpt5-temperature.md) — gpt-5 family 400s on any custom temperature (only default 1); gate the param on model, and the agent model lives in a DB row not just code defaults.
 - [OpenAI org header](openai-org-header.md) — new OpenAI clients must pass `organization: null`; SDK auto-sends OPENAI_ORG_ID env → 401 mismatched_organization against the Replit AI proxy key.
 - [jsonb null byte](jsonb-null-byte.md) — never store `\u0000` in a jsonb column (22P05); use a printable separator, and keep FE/BE signature delimiters identical for equality checks.
@@ -68,4 +69,15 @@
 - [Skill/runtime capability drift](runtime-skill-drift.md) — installed skill documentation may describe an unsupported worker kind; use verified runtime capabilities.
 - [Production editor scope](production-editor-scope.md) — quantity-only is the Production Orders tab form restriction; keep existing transition APIs and started-order protections.
 - [Order printing scope](order-printing-scope.md) — user chose a standalone A4 landscape preview; the reference layout does not authorize public order sharing.
+- [Manual order display folders](order-view-folders.md) — folders organize orders manually; moving folders never changes status and status changes never move folders.
+- [Transparent master-batch presentation](master-batch-presentation.md) — show transparent colors as white circles with black stripes throughout the app; ordinary white stays solid.
+- [Intl calendar defaults](intl-calendar-defaults.md) — Saudi locale with Latin digits still defaults to Hijri; date tests must account for the intended calendar.
 - [Category overrun scope](category-overrun-scope.md) — user approved category-based planning for new production orders only; preserve saved percentages on existing orders.
+- [Customer profile product order](customer-profile-product-order.md) — user chose alphabetical category names, not codes; this preference is scoped to the customer profile.
+- [Language selector preference](language-selector-preference.md) — user chose a compact current-language flag dropdown, not adjacent flag buttons.
+- [Print pagination verification](print-pagination-verification.md) — continuous print-media checks can miss trailing PDF pages; inspect real page contents and render boundary cases.
+- [Factory roll-label printer](roll-label-printer.md) — user approved Zebra 4 × 6 inch portrait labels through browser printing; direct printer integration needs separate approval.
+- [Factory production scope](factory-production-scope.md) — manufacturing and partial receiving remain independent; finished-goods warehouse and private QR are not permission for broader modules.
+- [Ordered patch contexts](patch-hunk-order.md) — exact excerpts can still fail when same-file patch contexts are out of source order; arrange them from top to bottom.
+- [Recovery contract testing](recovery-contract-testing.md) — enforce real queue positions; lost-response tests must verify one commit, draft cleanup, and preservation of newer edits.
+- [Jest workspace discovery](jest-workspace-discovery.md) — installed skill packages can collide during root-wide test discovery; keep focused runs scoped to tests.
