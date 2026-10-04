@@ -80,3 +80,4 @@
 - [Factory production scope](factory-production-scope.md) — manufacturing and partial receiving remain independent; finished-goods warehouse and private QR are not permission for broader modules.
 - [Ordered patch contexts](patch-hunk-order.md) — exact excerpts can still fail when same-file patch contexts are out of source order; arrange them from top to bottom.
 - [Recovery contract testing](recovery-contract-testing.md) — enforce real queue positions; lost-response tests must verify one commit, draft cleanup, and preservation of newer edits.
+- [Jest workspace discovery](jest-workspace-discovery.md) — installed skill packages can collide during root-wide test discovery; keep focused runs scoped to tests.

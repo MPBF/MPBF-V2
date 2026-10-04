@@ -1,20 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { auditEnglish, hasArabic, isValidEnglish } from "./lib/i18n-audit.mjs";
 
 const sourceRoot = path.resolve("client/src");
-const englishKeys = new Set();
+const reviewedOverrides = JSON.parse(fs.readFileSync(new URL("./i18n-reviewed-overrides.json", import.meta.url), "utf8"));
+const audit = auditEnglish(sourceRoot, reviewedOverrides);
+const englishKeys = new Set(Object.entries(audit.effective).filter(([, value]) => isValidEnglish(value)).map(([key]) => key));
 const missing = new Map();
 const files = [];
-
-function hasArabic(value) {
-  return /[\u0600-\u06ff]/.test(value);
-}
-
-function collectEnglishKeys(node) {
-  if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.name)) englishKeys.add(node.name.text);
-  ts.forEachChild(node, collectEnglishKeys);
-}
 
 function collectFiles(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -48,12 +42,6 @@ function visitSource(node, sourceFile) {
   ts.forEachChild(node, (child) => visitSource(child, sourceFile));
 }
 
-for (const entry of fs.readdirSync(sourceRoot, { withFileTypes: true })) {
-  if (!entry.isFile() || !/^i18n-en(?:-[a-z0-9-]+)?\.ts$/i.test(entry.name)) continue;
-  const filePath = path.join(sourceRoot, entry.name);
-  const sourceFile = ts.createSourceFile(filePath, fs.readFileSync(filePath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  collectEnglishKeys(sourceFile);
-}
 collectFiles(sourceRoot);
 for (const filePath of files) {
   const source = fs.readFileSync(filePath, "utf8");
@@ -61,6 +49,12 @@ for (const filePath of files) {
   visitSource(sourceFile, sourceFile);
 }
 
+console.log(`English dictionary merge order: ${audit.mergeOrder.join(" -> ")}`);
+console.log(`English dictionary errors: ${audit.errors.length}`);
+for (const error of audit.errors) console.error(error);
+for (const conflict of audit.conflicts.filter((entry) => entry.reviewed)) {
+  console.log(`Reviewed override: ${JSON.stringify(conflict.key)} :: ${conflict.from.file} ${JSON.stringify(conflict.from.value)} -> ${conflict.to.file} ${JSON.stringify(conflict.to.value)}`);
+}
 console.log(`Missing English entries: ${missing.size}`);
 console.log([...missing.values()].sort().join("\n"));
-if (missing.size) process.exitCode = 1;
+if (missing.size || audit.errors.length) process.exitCode = 1;
