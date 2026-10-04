@@ -73,6 +73,7 @@
 - [Customer profile product order](customer-profile-product-order.md) — user chose alphabetical category names, not codes; this preference is scoped to the customer profile.
 - [Language selector preference](language-selector-preference.md) — user chose a compact current-language flag dropdown, not adjacent flag buttons.
 - [Print pagination verification](print-pagination-verification.md) — continuous print-media checks can miss trailing PDF pages; inspect real page contents and render boundary cases.
+- [Factory roll-label printer](roll-label-printer.md) — user approved Zebra 4 × 6 inch portrait labels through browser printing; direct printer integration needs separate approval.
 - [Factory production scope](factory-production-scope.md) — manufacturing and partial receiving remain independent; finished-goods warehouse and private QR are not permission for broader modules.
 - [Ordered patch contexts](patch-hunk-order.md) — exact excerpts can still fail when same-file patch contexts are out of source order; arrange them from top to bottom.
 - [Recovery contract testing](recovery-contract-testing.md) — enforce real queue positions; lost-response tests must verify one commit, draft cleanup, and preservation of newer edits.

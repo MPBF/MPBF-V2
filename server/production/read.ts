@@ -1,5 +1,5 @@
 import { hasProductionPermission, isPlasticRoll, productionPermissions, type ProductionState, type ProductionUser, type ProductionRollRecord } from "../../shared/production";
-import { one, permission, rows, type ConnectionPool, type Connection } from "./core";
+import { one, permission, rows, ProductionError, type ConnectionPool, type Connection } from "./core";
 
 // Execution snapshots are frozen at start. Unstarted plans use current product data.
 const liveProduct = `jsonb_build_object('id',cp.id,'item_id',cp.item_id,'name',i.name,'name_ar',i.name_ar,
@@ -76,6 +76,18 @@ export class ProductionReadService {
   async roll(actor: ProductionUser, id: number): Promise<ProductionRollRecord> {
     permission(actor, ...productionPermissions);
     return this.read(tx => one(tx, `${rollSelect} WHERE r.id=$1`, [id]));
+  }
+  async labelRolls(actor: ProductionUser, ids: number[]): Promise<ProductionRollRecord[]> {
+    // The same permissions as roll detail; one bounded, read-only query supplies
+    // current data even when the operator's board has changed since selection.
+    permission(actor, ...productionPermissions);
+    return this.read(async tx => {
+      const rolls = await rows<ProductionRollRecord>(tx, `${rollSelect} WHERE r.id=ANY($1::integer[])`, [ids]);
+      const byId = new Map(rolls.map(roll => [roll.id, roll]));
+      if (ids.some(id => !byId.has(id)))
+        throw new ProductionError("أحد الرولات غير موجود؛ حدّث التحديد وأعد المحاولة", "A selected roll was not found. Refresh your selection and retry.", 404);
+      return ids.map(id => byId.get(id)!);
+    });
   }
   private async read<T>(action: (tx: Connection) => Promise<T>) {
     const tx = await this.pool.connect();

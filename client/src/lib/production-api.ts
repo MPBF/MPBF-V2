@@ -1,5 +1,10 @@
 import i18n from "../i18n";
-import type { FilmInput, ProductionState, ReceiptInput } from "../../../shared/production";
+import type { FilmInput, ProductionRollRecord, ProductionState, ReceiptInput } from "../../../shared/production";
+
+export type ProductionRollLabel = {
+  roll: ProductionRollRecord;
+  qr: { url: string; image: string };
+};
 
 export async function productionRequest<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
   let response: Response;
@@ -19,6 +24,7 @@ export const productionApi = {
   state: () => productionRequest<ProductionState>("/state"),
   roll: (id: string | number) => productionRequest<ProductionState["rolls"][number]>(`/rolls/${encodeURIComponent(id)}`),
   qr: (id: number) => productionRequest<{ url: string; image: string }>(`/rolls/${id}/qr`),
+  labels: (rollIds: number[]) => productionRequest<{ labels: ProductionRollLabel[] }>("/labels", { roll_ids: rollIds }),
   start: (id: number, request_id: string) => productionRequest(`/orders/${id}/start`, { request_id }),
   film: (id: number, input: FilmInput) => productionRequest(`/orders/${id}/rolls`, input),
   closeFilm: (id: number, request_id: string) => productionRequest(`/orders/${id}/close-film`, { request_id }),

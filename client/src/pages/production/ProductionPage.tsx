@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, Check, ChevronRight, Factory, Plus, RefreshCw, Settings2, X } from "lucide-react";
 import { Link } from "wouter";
+import RollLabelControls from "./RollLabelControls";
+import "./roll-labels.css";
 import {
   eligibleForCutting, hasProductionPermission, machineStage,
   type FilmInput, type ProductionMachine, type ProductionOrderRecord, type ProductionRollRecord,
@@ -479,6 +481,7 @@ function RollDetail({rollId,user,language,state}:{rollId:string;user:ProductionU
       <div><span>{text("net",language)}</span><strong>{roll.net_weight_kg?`${number(roll.net_weight_kg,language)} kg`:"—"}</strong></div>
       <div><span>{text("waste",language)}</span><strong>{number(roll.waste_kg,language)} kg</strong></div>
     </div>
+    <div className="prod-savebar"><RollLabelControls rolls={[roll]} language={language} single /></div>
   </Card><aside className="prod-qr"><strong>{text("qr",language)}</strong>{qr?<img src={qr} alt={text("qr",language)}/>:<div className="prod-skeleton" style={{height:190,marginTop:12}}/>}<small>{qrUrl}</small></aside></div>;
 }
 
@@ -519,6 +522,7 @@ export default function ProductionPage({user,view,rollId}:ProductionPageProps) {
         {(view==="film"||view==="printing"||view==="cutting")&&<OperatorBoard state={state} user={user} stage={view} language={language} reload={data.reload}/>}
         {view==="hall"&&<HallView state={state} user={user} language={language} reload={data.reload}/>}
         {view==="warehouse"&&<Warehouse state={state} user={user} language={language} reload={data.reload}/>}
+        <RollLabelControls rolls={state.rolls} language={language} />
       </>}
   </section>;
 }

@@ -15,6 +15,20 @@ const weightPattern = /^\d{1,12}(?:\.\d{1,2})?$/;
 const weight = z.string().regex(weightPattern).refine(v => weightPattern.test(v) && kgHundredths(v) > 0n);
 const machine = z.string().trim().min(1).max(20);
 const safeText = (max: number) => z.string().trim().max(max).refine(s => !s.includes("\u0000"));
+const labelSelection = z.object({
+  roll_ids: z.array(z.number().int().positive().max(2147483647)).min(1).max(100)
+    .refine(ids => new Set(ids).size === ids.length),
+}).strict();
+async function rollQR(req: Parameters<RequestHandler>[0], rollId: number) {
+  // Identity only: this URL never grants access. Auth and roll permissions remain
+  // enforced by the existing detail route, including after a label is scanned.
+  const url = `${req.protocol}://${req.get("host")}/production/rolls/${rollId}`;
+  const image = await QRCode.toDataURL(url, {
+    width: 600, margin: 4, errorCorrectionLevel: "M",
+    color: { dark: "#000000", light: "#ffffff" },
+  });
+  return { url, image };
+}
 const handler = (callback: RequestHandler): RequestHandler => async (req, res, next) => {
   try { await callback(req, res, next); } catch (error) {
     if (error instanceof ProductionError) return void res.status(error.status).json({ message: error.message, message_en: error.message_en });
@@ -35,10 +49,15 @@ router.get("/state", handler(async (req, res) => { res.json(await read.state(req
 router.get("/rolls/:id", handler(async (req, res) => { res.json(await read.roll(req.user!, id.parse(req.params.id))); }));
 router.get("/rolls/:id/qr", handler(async (req, res) => {
   const roll = await read.roll(req.user!, id.parse(req.params.id));
-  const url = `${req.protocol}://${req.get("host")}/production/rolls/${roll.id}`;
-  const image = await QRCode.toDataURL(url, { width: 240, margin: 1, color: { dark: "#174d4a", light: "#ffffff" } });
   res.setHeader("Cache-Control", "private, no-store");
-  res.json({ url, image });
+  res.json(await rollQR(req, roll.id));
+}));
+router.post("/labels", handler(async (req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  const { roll_ids } = labelSelection.parse(req.body);
+  const rolls = await read.labelRolls(req.user!, roll_ids);
+  const labels = await Promise.all(rolls.map(async roll => ({ roll, qr: await rollQR(req, roll.id) })));
+  res.json({ labels });
 }));
 router.post("/orders/:id/start", handler(async (req, res) => { res.json(await execution.start(req.user!, id.parse(req.params.id), request.parse(req.body))); }));
 router.post("/orders/:id/rolls", handler(async (req, res) => {
