@@ -37,9 +37,19 @@
 .opp-bilingual strong { font-size: 12px; }
 .opp-bilingual small { color: #597069; font-size: 10px; font-weight: 700; }
 .opp-overview { font-size: 12px !important; }
-.opp-overview th { width: 6%; background: #f0f3f1; }
+.opp-overview col.opp-overview-customer-label { width: 7%; }
+.opp-overview col.opp-overview-customer { width: 26%; }
+.opp-overview col.opp-overview-drawer-label { width: 6%; }
+.opp-overview col.opp-overview-drawer { width: 7%; }
+.opp-overview col.opp-overview-rep-label { width: 7%; }
+.opp-overview col.opp-overview-rep { width: 10%; }
+.opp-overview col.opp-overview-status-label { width: 6%; }
+.opp-overview col.opp-overview-status { width: 8%; }
+.opp-overview col.opp-overview-total-label { width: 7%; }
+.opp-overview col.opp-overview-total { width: 16%; }
+.opp-overview th { background: #f0f3f1; }
 .opp-overview td { font-size: 13px; }
-.opp-overview .opp-customer-cell { width: 18%; text-align: start; }
+.opp-overview .opp-customer-cell { text-align: start; }
 .opp-customer-cell strong,.opp-customer-cell span,.opp-customer-cell small { display: block; }
 .opp-customer-cell strong { font-size: 20px; }
 .opp-customer-cell span { font-size: 16px; }
@@ -60,12 +70,12 @@
 .opp-spec-table td { padding: 5px 3px; }
 .opp-spec-row { break-inside: avoid; page-break-inside: avoid; }
 .opp-row-number { font-size: 11px; }
-.opp-item-cell { text-align: start !important; }
+.opp-item-cell { text-align: center !important; }
 .opp-item-cell strong,.opp-item-cell small { display: block; }
 .opp-item-cell strong { margin-bottom: 2px; font-size: 14px; }
 .opp-item-cell small { color: #536660; font-size: 10px; line-height: 1.35; }
 .opp-color-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.opp-color-swatch { width: 24px; height: 24px; flex: 0 0 24px; border: 1.5px solid #52645d; border-radius: 50%; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.opp-color-swatch { width: 34px; height: 34px; flex: 0 0 34px; border: 1.5px solid #52645d; border-radius: 50%; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .opp-color-cell strong { font-size: 12px; }
 .opp-color-cell small { color: #566b62; font-size: 9px; }
 .opp-color-cell .opp-print-colors { max-width: 100%; }

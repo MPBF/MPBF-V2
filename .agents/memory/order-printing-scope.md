@@ -20,3 +20,12 @@ For order printing, show one total of all linked production orders' planned quan
 **Why:** The user requested these three display restrictions and explicitly chose the sum of planned quantities rather than requested quantities.
 
 **How to apply:** Keep this scoped to the order print sheet; it does not authorize changes to saved quantities or the order-details screen. The approved scope preserves the separate notes column and other print content.
+
+The user confirmed integer rounding for all quantitative print fields,
+including dimensions, thickness and cylinder, not only quantities.
+
+**Why:** when asked explicitly whether measurements should be rounded, the user
+answered «نعم، جميع القيم الرقمية بما فيها المقاسات والسلندر».
+
+**How to apply:** preserve precise saved values and calculations; apply rounding
+only to print display, never to identifiers, dates or free-text notes.

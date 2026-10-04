@@ -173,6 +173,7 @@ const reviewed: Record<string, string> = {
   "الحضور": "Attendance",
   "قائمة المستلمين": "Recipients",
   "الرسائل": "Messages",
+  "يوم": "day",
 };
 
 export default reviewed;

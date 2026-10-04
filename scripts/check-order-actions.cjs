@@ -53,9 +53,9 @@ const releaseOnly = process.argv.includes("--production-release-only");
       previous_status: "waiting", notes: "تعليمات الطلب التجريبي", created_by: 42,
       created_at: "2026-10-02T22:30:00.000Z", delivery_date: "2026-10-18", delivery_days: 15 };
     const product = { id: 11, customer_id: "CID010", category_id: "CAT01", item_id: "ITM01",
-      size_caption: "28+7+7X41", width: "28", left_facing: "7", right_facing: "7", thickness: "10",
-      universal_thickness: "25", density: "0.95", bag_weight_grams: "4.85", bags_per_kilo: "206",
-      printing_cylinder: "16", cutting_length_cm: 41, raw_material: "HDPE", master_batch_id: "PT01",
+      size_caption: "28.4+7.5+7.5X41.49", width: "28.40", left_facing: "7.50", right_facing: "7.50", thickness: "10",
+      universal_thickness: "25.40", density: "0.95", bag_weight_grams: "4.85", bags_per_kilo: "206",
+      printing_cylinder: "16.5", cutting_length_cm: 41, raw_material: "HDPE", master_batch_id: "PT01",
       is_printed: true, cutting_unit: "kg", punching: "بنانة", unit_weight_kg: "1.00", unit_quantity: 20,
       package_weight_kg: "20.00", cliche_front_design: null, cliche_back_design: null,
       front_print_colors: ["أزرق"], back_print_colors: [], notes: "تعليمات المنتج التجريبي",
@@ -311,9 +311,13 @@ const releaseOnly = process.argv.includes("--production-release-only");
       check(`${width}: bilingual 12-column document and creator signature`, await evaluate("document.querySelectorAll('.opp-spec-table thead th').length===12&&document.querySelector('.opp-signatures').textContent.includes('منشئ تجريبي')&&document.querySelector('.opp-sheet').textContent.includes('PRODUCTION ORDER')"));
       await capture(`order-print-${width}`);
       check(`${width}: correct universal thickness, logo, QR and localized Riyadh date`, await evaluate("({thickness:document.querySelector('.opp-sheet').textContent.includes('25 MIC'),logo:!!document.querySelector('.opp-logo'),qr:!!document.querySelector('.opp-qr'),date:document.querySelector('.opp-order-id div:nth-child(2) span').textContent.trim()===new Intl.DateTimeFormat('ar-SA-u-nu-latn',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'Asia/Riyadh'}).format(new Date('2026-10-02T22:30:00.000Z')).replace(/[\\u061c\\u200e\\u200f]/g,'')})"), { thickness: true, logo: true, qr: true, date: true });
-      check(`${width}: one total sums planned quantities across all production rows`, await evaluate("document.querySelectorAll('.opp-total-cell strong').length===1&&document.querySelector('.opp-total-cell').textContent.trim()==='435.53 كجم'"));
-      check(`${width}: only planned quantities, including missing-product rows`, await evaluate("[...document.querySelectorAll('.opp-spec-row')].map(r=>r.cells[10].textContent.trim())"), ["330 kg", "105.53 kg"]);
+      check(`${width}: one rounded total uses the original planned sum`, await evaluate("document.querySelectorAll('.opp-total-cell strong').length===1&&document.querySelector('.opp-total-cell').textContent.trim()==='436 كجم'"));
+      check(`${width}: rounded planned quantities, including missing-product rows`, await evaluate("[...document.querySelectorAll('.opp-spec-row')].map(r=>r.cells[10].textContent.trim())"), ["330 kg", "106 kg"]);
       check(`${width}: item cell contains only Arabic and English names`, await evaluate("[...document.querySelector('.opp-item-cell').children].map(e=>e.textContent.trim())"), ["بنانة - S", "Banana S"]);
+      check(`${width}: both item names are centered`, await evaluate("[...document.querySelectorAll('.opp-item-cell,.opp-item-cell strong,.opp-item-cell small')].every(e=>getComputedStyle(e).textAlign==='center')"));
+      check(`${width}: dimensions, thickness and cylinder are rounded`, await evaluate("(()=>{const c=document.querySelector('.opp-spec-row').cells;return [c[2],c[3],c[4],c[8]].map(e=>e.textContent.trim())})()"), ["28+8+8X41","41 cm","25 MIC","17″"]);
+      check(`${width}: color circle enlarged without supplier, while color code retained`, await evaluate("(()=>{const c=document.querySelector('.opp-color-cell'),s=c.querySelector('.opp-color-swatch').getBoundingClientRect();return s.width>=32&&s.width===s.height&&!c.textContent.includes('Test')&&c.textContent.includes('#PT01')})()"));
+      check(`${width}: customer field wider and drawer field compact`, await evaluate("(()=>{const t=document.querySelector('.opp-overview'),c=t.rows[0].cells;return c[1].getBoundingClientRect().width>=t.getBoundingClientRect().width*.25&&c[1].getBoundingClientRect().width>=c[3].getBoundingClientRect().width*3})()"));
       check(`${width}: missing product does not substitute order/category metadata`, await evaluate("document.querySelectorAll('.opp-item-cell')[1].textContent"), "——");
       check(`${width}: independent product and order notes are preserved`, await evaluate("document.querySelector('.opp-notes').textContent==='تعليمات المنتج التجريبي'&&document.querySelector('.opp-order-notes').textContent.includes('تعليمات الطلب التجريبي')"));
       await checkSignatures(`Arabic ${width} preview`);
@@ -368,8 +372,8 @@ const releaseOnly = process.argv.includes("--production-release-only");
     await navigate("/orders/7/print");
     await wait("!!document.querySelector('.opp-sheet') && document.documentElement.lang==='en'");
     check("English preview retains both item names", await evaluate("[...document.querySelector('.opp-item-cell').children].map(e=>e.textContent.trim())"), ["بنانة - S", "Banana S"]);
-    check("English preview has one planned total", await evaluate("document.querySelector('.opp-total-cell').textContent.trim()"), "435.53 kg");
-    check("English preview quantity remains planned-only", await evaluate("[...document.querySelectorAll('.opp-spec-row')].map(r=>r.cells[10].textContent.trim())"), ["330 kg", "105.53 kg"]);
+    check("English preview has one rounded planned total", await evaluate("document.querySelector('.opp-total-cell').textContent.trim()"), "436 kg");
+    check("English preview quantity remains rounded planned-only", await evaluate("[...document.querySelectorAll('.opp-spec-row')].map(r=>r.cells[10].textContent.trim())"), ["330 kg", "106 kg"]);
     await checkSignatures("English preview");
     await checkPrintSignatures("English");
     await capture("order-print-en");
