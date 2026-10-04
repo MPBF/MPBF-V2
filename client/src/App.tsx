@@ -16,10 +16,12 @@ import CustomerModal from "./components/CustomerModal";
 import ProductionOrderModal from "./components/ProductionOrderModal";
 import FlagLanguageSelector from "./components/FlagLanguageSelector";
 import OrderDetailsModal from "./components/OrderDetailsModal";
-import OrderProductionReleaseButton from "./components/OrderProductionReleaseButton";
+import OrderWorkspaceControls, { OrderRowActionMenu, OrderSelectionBox, type WorkspaceOrder } from "./components/OrderWorkspaceControls";
 import OrderPrintPage from "./components/OrderPrintPage";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 import { sortCustomerProductsByCategory } from "./lib/customer-product-sort";
+import type { OrderWorkspaceAction } from "../../shared/order-workspace";
+import type { OrderDisplayFolder } from "./lib/order-workspace";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
 import i18n, { applyLanguage, localizedName, normalizeLanguage, translate, translateError } from "./i18n";
 
@@ -50,13 +52,14 @@ const api = async (path: string, options: RequestInit = {}) => {
       429: "عدد المحاولات كبير. حاول مرة أخرى لاحقاً",
       500: "حدث خطأ داخلي في الخادم",
     };
-    throw new Error(translateError(body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب"));
+    throw new Error(translateError((i18n.language === "en" ? body.message_en : body.message) || body.message || fallbackByStatus[response.status] || "تعذر تنفيذ الطلب"));
   }
   return normalizePayload(body);
 };
-const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE) => {
+const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE, displayFolder?: OrderDisplayFolder) => {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (search) query.set("search", search);
+  if (displayFolder) query.set("display_folder", displayFolder);
   return api(`${path}?${query.toString()}`).then((value) => {
     if (!Array.isArray(value)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
     return value as Row[];
@@ -305,11 +308,18 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     setViewingOrder(viewOrderQuery && /^\d+$/.test(viewOrderQuery) && Number.isSafeInteger(id) && id > 0 ? id : null);
   }, [kind, viewOrderQuery]);
   const cfg = useMemo(() => localizeConfig(configs[kind]), [kind, i18n.language]); const [loadedRows, setRows] = useState<Row[]>([]); const [search, setSearch] = useState(""); const [page, setPage] = useState(0); const [resultKey, setResultKey] = useState(""); const [busyState, setBusy] = useState(true); const [error, setError] = useState(""); const [edit, setEdit] = useState<Row | null>(null);
+  const [displayFolder, setDisplayFolder] = useState<OrderDisplayFolder | "all">("all");
+  const [folderCounts, setFolderCounts] = useState<Record<OrderDisplayFolder, number>>({ new: 0, production: 0, urgent: 0, archive: 0 });
+  const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [folderCountsVersion, setFolderCountsVersion] = useState(0);
   const readable = can(user, cfg.read); const writable = can(user, cfg.write); const deletable = can(user, cfg.del || ["admin"]); const clonable = Boolean(cfg.clone && writable);
   const viewable = kind === "production" || kind === "orders";
   const showActions = viewable || writable || deletable || clonable;
   const requestGate = useRef(createLatestRequestGate());
-  const activeKey = `${cfg.path}|${search}|${page}|${refreshToken}`;
+  const activeFolder = kind === "orders" && displayFolder !== "all" ? displayFolder : undefined;
+  const activeKey = `${cfg.path}|${search}|${page}|${activeFolder || "all"}|${refreshToken}`;
   const rows = resultKey === activeKey ? loadedRows : [];
   const busy = busyState || resultKey !== activeKey;
   const load = useCallback(() => {
@@ -318,7 +328,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     setBusy(true);
     setResultKey("");
     setError("");
-    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE), {
+    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE, LIST_PAGE_SIZE, activeFolder), {
       onSuccess: (value) => {
         setRows(value.map((row, index) => ({ ...row, __sequence: page * LIST_PAGE_SIZE + index + 1 })));
         setResultKey(requestKey);
@@ -330,7 +340,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       },
       onSettled: () => setBusy(false),
     });
-  }, [activeKey, cfg.path, page, search]);
+  }, [activeKey, activeFolder, cfg.path, page, search]);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   useEffect(() => {
@@ -338,10 +348,56 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     load();
     return () => gate.invalidate();
   }, [load]);
+  useEffect(() => {
+    if (kind !== "orders") return;
+    let active = true;
+    void api("/orders/display-folders").then((response) => {
+      if (!active || !response?.counts) return;
+      setFolderCounts({
+        new: Number(response.counts.new || 0),
+        production: Number(response.counts.production || 0),
+        urgent: Number(response.counts.urgent || 0),
+        archive: Number(response.counts.archive || 0),
+      });
+    }).catch((countError) => {
+      if (active) setWorkspaceError((countError as Error).message || translate("تعذر تحميل مجلدات الطلبات"));
+    });
+    return () => { active = false; };
+  }, [kind, folderCountsVersion]);
   if (!readable) return <div className="empty"><strong>{translate("لا تملك صلاحية العرض")}</strong>{translate("تواصل مع مدير النظام.")}</div>;
   const remove = async (id: any) => { if (!deletable || !confirm(translate("تأكيد حذف السجل؟"))) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
   const printOrder = (id: number) => window.open(`/orders/${encodeURIComponent(String(id))}/print`, "_blank", "noopener,noreferrer");
+  const performWorkspaceAction = async (action: OrderWorkspaceAction, items: { id: number; expected_status: string }[]) => {
+    if (!writable || !items.length || items.length > 100) return;
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    try {
+      await api("/orders/actions", { method: "POST", body: JSON.stringify({ action, items }) });
+      setSelectedOrderIds((selected) => selected.filter((id) => !items.some((item) => item.id === id)));
+      latestLoad.current();
+      setFolderCountsVersion((version) => version + 1);
+    } catch (actionError) {
+      setWorkspaceError((actionError as Error).message);
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
+  const moveWorkspaceOrders = async (folder: OrderDisplayFolder, items: { id: number; expected_folder: OrderDisplayFolder }[]) => {
+    if (!writable || !items.length || items.length > 100) return;
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    try {
+      await api("/orders/display-folders/move", { method: "POST", body: JSON.stringify({ folder, items }) });
+      setSelectedOrderIds((selected) => selected.filter((id) => !items.some((item) => item.id === id)));
+      latestLoad.current();
+      setFolderCountsVersion((version) => version + 1);
+    } catch (moveError) {
+      setWorkspaceError((moveError as Error).message);
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
   const closeOrder = () => {
     setViewingOrder(null);
     if (viewOrderQuery) {
@@ -351,7 +407,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     }
   };
   const rowActions = (row: Row, mobile = false) => <div className="actions">
-    {kind === "orders" && <OrderProductionReleaseButton id={Number(row.id)} status={row.status} enabled={writable} onReleased={() => latestLoad.current()} />}
+    {kind === "orders" && writable && <OrderRowActionMenu row={row as WorkspaceOrder} enabled={writable && !workspaceBusy} onAction={performWorkspaceAction} />}
     {viewable && <button aria-label={kind === "orders" ? translate("عرض الطلب") : translate("عرض أمر الإنتاج")} title={translate("عرض")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => kind === "orders" ? setViewingOrder(Number(row.id)) : setViewingProduction(row)}><Eye size={16} />{mobile && translate(" عرض")}</button>}
     {kind === "orders" && <a aria-label={translate("طباعة الطلب")} title={translate("طباعة")} className={mobile ? "btn btn-muted" : "btn btn-plain"} href={`/orders/${encodeURIComponent(String(row.id))}/print`} target="_blank" rel="noopener noreferrer"><Printer size={16} />{mobile && translate(" طباعة")}</a>}
     {writable && <button aria-label={`${translate("تعديل")} ${translate(cfg.singular)}`} title={translate("تعديل")} className={mobile ? "btn btn-muted" : "btn btn-plain"} onClick={() => setEdit(row)}><Pencil size={16} />{mobile && ` ${translate("تعديل")}`}</button>}
@@ -371,25 +427,39 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     {showHero ? <PageHero kicker={translate("سجل البيانات · {{count}} سجل معروض", { count: rows.length })} title={translate(cfg.title)} description={translate("استعرض وأدر سجلات {{title}}.", { title: translate(cfg.title) })} onRefresh={load} refreshing={busy} actions={writable && <button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة")}{" "}{translate(cfg.singular)}</button>} /> : writable && <div className="page-heading"><button className="btn btn-primary" onClick={() => setEdit({})}><Plus size={17} />{" "}{translate("إضافة")}{" "}{translate(cfg.singular)}</button></div>}
     {error && <div className="error" role="alert">{error}</div>}
     <section className="panel">
+      {kind === "orders" && <OrderWorkspaceControls
+        rows={rows as WorkspaceOrder[]}
+        folder={displayFolder}
+        counts={folderCounts}
+        selected={selectedOrderIds}
+        canManage={writable}
+        busy={workspaceBusy}
+        error={workspaceError}
+        onFolderChange={(folder) => { setDisplayFolder(folder); setPage(0); setSelectedOrderIds([]); setEdit(null); setWorkspaceError(""); }}
+        onSelectPage={(checked) => setSelectedOrderIds((selected) => checked ? Array.from(new Set([...selected, ...rows.map((row) => Number(row.id))])) : selected.filter((id) => !rows.some((row) => Number(row.id) === id)))}
+        onClear={() => setSelectedOrderIds([])}
+        onAction={performWorkspaceAction}
+        onMove={moveWorkspaceOrders}
+      />}
       <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
         <div className="tools">
           <Search size={17} aria-hidden="true" />
           <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
-          <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setEdit(null); }} />
+          <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setSelectedOrderIds([]); setEdit(null); }} />
         </div>
       </div>
       {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>{translate("لا توجد سجلات مطابقة")}</strong>{translate("ابدأ بإضافة أول سجل لهذا القسم.")}</div> : <div className="table-wrap">
         <table>
-          <thead><tr>{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
-          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
+          <thead><tr>{kind === "orders" && writable && <th className="order-row-select"><span className="sr-only">{translate("حدد الصفحة الحالية")}</span></th>}{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
+          <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{kind === "orders" && writable && <td className="order-row-select"><OrderSelectionBox label={`${translate("حدد")} ${displayValue(row, cols[0])}`} checked={selectedOrderIds.includes(Number(row.id))} onChange={() => setSelectedOrderIds((selected) => selected.includes(Number(row.id)) ? selected.filter((id) => id !== Number(row.id)) : [...selected, Number(row.id)])} /></td>}{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
         </table>
-        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}><strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
+        <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}>{kind === "orders" && writable && <OrderSelectionBox label={`${translate("حدد")} ${displayValue(row, cols[0])}`} checked={selectedOrderIds.includes(Number(row.id))} onChange={() => setSelectedOrderIds((selected) => selected.includes(Number(row.id)) ? selected.filter((id) => id !== Number(row.id)) : [...selected, Number(row.id)])} />}<strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
       </div>}
       {!busy && (page > 0 || rows.length === LIST_PAGE_SIZE) && <nav className="list-pagination" aria-label={`${translate("صفحات")} ${cfg.title}`}>
-        <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>{translate("السابق")}</button>
+         <button className="btn btn-muted" type="button" disabled={page === 0} onClick={() => { setPage((current) => Math.max(0, current - 1)); setSelectedOrderIds([]); }}>{translate("السابق")}</button>
         <span>{translate("صفحة")}{" "}{page + 1}</span>
-        <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => setPage((current) => current + 1)}>{translate("التالي")}</button>
+         <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => { setPage((current) => current + 1); setSelectedOrderIds([]); }}>{translate("التالي")}</button>
       </nav>}
     </section>
     {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}

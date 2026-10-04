@@ -12,6 +12,7 @@ import type { ProductionUser } from "../shared/production";
 import type { ConnectionPool } from "../server/production/core";
 import express from "express";
 import { releaseOrderToProduction } from "../server/order-production-release";
+import { applyOrderActions, moveOrderFolders, orderFolderCounts } from "../server/order-workspace";
 const uiRequestsPath = process.argv.find(arg=>arg.startsWith("--ui-requests="))?.slice("--ui-requests=".length);
 const uiRequests: {route:string;input:{first_position:number;second_position:number}}[] | undefined =
   uiRequestsPath ? JSON.parse(readFileSync(uiRequestsPath,"utf8")) : undefined;
@@ -268,6 +269,43 @@ try {
     const swapped = (await read.state(actor)).queues.filter(q => q.stage === "film" && q.machine_id === "F1");
     assert.equal(swapped[0].id, entries[1].id);
     await assert.rejects(service.reorderQueue(actor, { ...input, ...key() }), /تغير/);
+  });
+  await test("shared folders are manual, status-independent, atomic and replay-safe", async () => {
+    await query(readFileSync("migrations/0012_order_display_folders.sql", "utf8"));
+    await query("INSERT INTO orders(id,order_number,customer_id,status) VALUES(92,'WORKSPACE-92','C1','waiting'),(93,'WORKSPACE-93','C1','on_hold')");
+    const before = await query("SELECT * FROM orders WHERE id IN(90,91,92,93) ORDER BY id");
+    const plans = await query("SELECT * FROM production_orders WHERE order_id IN(90,91,92,93) ORDER BY id");
+    await moveOrderFolders("archive", [{ id: 91, expected_folder: "new" }, { id: 90, expected_folder: "new" }], 1, isolated);
+    assert.deepEqual(await query("SELECT * FROM orders WHERE id IN(90,91,92,93) ORDER BY id"), before);
+    assert.deepEqual(await query("SELECT * FROM production_orders WHERE order_id IN(90,91,92,93) ORDER BY id"), plans);
+    assert.equal((await moveOrderFolders("archive", [{ id: 91, expected_folder: "new" }], 1, isolated)).moved, 0);
+    await assert.rejects(moveOrderFolders("urgent", [{ id: 92, expected_folder: "new" }, { id: 91, expected_folder: "new" }], 1, isolated), /لم يُنقل/);
+    assert.equal((await query("SELECT * FROM order_display_folder_assignments WHERE order_id=92")).length, 0);
+    const results = await Promise.allSettled([
+      moveOrderFolders("production", [{ id: 92, expected_folder: "new" }], 1, isolated),
+      moveOrderFolders("urgent", [{ id: 92, expected_folder: "new" }], 1, isolated),
+    ]);
+    assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+    await moveOrderFolders("new", [{ id: 91, expected_folder: "archive" }], 1, isolated);
+    assert.equal((await query("SELECT folder FROM order_display_folder_assignments WHERE order_id=91"))[0].folder, "new");
+    const counts = await orderFolderCounts(isolated);
+    assert.equal(counts.total, (await query("SELECT count(*)::int count FROM orders"))[0].count);
+    assert.equal(counts.counts.archive, 1);
+  });
+  await test("bulk actions stop execution without modifying plans or folders; invalid batches roll back", async () => {
+    const folders = await query("SELECT * FROM order_display_folder_assignments ORDER BY order_id");
+    const plans = await query("SELECT * FROM production_orders WHERE order_id IN(91,92,93) ORDER BY id");
+    await applyOrderActions("pause", [{ id: 92, expected_status: "waiting" }, { id: 93, expected_status: "on_hold" }], isolated);
+    assert.equal((await query("SELECT status FROM orders WHERE id=92"))[0].status, "paused");
+    await applyOrderActions("pause", [{ id: 92, expected_status: "waiting" }], isolated);
+    await assert.rejects(applyOrderActions("cancel", [{ id: 92, expected_status: "paused" }, { id: 90, expected_status: "completed" }], isolated), /لم تتغير/);
+    assert.equal((await query("SELECT status FROM orders WHERE id=92"))[0].status, "paused");
+    await applyOrderActions("cancel", [{ id: 91, expected_status: "in_production" }, { id: 92, expected_status: "paused" }], isolated);
+    await assert.rejects(film(91), /متوقف|قابل للتنفيذ/);
+    await assert.rejects(applyOrderActions("release", [{ id: 91, expected_status: "cancelled" }], isolated), /لم تتغير/);
+    await assert.rejects(applyOrderActions("pause", [{ id: 93, expected_status: "paused" }, { id: 93, expected_status: "paused" }], isolated), /دون تكرار/);
+    assert.deepEqual(await query("SELECT * FROM production_orders WHERE order_id IN(91,92,93) ORDER BY id"), plans);
+    assert.deepEqual(await query("SELECT * FROM order_display_folder_assignments ORDER BY order_id"), folders);
   });
   await test("HTTP authentication, read-only permissions, strict payload rejection and no client-forced transitions", async () => {
     const app = express();

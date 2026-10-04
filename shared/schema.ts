@@ -417,6 +417,16 @@ export const orders = pgTable(
   }),
 );
 
+export const order_display_folder_assignments = pgTable("order_display_folder_assignments", {
+  order_id: integer("order_id").primaryKey().references(() => orders.id, { onDelete: "cascade" }),
+  folder: varchar("folder", { length: 20 }).notNull(),
+  updated_by: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updated_at: timestamp("updated_at").notNull().defaultNow(),
+}, table => ({
+  folderValid: check("order_display_folder_valid", sql`${table.folder} IN ('new','production','urgent','archive')`),
+  folderOrderIndex: index("idx_order_display_folder_order").on(table.folder, table.order_id),
+}));
+
 export const production_orders = pgTable(
   "production_orders",
   {
