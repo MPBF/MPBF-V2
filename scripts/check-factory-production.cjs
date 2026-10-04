@@ -282,6 +282,15 @@ const QRCode = require("qrcode");
         await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${JSON.stringify(lang==="en"?"Order history":"تاريخ أوامر الإنتاج")}).click()`);
         await wait("document.body.innerText.includes('PO-220')");
         check(`${lang} ${width} expanded history fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+        await setInput("details[open] input:not([type])", "NO-MATCH-I18N");
+        await evaluate("document.querySelector('details[open] form').requestSubmit()");
+        const emptyText = lang === "en" ? "No results" : "لا توجد نتائج";
+        await wait(`document.querySelector('details[open]').innerText.includes(${JSON.stringify(emptyText)})`);
+        check(`${lang} ${width} history empty message`, await evaluate("document.querySelectorAll('details[open] .prod-record').length"), 0);
+        await setInput("details[open] input:not([type])", ""); historyFailure = true;
+        await evaluate("document.querySelector('details[open] form').requestSubmit()");
+        await wait("!!document.querySelector('details[open] .prod-error')");
+        check(`${lang} ${width} history localized error`, await evaluate(`document.querySelector('details[open] .prod-error').innerText.includes(${JSON.stringify(lang === "en" ? "Fixture history failure" : "تعذر تحميل التاريخ")})`));
         await navigate("/production/warehouse");
         for(const title of (lang==="en"?["Finished-goods balances","Saved receipt vouchers","Inventory movements"]:["أرصدة المواد التامة","سندات الاستلام المحفوظة","حركات المخزون"])){
           await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${JSON.stringify(title)}).click()`);

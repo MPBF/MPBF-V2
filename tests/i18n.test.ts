@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "@jest/globals";
 
 import i18n, { localizedName, normalizeLanguage, translate, translateError } from "../client/src/i18n";
+import productionEnglish from "../client/src/i18n-en-production";
+import { rollLabelPreviewCopy } from "../client/src/pages/production/roll-label-document";
 
 describe("interface localization", () => {
   afterEach(async () => {
@@ -36,6 +38,28 @@ describe("interface localization", () => {
     expect(normalizeLanguage("en")).toBe("en");
     expect(normalizeLanguage("fr")).toBe("ar");
     expect(normalizeLanguage(undefined, "en")).toBe("en");
+  });
+
+  it("retains every production translation after merging the dictionaries", async () => {
+    await i18n.changeLanguage("en");
+    for (const [source, english] of Object.entries(productionEnglish)) {
+      expect(english.trim()).not.toBe("");
+      expect(english).not.toMatch(/[\u0600-\u06ff]/);
+      expect(translate(source)).toBe(english);
+    }
+    await i18n.changeLanguage("ar");
+    for (const source of Object.keys(productionEnglish)) {
+      expect(translate(source)).toBe(source);
+    }
+  });
+
+  it("keeps print preview labels and failure messages consistent with the dictionaries", async () => {
+    const arabic = rollLabelPreviewCopy("ar");
+    const english = rollLabelPreviewCopy("en");
+    await i18n.changeLanguage("en");
+    for (const key of Object.keys(arabic) as (keyof typeof arabic)[]) {
+      if (key !== "direction") expect(translate(arabic[key])).toBe(english[key]);
+    }
   });
 
   it("translates indirect configuration, validation, and unit labels", async () => {
