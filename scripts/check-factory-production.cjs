@@ -240,12 +240,9 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} duplicate close-film button absent`,await evaluate("![...document.querySelectorAll('button')].some(button=>/Close film with existing rolls|إغلاق الفيلم باستخدام الرولات المسجلة/.test(button.textContent))"));
             check(`${lang} ${width} final-roll checkbox remains`,await evaluate("!!document.querySelector('.prod-label-inline input[type=\"checkbox\"]')&&/final roll|آخر رول/.test(document.querySelector('.production-app').innerText)"));
             check(`${lang} ${width} manual duration input removed`,await evaluate("document.querySelectorAll('input[id^=\"minutes-\"]').length"),0);
-            const groups=await evaluate(`(()=>{const card=[...document.querySelectorAll('.prod-order')].find(node=>node.querySelector('h3 .prod-number')?.textContent==='PO-2');return [...card.querySelectorAll('.prod-film-duration-item')].map(node=>node.innerText)})()`);
-            check(`${lang} ${width} separate machine summaries`,groups.length,2);
-            check(`${lang} ${width} aggregate spans more than a day`,groups[0].includes(lang==="en"?"29 h 3 sec":"29 س 3 ث"));
-            check(`${lang} ${width} one roll is pending`,groups[1].includes(lang==="en"?"duration not yet determined":"لم تُحدد المدة بعد"));
-            check(`${lang} ${width} both endpoints visible`,await evaluate("document.querySelectorAll('.prod-film-duration-times time').length>=4"));
-            check(`${lang} ${width} legitimate zero span`,await evaluate(`document.querySelector('.production-app').innerText.includes(${JSON.stringify(lang==="en"?"0 sec":"0 ث")})`));
+            check(`${lang} ${width} film duration summary hidden on operator board`,await evaluate("document.querySelectorAll('.prod-film-duration').length"),0);
+            check(`${lang} ${width} film duration endpoints hidden on operator board`,await evaluate("document.querySelectorAll('.prod-film-duration-times time').length"),0);
+            check(`${lang} ${width} duration remains in records`,state.orders.find(order=>order.id===2).film_durations.length,2);
           }
           if(route==="/production/rolls/2"){
             const detailText=await evaluate("document.querySelector('.prod-roll-detail').innerText");

@@ -81,3 +81,13 @@ button.
 
 **How to apply:** remove that operator-board button without inferring permission
 to remove the final-roll closure workflow or unrelated backend capabilities.
+
+Do not show the film-duration summary on the film operator board; retain its
+data and its display in records.
+
+**Why:** the user said «لا اريد ظهور مدة الانتاج ... في لوحة تشغيل الفيلم
+اريد فقط حفظها بالسجلات».
+
+**How to apply:** hide the entire duration block there, including machine,
+recorded-roll count and first/last timestamps; do not remove recording,
+calculation or historical review.
