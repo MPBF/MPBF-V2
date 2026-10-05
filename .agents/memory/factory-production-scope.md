@@ -43,6 +43,17 @@ the worker starts execution explicitly.
 has not started; do not auto-start on release or create rolls or receipts
 when starting. Historical, stopped and cancelled work is not new ready work.
 
+Automatic film duration is one aggregate per production order and machine:
+the time between its first and last recorded rolls, not a duration per roll.
+
+**Why:** the user explicitly corrected «لا اريد حساب مدة كل رول اريد حساب
+المدة فقط من اول رول الى اخر رول فقط» and selected «لكل أمر إنتاج على كل
+ماكينة».
+
+**How to apply:** do not substitute adjacent-roll durations, sum manual minutes,
+or combine different orders/machines. Remove manual duration entry without
+rewriting historical records.
+
 لا تحذف تاريخاً أو تغير قاعدة الإنتاج المنشورة دون موافقة مستقلة.
 
 **Why:** the user explicitly required this boundary when approving archive
