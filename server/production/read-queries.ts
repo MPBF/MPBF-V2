@@ -7,7 +7,7 @@ export const liveProduct = `jsonb_build_object('id',cp.id,'item_id',cp.item_id,'
   'raw_material',cp.raw_material,'printing_cylinder',cp.printing_cylinder,'punching',cp.punching,
   'notes',cp.notes,'front_print_colors',cp.front_print_colors,'back_print_colors',cp.back_print_colors)`;
 export const orderSelect = `SELECT p.id,p.order_id,p.production_order_number,p.customer_product_id,
-  p.quantity_kg,p.final_quantity_kg,p.status,p.batch_number,o.order_number,o.status order_status,
+  p.quantity_kg,p.final_quantity_kg,p.status,p.previous_status,p.batch_number,o.order_number,o.status order_status,
   CASE WHEN cp.id IS NULL THEN e.product ELSE COALESCE(e.product,${liveProduct}) END product,
   e.started_at,e.film_closed_at,e.completed_at,e.stage,COALESCE(e.is_printed,cp.is_printed,false) is_printed,
   COALESCE(e.is_roll_product,false) is_roll_product,

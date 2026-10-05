@@ -8,7 +8,7 @@ import { Pool as LocalPool } from "pg";
 import { ProductionExecutionService } from "../server/production/execution";
 import { ProductionWarehouseService } from "../server/production/warehouse";
 import { ProductionReadService } from "../server/production/read";
-import type { ProductionUser } from "../shared/production";
+import { canStartFilmProductionOrder, type ProductionUser } from "../shared/production";
 import type { ConnectionPool } from "../server/production/core";
 import express from "express";
 import { releaseOrderToProduction } from "../server/order-production-release";
@@ -306,6 +306,45 @@ try {
     await assert.rejects(applyOrderActions("pause", [{ id: 93, expected_status: "paused" }, { id: 93, expected_status: "paused" }], isolated), /دون تكرار/);
     assert.deepEqual(await query("SELECT * FROM production_orders WHERE order_id IN(91,92,93) ORDER BY id"), plans);
     assert.deepEqual(await query("SELECT * FROM order_display_folder_assignments ORDER BY order_id"), folders);
+  });
+  await test("film operators start released plans without auto-start, unauthorized starts or duplicate execution", async () => {
+    const filmActor: ProductionUser = { ...actor, permissions: ["operate_film"] };
+    const prepare = async (id: number, parentStatus = "for_production") => {
+      await query("INSERT INTO orders(id,order_number,customer_id,status) VALUES($1,$2,'C1',$3)",[id,`READY-${id}`,parentStatus]);
+      await query("INSERT INTO production_orders(id,order_id,production_order_number,customer_product_id,quantity_kg,final_quantity_kg,status) VALUES($1,$1,$2,1,'100.00','110.00','pending')",[id,`READY-PO-${id}`]);
+    };
+    await prepare(99001);
+    const pending = (await read.state(filmActor, "film")).orders.find(order => order.id===99001)!;
+    assert.equal(pending.started_at,null);
+    assert.equal(pending.order_status,"for_production");
+    assert.equal(pending.previous_status,null);
+    assert.equal(canStartFilmProductionOrder(pending),true);
+    const request=key();
+    const started=await service.start(filmActor,99001,request);
+    assert.deepEqual(await service.start(filmActor,99001,request),started);
+    assert.equal((await query("SELECT count(*)::int n FROM factory_execution WHERE production_order_id=99001"))[0].n,1);
+    assert.equal((await query("SELECT count(*)::int n FROM factory_rolls WHERE production_order_id=99001"))[0].n,0);
+    assert.equal((await query("SELECT status FROM orders WHERE id=99001"))[0].status,"in_production");
+    assert.equal((await query("SELECT status FROM production_orders WHERE id=99001"))[0].status,"active");
+    for (const permissions of [["view_production"],["operate_printing"],["operate_cutting"]]) {
+      await assert.rejects(async () => service.start({...actor,permissions},99001,key()), (error:any)=>error.status===403);
+    }
+    for (const status of ["waiting","paused","cancelled","completed","delivered","archived"]) {
+      const id=99010+["waiting","paused","cancelled","completed","delivered","archived"].indexOf(status);
+      await prepare(id,status);
+      await assert.rejects(service.start(filmActor,id,key()), /قابل للتنفيذ/);
+      assert.equal((await query("SELECT count(*)::int n FROM factory_execution WHERE production_order_id=$1",[id]))[0].n,0);
+    }
+    await prepare(99002);
+    await query("UPDATE production_orders SET previous_status='active' WHERE id=99002");
+    const historical = (await read.state(filmActor,"film")).orders.find(order=>order.id===99002)!;
+    assert.equal(historical.previous_status,"active");
+    assert.equal(canStartFilmProductionOrder(historical),false);
+    await assert.rejects(service.start(filmActor,99002,key()),/تاريخي/);
+    await prepare(99003);
+    const results=await Promise.allSettled([service.start(filmActor,99003,key()),service.start(filmActor,99003,key())]);
+    assert.equal(results.filter(result=>result.status==="fulfilled").length,1);
+    assert.equal((await query("SELECT count(*)::int n FROM factory_execution WHERE production_order_id=99003"))[0].n,1);
   });
   await test("HTTP authentication, read-only permissions, strict payload rejection and no client-forced transitions", async () => {
     const app = express();

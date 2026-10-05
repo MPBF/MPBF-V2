@@ -13,6 +13,8 @@ const QRCode = require("qrcode");
     ["--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"],
     { stdio: ["ignore", "ignore", "pipe"] });
   let ws, session, onLoad, serial = 0, language = "en", permissions = ["admin"], failure = false, failWrite = false, historyFailure = false, passed = 0;
+  const filmReadyOnly = process.argv.includes("--film-ready-only");
+  let failStart = false;
   const pending = new Map(), errors = [], writes = [], committed = new Map(), historyCalls = [], stateScopes = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Plastic bag", name_ar: "كيس بلاستيك", customer_name: "Fixture customer", customer_name_ar: "عميل الاختبار",
@@ -82,6 +84,15 @@ const QRCode = require("qrcode");
             assert.deepEqual(input, previous.input, "idempotent replay must preserve its payload");
             body = previous.body;
           } else {
+            if (filmReadyOnly && /^\/production\/orders\/\d+\/start$/.test(route)) {
+              if (failStart) {
+                failStart=false; status=409;
+                body={message:"تغيرت حالة الطلب؛ حدّث البيانات.",message_en:"Order state changed. Refresh and retry."};
+              } else {
+                const target=state.orders.find(order=>order.id===Number(route.split("/")[3]));
+                target.started_at="2026-10-05T09:00:00Z";target.status="active";target.order_status="in_production";target.stage="film";
+              }
+            }
             if (route === "/production/queues/reorder") {
               const first = state.queues.find(q=>q.id===input.first_id), second = state.queues.find(q=>q.id===input.second_id);
               if (!first || !second || first.position!==input.first_position || second.position!==input.second_position) {
@@ -150,6 +161,54 @@ const QRCode = require("qrcode");
     };
     const clickText = label => evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}); if(!e)throw Error('Missing button '+${JSON.stringify(label)});e.click()})()`);
     const setInput = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}); if(!e)throw Error('Missing input'); const setter=Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+    if (filmReadyOnly) {
+      const ready = state.orders[0];
+      const reset = () => Object.assign(ready, {status:"pending",order_status:"for_production",previous_status:null,
+        batch_number:null,started_at:null,film_closed_at:null,completed_at:null,stage:null,produced_kg:"0.00",roll_count:0});
+      state.orders.push(order(80,{status:"pending",started_at:null,previous_status:"active"}),
+        order(81,{status:"pending",started_at:null,batch_number:"OLD"}),
+        order(82,{status:"pending",started_at:null,order_status:"paused"}),
+        order(83,{status:"pending",started_at:null,final_quantity_kg:"0.00"}));
+      for (const lang of ["ar","en"]) {
+        language=lang; permissions=["operate_film"];
+        for(const width of [390,768,1440]) {
+          reset();
+          await send("Emulation.setDeviceMetricsOverride",{width,height:950,deviceScaleFactor:1,mobile:width<500});
+          const before=writes.length;
+          await navigate("/production/film");
+          await wait("!!document.querySelector('[data-film-state=\"ready\"] .prod-start-film')");
+          check(`${lang} ${width}: ready order visible without starting`,writes.length,before);
+          check(`${lang} ${width}: ready plan stays pending`,[ready.status,ready.order_status,ready.started_at],["pending","for_production",null]);
+          check(`${lang} ${width}: readiness label localized`,await evaluate("document.querySelector('[data-film-state=\"ready\"]').textContent.includes("+JSON.stringify(lang==="ar"?"جاهز":"Ready")+")"));
+          check(`${lang} ${width}: exactly one eligible ready card`,await evaluate("document.querySelectorAll('[data-film-state=\"ready\"]').length"),1);
+          check(`${lang} ${width}: no execution controls before start`,await evaluate("!document.querySelector('[data-film-state=\"ready\"] input')&&!document.querySelector('#weight-1')"));
+          check(`${lang} ${width}: fits phone/tablet/desktop`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+          if(lang==="ar"&&width===390){
+            const shot=await send("Page.captureScreenshot",{format:"png"});
+            await fs.writeFile("/tmp/film-ready-mobile.png",Buffer.from(shot.data,"base64"));
+            failStart=true;
+            await evaluate("document.querySelector('.prod-start-film').click()");
+            await wait("!!document.querySelector('[role=\"alert\"]')");
+            check("failed start keeps plan ready",ready.started_at,null);
+            check("failed start has no weight controls",await evaluate("!document.querySelector('#weight-1')"));
+          }
+          const startBefore=writes.length;
+          await evaluate("(()=>{const b=document.querySelector('.prod-start-film');b.click();b.click()})()");
+          await wait("!document.querySelector('[data-film-state=\"ready\"]')&&!!document.querySelector('#weight-1')");
+          check(`${lang} ${width}: double click sends one start`,writes.length,startBefore+1);
+          check(`${lang} ${width}: start is scoped to child order`,writes.at(-1).route,"/production/orders/1/start");
+          check(`${lang} ${width}: start sends only request identity`,Object.keys(writes.at(-1).input),["request_id"]);
+          check(`${lang} ${width}: started order becomes active`,ready.status,"active");
+        }
+        reset(); permissions=["view_production"];
+        await navigate("/production/film");
+        await wait("!!document.querySelector('[data-film-state=\"ready\"]')");
+        check(`${lang}: readonly users see ready orders without start button`,await evaluate("!document.querySelector('.prod-start-film')"));
+      }
+      check("no film ready browser runtime errors",errors,[]);
+      console.log(`Verified ${passed} film-ready browser checks; fixture writes only.`);
+      return;
+    }
     for (const lang of ["en", "ar"]) {
       language = lang;
       for (const width of [390, 768, 1440]) {

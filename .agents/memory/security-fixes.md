@@ -5,7 +5,7 @@ description: Durable security/authorization patterns and gotchas for this codeba
 
 ## Route authorization
 - Every business-data route needs `requirePermission`, not just `requireAuth`. Routes that only check `requireAuth` while exposing `manage_*`/`view_*` data are privilege-escalation paths.
-- Public endpoints must never return PII contact fields (phone, tax number). Public order/customer surfaces return names only.
+- General public order/customer endpoints must not return contact or tax fields. Exception: the explicitly approved per-order print capability includes printed phone and names only; see order-printing-scope.md.
 - An access allow-list must gate ALL of a feature's user routes (conversations, messages, profile, document download), not just the main chat/entry route. Holding the feature permission ≠ being on the allow-list; a blocked user can otherwise reach prior artifacts via secondary endpoints.
 
 ## Webhooks

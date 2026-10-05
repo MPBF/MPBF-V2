@@ -33,6 +33,16 @@ transition.
 
 **How to apply:** keep both entry points and preserve explicit production start;
 do not broaden the action into arbitrary historical-order reopening.
+
+Released, untouched production plans appear as ready in film operation, but
+the worker starts execution explicitly.
+
+**Why:** the user selected «يظهر جاهزاً في الفيلم، والعامل يبدأه».
+
+**How to apply:** do not hide eligible pending work just because execution
+has not started; do not auto-start on release or create rolls or receipts
+when starting. Historical, stopped and cancelled work is not new ready work.
+
 لا تحذف تاريخاً أو تغير قاعدة الإنتاج المنشورة دون موافقة مستقلة.
 
 **Why:** the user explicitly required this boundary when approving archive

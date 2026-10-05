@@ -3,9 +3,9 @@ import QRCode from "react-qr-code";
 import MasterBatchSwatch from "./MasterBatchSwatch";
 
 import type { BrandingSnapshot } from "../lib/branding";
-import { displayValue, formatOrderDate, orderStatusLabel, personName } from "../lib/order-details";
+import { displayValue, formatOrderDate, orderStatusLabel, personName, publicOrderPrintUrl } from "../lib/order-details";
 import { printDimensionText, printNumberText } from "../lib/order-print-format";
-import type { OrderDetails, OrderDetailProduction } from "../../../shared/order-details";
+import type { OrderPrintDetails, OrderPrintProduction } from "../../../shared/order-details";
 
 const bilingual = (ar: string, en: string) => <span className="opp-bilingual">{i18n.language === "en" ? en : ar}</span>;
 const safeText = (value: unknown) => displayValue(value);
@@ -29,7 +29,7 @@ function PunchingIcon({ type }: { type: string }) {
   </svg>;
 }
 
-function sizeText(product: NonNullable<OrderDetailProduction["product"]>) {
+function sizeText(product: NonNullable<OrderPrintProduction["product"]>) {
   const caption = product.size_caption;
   if (caption) return printDimensionText(caption);
   const faces = [product.width, product.left_facing, product.right_facing].map((value) => {
@@ -41,13 +41,13 @@ function sizeText(product: NonNullable<OrderDetailProduction["product"]>) {
   return size || "—";
 }
 
-function productionQuantity(row: OrderDetailProduction) {
+function productionQuantity(row: OrderPrintProduction) {
   return <div className="opp-qty-value">
     <strong dir="ltr">{roundedWithUnit(row.final_quantity_kg, "kg")}</strong>
   </div>;
 }
 
-function SpecificationRow({ row, index }: { row: OrderDetailProduction; index: number }) {
+function SpecificationRow({ row, index }: { row: OrderPrintProduction; index: number }) {
   const product = row.product;
   const englishItemName = product?.item?.name;
   const validEnglishItemName = englishItemName && !/[\u0600-\u06ff]/.test(englishItemName) ? englishItemName : null;
@@ -81,9 +81,9 @@ function SpecificationRow({ row, index }: { row: OrderDetailProduction; index: n
   </tr>;
 }
 
-export default function OrderPrintSheet({ data, branding }: { data: OrderDetails; branding: BrandingSnapshot }) {
+export default function OrderPrintSheet({ data, branding }: { data: OrderPrintDetails; branding: BrandingSnapshot }) {
   const { order, customer, production_orders: productionOrders, totals, creator, sales_representative } = data;
-  const qrValue = typeof window === "undefined" ? "" : `${window.location.origin}/orders?tab=orders&viewOrder=${encodeURIComponent(String(order.id))}`;
+  const qrValue = typeof window === "undefined" ? "" : publicOrderPrintUrl(order.id, data.public_print_path, window.location.origin);
   const rep = personName(sales_representative);
   const customerName = (i18n.language === "en" ? customer?.name || customer?.name_ar : customer?.name_ar || customer?.name) || "—";
   const customerAlternateName = i18n.language === "en" ? customer?.name_ar : customer?.name;
@@ -103,7 +103,7 @@ export default function OrderPrintSheet({ data, branding }: { data: OrderDetails
         <div><b>{translate("التسليم:", { nsSeparator: false })}</b> <span>{formatOrderDate(order.delivery_date)}</span></div>
         <div><b>{translate("مدة التسليم:")}</b> <span>{roundedWithUnit(order.delivery_days, translate("يوم"))}</span></div>
       </div>
-      {qrValue && <QRCode className="opp-qr" value={qrValue} size={88} level="M" title={translate("رابط الطلب داخل النظام")} />}
+      {qrValue && <QRCode className="opp-qr" value={qrValue} size={88} level="M" title={translate("نسخة الطباعة العامة للطلب")} />}
     </header>
 
     <table className="opp-overview" aria-label={translate("ملخص أمر الإنتاج")}><colgroup>

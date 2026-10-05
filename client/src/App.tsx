@@ -204,10 +204,18 @@ const nav = [
   ["/admin", "الإدارة", Shield, ["manage_users", "manage_roles", "manage_sections", "manage_settings", "manage_machines", "manage_maintenance", "manage_categories", "manage_items", "manage_master_batch", "manage_definitions", "view_orders", "manage_customers", "manage_orders", "admin"]],
 ] as const;
 
-function useAuth() {
+function useAuth(enabled = true) {
   const [user, setUser] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { api("/me").then((result) => setUser(result.user)).catch(() => setUser(null)).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    if (!enabled) return;
+    let active = true;
+    setLoading(true);
+    api("/me").then((result) => { if (active) setUser(result.user); })
+      .catch(() => { if (active) setUser(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [enabled]);
   return { user, setUser, loading };
 }
 
@@ -1225,18 +1233,27 @@ function CustomerDetail({ user }: { user: Row }) {
 
 function App() {
   useTranslation();
-  const auth = useAuth();
+  const [publicPrintMatch, publicPrintParams] = useRoute("/shared/orders/:id/print");
+  const [routeSearchParams] = useSearchParams();
+  const publicPrintAccess = Boolean(publicPrintMatch && publicPrintParams);
+  const auth = useAuth(!publicPrintAccess);
   const { branding, ready: brandingReady } = useBranding();
   const [languageReady, setLanguageReady] = useState(false);
   const [printMatch, printParams] = useRoute("/orders/:id/print");
-  const effectiveLanguage = normalizeLanguage(auth.user?.preferred_language, branding.defaultLanguage);
+  const effectiveLanguage = publicPrintAccess
+    ? branding.defaultLanguage
+    : normalizeLanguage(auth.user?.preferred_language, branding.defaultLanguage);
   useEffect(() => {
-    if (auth.loading || !brandingReady) return;
+    if (!brandingReady || (!publicPrintAccess && auth.loading)) return;
     void i18n.changeLanguage(effectiveLanguage).then(() => {
       applyLanguage(effectiveLanguage);
       setLanguageReady(true);
     });
-  }, [auth.loading, auth.user?.preferred_language, brandingReady, branding.defaultLanguage, effectiveLanguage]);
+  }, [auth.loading, auth.user?.preferred_language, brandingReady, branding.defaultLanguage, effectiveLanguage, publicPrintAccess]);
+  if (publicPrintAccess && publicPrintParams) {
+    if (!brandingReady || !languageReady) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
+    return <OrderPrintPage id={publicPrintParams.id} branding={branding} publicAccess publicKey={routeSearchParams.get("key") ?? ""} />;
+  }
   if (auth.loading || !brandingReady || !languageReady) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
   if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} setUser={auth.setUser} defaultLanguage={branding.defaultLanguage} />;

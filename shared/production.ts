@@ -23,7 +23,20 @@ export type ProductionOrderRecord = {
   is_printed: boolean; is_roll_product: boolean; stage: string | null;
   produced_kg: string; ready_kg: string; received_kg: string; remaining_kg: string; waste_kg: string;
   roll_count?: number;
+  previous_status?: string | null;
 };
+
+/** Pending plans are visible before execution, but historical work cannot restart. */
+export function canStartFilmProductionOrder(order: Pick<ProductionOrderRecord,
+  "status" | "order_status" | "batch_number" | "final_quantity_kg"> &
+  Partial<Pick<ProductionOrderRecord, "previous_status" | "started_at" | "film_closed_at" | "completed_at">>): boolean {
+  if (!["for_production", "in_production"].includes(order.order_status) ||
+    order.status !== "pending" || order.batch_number || order.started_at ||
+    order.film_closed_at || order.completed_at ||
+    (order.previous_status && order.previous_status !== "pending")) return false;
+  try { return kgHundredths(order.final_quantity_kg) > 0n; }
+  catch { return false; }
+}
 export type ProductionRollRecord = {
   id: number; production_order_id: number; roll_number: string; weight_kg: string;
   stage: "film" | "printing" | "done"; film_machine_id: string; created_by: number | null;

@@ -8,7 +8,7 @@ import { machine } from "./machines";
 export class ProductionExecutionService {
   constructor(readonly pool: ConnectionPool) {}
   start(actor: ProductionUser, id: number, input: { request_id: string }) {
-    permission(actor, "manage_production");
+    permission(actor, "manage_production", "operate_film");
     return mutate(this.pool, actor, `start:${id}`, input, async tx => {
       const [order] = await lockOrders(tx, [id]);
       if (order.status !== "pending" || order.batch_number || order.previous_status && order.previous_status !== "pending" ||

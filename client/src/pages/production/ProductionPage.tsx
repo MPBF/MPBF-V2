@@ -5,7 +5,7 @@ import { Link } from "wouter";
 import RollLabelControls from "./RollLabelControls";
 import "./roll-labels.css";
 import {
-  eligibleForCutting, hasProductionPermission, machineStage,
+  canStartFilmProductionOrder, eligibleForCutting, hasProductionPermission, machineStage,
   type FilmInput, type ProductionMachine, type ProductionOrderRecord, type ProductionRollRecord,
   type ProductionStage, type ProductionState, type ProductionUser, type ReceiptInput, type StorageLocation,
 } from "../../../../shared/production";
@@ -41,7 +41,7 @@ const messages: Record<string, [string, string]> = {
   management: ["إدارة الإنتاج", "Production management"], film: ["تشغيل الفيلم", "Film operations"], printing: ["تشغيل الطباعة", "Printing operations"], cutting: ["تشغيل القص", "Cutting operations"], hall: ["صالة الإنتاج", "Production hall"], warehouse: ["مخزون المواد التامة", "Finished inventory"], roll: ["سجل الرول", "Roll record"],
   reload: ["تحديث البيانات", "Refresh data"], retry: ["إعادة المحاولة", "Retry"], failedLoad: ["تعذر تحميل بيانات الإنتاج.", "Production data could not be loaded."], loading: ["جارٍ تحميل بيانات الإنتاج", "Loading production data"], noRows: ["لا توجد سجلات لعرضها الآن", "There are no records to show right now"], unrecorded: ["غير مسجل", "Unrecorded"], ready: ["جاهز", "Ready"], running: ["قيد التشغيل", "In progress"], started: ["بدأ الإنتاج", "Production started"], start: ["بدء الإنتاج", "Start production"], noEligible: ["لا توجد أوامر مؤهلة لهذه المرحلة.", "No orders are eligible for this stage."],
   order: ["أمر الإنتاج", "Production order"], customerOrder: ["طلب العميل", "Customer order"], customerStatus: ["حالة طلب العميل", "Customer order status"], productionStatus: ["حالة أمر الإنتاج", "Production-order status"], stage: ["مرحلة الأمر", "Order stage"], rollStage: ["مرحلة الرول", "Roll stage"], product: ["المنتج", "Product"], planned: ["المخطط النهائي", "Final planned"], produced: ["المنتج فعلياً", "Produced actual"], readyKg: ["الجاهز", "Ready"], received: ["المستلم", "Received"], waste: ["الهدر", "Waste"], remaining: ["المتبقي للاستلام", "Receivable"], rolls: ["الرولات", "Rolls"], created: ["تم الحفظ بنجاح.", "Saved successfully."], saving: ["جارٍ الحفظ…", "Saving…"], readonly: ["عرض فقط — لا تتوفر صلاحية التشغيل.", "Read only — operation permission is not granted."],
-  startedAt: ["بدأ في", "Started"], closedAt: ["إغلاق الفيلم", "Film closure"], closeFilm: ["إغلاق الفيلم باستخدام الرولات المسجلة", "Close film with existing rolls"], closeConfirm: ["سيغلق الفيلم دون إضافة رول. هل تريد المتابعة؟", "This closes film without adding a roll. Continue?"], filmClosed: ["الفيلم مغلق", "Film closed"], historical: ["أمر تاريخي بلا سجلات تنفيذ؛ لا تُعرض أوزان فعلية.", "Historical order without execution records; actual weights are not reported."],
+  startedAt: ["بدأ في", "Started"], closedAt: ["إغلاق الفيلم", "Film closure"], closeFilm: ["إغلاق الفيلم باستخدام الرولات المسجلة", "Close film with existing rolls"], closeConfirm: ["سيغلق الفيلم دون إضافة رول. هل تريد المتابعة؟", "This closes film without adding a roll. Continue?"], filmClosed: ["الفيلم مغلق", "Film closed"], historical: ["أمر تاريخي بلا سجلات تنفيذ؛ لا تُعرض أوزان فعلية.", "Historical order without execution records; actual weights are not reported."], filmReadyExplanation: ["الخطة معتمدة وجاهزة. يبدأ التنفيذ عند اختيار «بدء الإنتاج».", "The plan is released and ready. Execution begins when an operator selects Start production."],
   addRoll: ["تسجيل رول", "Register roll"], weight: ["وزن الفيلم (كجم)", "Film weight (kg)"], minutes: ["مدة الإنتاج (دقيقة)", "Production time (minutes)"], machine: ["ماكينة التشغيل", "Operating machine"], chooseMachine: ["اختر ماكينة", "Choose machine"], changeMachine: ["تغيير الماكينة", "Change machine"], lastRoll: ["هذا آخر رول — أغلق الفيلم", "This is the final roll — close film"], inline: ["طباعة إنلاين", "Inline printing"], noMachine: ["لا توجد ماكينة نشطة مناسبة.", "No active compatible machine is available."], machineSaved: ["تم حفظ اختيار الماكينة لهذا المشغل.", "Machine choice saved for this operator."],
   printRoll: ["تسجيل الطباعة", "Record printing"], cutRoll: ["إكمال القص", "Complete cutting"], netWeight: ["الوزن الصافي بعد القص (كجم)", "Net weight after cutting (kg)"], completed: ["مكتمل", "Complete"], queue: ["توزيع الطابور", "Queue assignment"], stageSelect: ["المرحلة", "Stage"], position: ["الترتيب", "Position"], assign: ["إضافة للطابور", "Add to queue"], queueList: ["طوابير الماكينات", "Machine queues"], remove: ["إزالة", "Remove"], up: ["أعلى", "Move up"], down: ["أسفل", "Move down"], noQueue: ["لا توجد أوامر موزعة على الطوابير.", "No orders are assigned to queues."],
   eligibleWeight: ["الوزن الجاهز غير المستلم", "Ready, not yet received"], receiveBatch: ["استلام دفعة", "Receive batch"], storage: ["موقع التخزين", "Storage location"], quantity: ["كمية الاستلام (كجم)", "Receipt quantity (kg)"], notes: ["ملاحظات السند", "Voucher notes"], packaging: ["بيانات التعبئة اختيارية", "Optional packaging details"], rollGrams: ["وزن الرول (جرام)", "Roll weight (grams)"], rollsUnit: ["رولات في الوحدة", "Rolls per unit"], units: ["عدد الوحدات", "Units"], addLine: ["إضافة أمر للاستلام", "Add order to receipt"], saveReceipt: ["حفظ سند الاستلام", "Save receipt"], location: ["الموقع", "Location"], saveLocation: ["حفظ الموقع", "Save location"], locationName: ["اسم الموقع", "Location name"], locationAr: ["الاسم بالعربية", "Arabic name"], locationEn: ["الاسم بالإنجليزية", "English name"], active: ["نشط", "Active"], inactive: ["غير نشط", "Inactive"], locations: ["مواقع التخزين", "Storage locations"], balances: ["أرصدة المواد التامة", "Finished-goods balances"], movements: ["حركات المخزون", "Inventory movements"], vouchers: ["سندات الاستلام المحفوظة", "Saved receipt vouchers"], noLocations: ["أضف موقع تخزين قبل حفظ سند.", "Add a storage location before saving a voucher."], unknownRoll: ["الرول غير موجود أو لا تملك صلاحية عرضه.", "The roll does not exist or you do not have permission to view it."],
@@ -157,7 +157,7 @@ function OrderSummary({ order, language }: { order: ProductionOrderRecord; langu
   </div>;
 }
 function OrderActuals({ order, language }: { order: ProductionOrderRecord; language: string }) {
-  if (!order.started_at) return <div className="prod-callout" style={{ gridColumn: "1/-1", margin: 0 }}>{text("historical", language)}</div>;
+  if (!order.started_at) return <div className="prod-callout" style={{ gridColumn: "1/-1", margin: 0 }}>{text(canStartFilmProductionOrder(order) ? "filmReadyExplanation" : "historical", language)}</div>;
   return <>
     <div className="prod-measure"><span>{text("planned", language)}</span><strong>{number(order.final_quantity_kg, language)} kg</strong></div>
     <div className="prod-measure"><span>{text("produced", language)}</span><strong>{number(order.produced_kg, language)} kg</strong></div>
@@ -180,8 +180,9 @@ function Management({ state, user, language, reload }: { state: ProductionState;
   const machines = useMemo(() => state.machines.filter(machine => activeMachine(machine) && machineStage(machine.type) === queueStage), [state.machines, queueStage]);
   useEffect(() => { if (!machines.some(machine => machine.id === queueMachine)) setQueueMachine(machines[0]?.id ?? ""); }, [queueStage, state.machines, queueMachine]);
   const start = (order: ProductionOrderRecord) => {
+    if (!canManage || !canStartFilmProductionOrder(order)) return;
     if (!window.confirm(text("startConfirm", language))) return;
-    void write.perform({ op: "start", order: order.id }, requestId => productionApi.start(order.id, requestId));
+    void write.perform({ op: "start", order: order.id }, requestId => productionApi.start(order.id, requestId), "started");
   };
   const assign = (event: FormEvent) => {
     event.preventDefault();
@@ -231,7 +232,7 @@ function Management({ state, user, language, reload }: { state: ProductionState;
         <div className="prod-measure"><span>{text("planned", language)}</span><strong>{number(order.final_quantity_kg, language)} kg</strong></div>
         <div className="prod-measure"><span>{text("produced", language)}</span><strong>{text("unrecorded", language)}</strong></div>
         <div className="prod-measure"><span>{text("productionStatus", language)}</span><strong>{text(order.status,language)}</strong></div>
-        {canManage && order.status === "pending" && executableOrder(order.order_status) && !order.batch_number && <button className="prod-btn" disabled={write.saving} onClick={() => start(order)}><Factory />{text("start", language)}</button>}
+        {canManage && canStartFilmProductionOrder(order) && <button className="prod-btn" disabled={write.saving} onClick={() => start(order)}><Factory />{text("start", language)}</button>}
       </article>) : <Empty title={text("noRows", language)} />}
     </div>
     <ProductionHistory kind="orders" title={language==="en"?"Order history":"تاريخ أوامر الإنتاج"} language={language} refresh={state}/>
@@ -289,6 +290,7 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
   const machineById=useMemo(()=>new Map(state.machines.map(machine=>[machine.id,machine])),[state.machines]);
   const priority = (id:number) => state.queues.find(queue => queue.production_order_id===id&&queue.stage===stage&&queue.machine_id===selectedMachine)?.position ?? Number.MAX_SAFE_INTEGER;
   const orders=stage==="film" ? state.orders.filter(order=>!!order.started_at&&!order.film_closed_at&&executableOrder(order.order_status)).sort((a,b)=>priority(a.id)-priority(b.id)||a.id-b.id) : [];
+  const readyFilmOrders=stage==="film" ? state.orders.filter(canStartFilmProductionOrder) : [];
   const printRolls=stage==="printing" ? state.rolls.filter(roll=>roll.is_printed&&!roll.printed_at&&roll.stage!=="done") : [];
   const executableParentIds = useMemo(()=>new Set(state.orders.filter(order => executableOrder(order.order_status)).map(order => order.id)),[state.orders]);
   const printRollsEligible=printRolls.filter(roll=>executableParentIds.has(roll.production_order_id));
@@ -324,13 +326,30 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
     if(!window.confirm(text("closeConfirm",language))) return;
     void write.perform({op:"closeFilm",order:order.id},requestId=>productionApi.closeFilm(order.id,requestId));
   };
+  const startFilm=(order:ProductionOrderRecord)=>{
+    if(!canOperate||!canStartFilmProductionOrder(order)) return;
+    if(!window.confirm(text("startConfirm",language))) return;
+    void write.perform({op:"start",order:order.id},requestId=>productionApi.start(order.id,requestId).catch(async error=>{
+      await reload();
+      throw error;
+    }),"started");
+  };
   const machinePicker=<MachinePicker userId={user.id} stage={stage} machines={machines} language={language} selected={selectedMachine} onSelect={setSelectedMachine}/>;
   return <>
     {(write.error||write.success)&&(write.error?<ErrorBanner message={write.error} language={language} retry={()=>void write.retry()}/>:<div className="prod-success" role="status">{write.success}</div>)}
     <Card title={text("machine",language)}>{machinePicker}</Card>
     {!canOperate&&<div className="prod-callout" style={{marginTop:14}}>{text("readonly",language)}</div>}
-    {stage==="film" ? <><div className="prod-section-title"><h3>{text("film",language)} · {text("order",language)}</h3></div>
-      {orders.length? <div className="prod-list">{orders.map(order=><article className="prod-order" key={order.id}>
+    {stage==="film" ? <>
+      {!!readyFilmOrders.length&&<><div className="prod-section-title"><h3>{text("ready",language)} · {text("order",language)}</h3></div>
+        <div className="prod-list">{readyFilmOrders.map(order=><article className="prod-order prod-film-ready" data-film-state="ready" key={order.id}>
+          <OrderSummary order={order} language={language}/>
+          <div className="prod-measure"><span>{text("planned",language)}</span><strong>{number(order.final_quantity_kg,language)} kg</strong></div>
+          <div className="prod-callout prod-film-readiness">{text("filmReadyExplanation",language)}</div>
+          {canOperate&&<button className="prod-btn prod-start-film" disabled={!canOperate||write.saving} onClick={()=>startFilm(order)}><Factory/>{text("start",language)}</button>}
+        </article>)}</div>
+      </>}
+      {!!orders.length&&<><div className="prod-section-title"><h3>{text("film",language)} · {text("order",language)}</h3></div>
+      <div className="prod-list">{orders.map(order=><article className="prod-order" key={order.id}>
         <OrderSummary order={order} language={language}/>
         <div className="prod-measure"><span>{text("planned",language)}</span><strong>{number(order.final_quantity_kg,language)} kg</strong></div>
         <div className="prod-measure"><span>{text("produced",language)}</span><strong>{number(order.produced_kg,language)} kg</strong></div>
@@ -342,7 +361,9 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
           <button className="prod-btn" disabled={!canOperate||write.saving||!selectedMachine} onClick={()=>recordFilm(order)}><Plus/>{text("addRoll",language)}</button>
           {!!order.roll_count&&<button className="prod-btn secondary" disabled={!canOperate||write.saving} onClick={()=>closeFilm(order)}><Check/>{text("closeFilm",language)}</button>}
         </div>
-      </article>)}</div>:<Empty title={text("noEligible",language)}/>}</>:
+      </article>)}</div></>}
+      {!readyFilmOrders.length&&!orders.length&&<Empty title={text("noEligible",language)}/>}
+      </>:
     <><div className="prod-section-title"><h3>{text("rolls",language)} · {text(stage,language)}</h3></div>
       {rolls.length?<div className="prod-list">{rolls.map(roll=><article className="prod-order" key={roll.id}>
         <div className="prod-order-main"><h3><Link className="prod-number" href={`/production/rolls/${roll.id}`}>{roll.roll_number}</Link></h3><div className="prod-order-meta"><span className="prod-number">{roll.production_order_number}</span> · {orderProduct({product:roll.product} as ProductionOrderRecord,language)}</div><div className="prod-chips" style={{marginTop:8}}>{(()=>{const parent=state.orders.find(order=>order.id===roll.production_order_id);return <>{parent&&<><span className="prod-chip">{text("customerStatus",language)}: {text(parent.order_status,language)}</span><span className="prod-chip">{text("productionStatus",language)}: {text(parent.status,language)}</span><span className="prod-chip muted">{text("stage",language)}: {text(parent.stage??"—",language)}</span></>}<span className="prod-chip warm">{text("rollStage",language)}: {text(roll.stage,language)}</span><span className="prod-chip">{text("weight",language)}: {number(roll.weight_kg,language)} kg</span></>;})()}</div></div>

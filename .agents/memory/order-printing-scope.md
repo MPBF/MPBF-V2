@@ -21,6 +21,23 @@ through a hard-to-guess per-order link. Keep ordinary system pages and editing
 APIs authenticated; do not expose the entire order database or extra fields
 absent from the printed copy.
 
+Public print links deliberately do not expire automatically.
+
+**Why:** a printed QR must remain useful after the login session ends.
+Changing the signing secret invalidates old links; changing already printed
+QR images requires reprinting the paper.
+
+**How to apply:** keep link stability when changing printing or authentication;
+make any invalidation consequences explicit.
+
+Avoid Vite's reserved `/public/` prefix for capability-bearing web pages.
+
+**Why:** its public-directory warning logs the entire requested URL, including
+the access capability. This can expose a private print link in development logs.
+
+**How to apply:** use a non-reserved web-page prefix and no-referrer/no-store
+headers; never log genuine capability URLs while verifying the feature.
+
 For order printing, show one total of all linked production orders' planned quantities, planned quantity only in each quantity cell, and Arabic plus English item names only in the item cell.
 
 **Why:** The user requested these three display restrictions and explicitly chose the sum of planned quantities rather than requested quantities.

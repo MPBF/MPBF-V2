@@ -48,6 +48,7 @@ import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, v
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { getOrderDetails } from "./order-details";
+import { createPublicOrderPrintRouter, publicOrderPrintPath } from "./public-order-print";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import { canGrantPermissions, isProtectedProductionOrder, plannedFinalQuantity } from "./audit-rules";
@@ -57,6 +58,7 @@ import selfService from "./self-service";
 import factoryProduction from "./production/routes";
 
 const router = Router();
+router.use(createPublicOrderPrintRouter(getOrderDetails));
 const admin = requirePermission("admin");
 const usersRead = requireAnyPermission("manage_users", "admin");
 const rolesRead = requireAnyPermission("manage_users", "manage_roles", "admin");
@@ -1105,6 +1107,16 @@ router.post("/orders/:id/release-production", ordersWrite, async (req, res, next
     const id = entityId("orders", req.params.id) as number;
     const input = z.object({ expected_status: z.enum(ORDER_PRODUCTION_RELEASE_STATUSES) }).strict().parse(req.body);
     res.json(await releaseOrderToProduction(id, input.expected_status));
+  } catch (error) { next(error); }
+});
+
+router.get("/orders/:id/print-link", ordersRead, async (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const id = entityId("orders", req.params.id) as number;
+    const [order] = await db.select({ id: orders.id }).from(orders).where(eq(orders.id, id)).limit(1);
+    if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+    res.json({ path: publicOrderPrintPath(id) });
   } catch (error) { next(error); }
 });
 
