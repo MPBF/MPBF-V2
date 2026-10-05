@@ -63,14 +63,15 @@ or migrate the published database.
 **How to apply:** use disposable local databases for volume benchmarks.
 Any published-database change needs separate approval.
 
-Each roll must record who created it, printed it, cut it and received it.
+Each roll must record who created it, printed it and cut it. Per-roll receiver
+tracking is explicitly out of scope.
 
-**Why:** the user required «كل رول يجب ان يسجل من انشاءه ومن طبعه ومن قام
-بقطعه ومن استلمه».
+**Why:** the user requested the production actors, then corrected the receipt
+scope: «عفوا لا اريد تحديد من استلم الرول».
 
-**How to apply:** preserve individual-roll traceability when changing production
-or warehouse receipt workflows; order-level receipt attribution alone does not
-identify the receiver of a particular roll.
+**How to apply:** preserve the three actual production actors. Do not add
+receiver selection, per-roll receipt allocation or warehouse workflow changes
+under this request.
 
 The film operator must not have the duplicate “Close film with existing rolls”
 button.
