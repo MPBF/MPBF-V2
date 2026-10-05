@@ -91,3 +91,14 @@ data and its display in records.
 **How to apply:** hide the entire duration block there, including machine,
 recorded-roll count and first/last timestamps; do not remove recording,
 calculation or historical review.
+
+Film operators always use phones, and must handle many customer orders with
+multiple production orders.
+
+**Why:** the user said «التعامل مع الصفحة من قبل العمال سيكون باستخدام
+الهاتف دائما» and «وجود طلبات كثيرة واوامر انتاج عديدة».
+
+**How to apply:** prioritize phone readability, short operational labels and
+touch-friendly controls; group production orders by their customer order.
+The film-board focus is size, raw material, film color and thickness, not
+customer/production status or stage badges.
