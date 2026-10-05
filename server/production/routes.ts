@@ -88,7 +88,7 @@ router.post("/labels", handler(async (req, res) => {
 }));
 router.post("/orders/:id/start", handler(async (req, res) => { res.json(await execution.start(req.user!, id.parse(req.params.id), request.parse(req.body))); }));
 router.post("/orders/:id/rolls", handler(async (req, res) => {
-  const input = request.extend({ machine_id: machine, weight_kg: weight, production_minutes: z.number().int().min(1).max(100000).optional(),
+  const input = request.extend({ machine_id: machine, weight_kg: weight,
     is_last_roll: z.boolean().default(false), inline_printed: z.boolean().default(false) }).strict().parse(req.body);
   res.json(await execution.film(req.user!, id.parse(req.params.id), input));
 }));

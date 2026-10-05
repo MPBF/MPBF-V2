@@ -19,10 +19,20 @@ const QRCode = require("qrcode");
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Plastic bag", name_ar: "كيس بلاستيك", customer_name: "Fixture customer", customer_name_ar: "عميل الاختبار",
     width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: "16", punching: "بنانة", notes: null, front_print_colors: [], back_print_colors: [] };
+  const duration = (machine_id = "F1", changes = {}) => ({
+    machine_id, machine_name: machine_id === "F1" ? "Film One" : "Film Two",
+    machine_name_ar: machine_id === "F1" ? "فيلم واحد" : "فيلم اثنان",
+    roll_count: 2, first_roll_at: "2026-10-01T20:59:59Z", last_roll_at: "2026-10-03T02:00:02Z",
+    duration_seconds: 104403, ...changes,
+  });
   const order = (id, changes = {}) => ({ id, order_id: id, order_number: `ORDER-${id}`, production_order_number: `PO-${id}`, customer_product_id: 1,
     quantity_kg: "100.00", final_quantity_kg: "110.00", status: "active", order_status: "in_production", batch_number: null, product,
     started_at: "2026-10-03T05:00:00Z", film_closed_at: null, completed_at: null, is_printed: true, is_roll_product: false, stage: "film",
-    produced_kg: "10.00", ready_kg: "0.00", received_kg: "0.00", remaining_kg: "0.00", waste_kg: "0.00", roll_count: 1, ...changes });
+    produced_kg: "10.00", ready_kg: "0.00", received_kg: "0.00", remaining_kg: "0.00", waste_kg: "0.00", roll_count: id === 2 ? 3 : 1,
+    film_durations: id === 1 || id === 6 ? [] : id === 2 ? [duration(), duration("F2", {roll_count:1,duration_seconds:null,
+      first_roll_at:"2026-10-02T12:00:00Z",last_roll_at:"2026-10-02T12:00:00Z"})] :
+      id === 3 ? [duration("F1", {duration_seconds:0,last_roll_at:"2026-10-01T20:59:59Z"})] : [duration()],
+    ...changes });
   const roll = (id, po, changes = {}) => ({ id, production_order_id: po, production_order_number: `PO-${po}`, roll_number: `PO-${po}-R001`, weight_kg: "10.00",
     stage: "film", film_machine_id: "F1", created_by: 42, created_at: "2026-10-03T05:30:00Z", production_minutes: 10, is_last_roll: false,
     printing_machine_id: null, printed_by: null, printed_at: null, cutting_machine_id: null, cut_by: null, cut_completed_at: null, net_weight_kg: null,
@@ -134,7 +144,11 @@ const QRCode = require("qrcode");
           const rollId = route.split("/").at(-2);
           const url = new URL(`/production/rolls/${rollId}`, request.url).href;
           body = { url, image: await QRCode.toDataURL(url) };
-        } else if (/\/production\/rolls\/\d+$/.test(route)) body = state.rolls.find(r => r.id === Number(route.split("/").pop()));
+        } else if (/\/production\/rolls\/\d+$/.test(route)) {
+          const record = state.rolls.find(r => r.id === Number(route.split("/").pop()));
+          body = {...record,film_duration:state.orders.find(order=>order.id===record.production_order_id)
+            .film_durations.find(group=>group.machine_id===record.film_machine_id)};
+        }
         await send("Fetch.fulfillRequest", { requestId, responseCode: status, responseHeaders: [{ name: "Content-Type", value: "application/json" }],
           body: Buffer.from(JSON.stringify(body)).toString("base64") }, event.sessionId);
       })().catch(error => errors.push(error.message));
@@ -217,6 +231,19 @@ const QRCode = require("qrcode");
           await navigate(route);
           check(`${lang} ${width} ${route} fits viewport`, await evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
           check(`${lang} ${width} ${route} renders content`, await evaluate("document.querySelector('.production-app').innerText.length > 50"));
+          if(route==="/production/film"){
+            check(`${lang} ${width} manual duration input removed`,await evaluate("document.querySelectorAll('input[id^=\"minutes-\"]').length"),0);
+            const groups=await evaluate(`(()=>{const card=[...document.querySelectorAll('.prod-order')].find(node=>node.querySelector('h3 .prod-number')?.textContent==='PO-2');return [...card.querySelectorAll('.prod-film-duration-item')].map(node=>node.innerText)})()`);
+            check(`${lang} ${width} separate machine summaries`,groups.length,2);
+            check(`${lang} ${width} aggregate spans more than a day`,groups[0].includes(lang==="en"?"29 h 3 sec":"29 س 3 ث"));
+            check(`${lang} ${width} one roll is pending`,groups[1].includes(lang==="en"?"duration not yet determined":"لم تُحدد المدة بعد"));
+            check(`${lang} ${width} both endpoints visible`,await evaluate("document.querySelectorAll('.prod-film-duration-times time').length>=4"));
+            check(`${lang} ${width} legitimate zero span`,await evaluate(`document.querySelector('.production-app').innerText.includes(${JSON.stringify(lang==="en"?"0 sec":"0 ث")})`));
+          }
+          if(route==="/production/rolls/2"){
+            check(`${lang} ${width} detail uses its order/machine aggregate`,await evaluate(`document.querySelector('.prod-roll-detail .prod-film-duration').innerText.includes(${JSON.stringify(lang==="en"?"29 h 3 sec":"29 س 3 ث")})`));
+            check(`${lang} ${width} detail does not show old manual minutes`,await evaluate("!document.querySelector('.prod-roll-detail').innerText.includes('Production time (minutes)')&&!document.querySelector('.prod-roll-detail').innerText.includes('مدة الإنتاج (دقيقة)')"));
+          }
           if (lang === "en" && route === "/production" && [390, 1440].includes(width)) {
             const shot = await send("Page.captureScreenshot", { format: "png" });
             await fs.writeFile(`/tmp/factory-production-${width}.png`, Buffer.from(shot.data, "base64"));
@@ -232,6 +259,7 @@ const QRCode = require("qrcode");
     await evaluate("[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()==='Order history').click()");
     await wait("document.body.innerText.includes('PO-220')");
     check("history first page is limited and includes full-source actuals",await evaluate("document.querySelectorAll('details[open] .prod-record').length===50&&document.body.innerText.includes('1,000 kg')"));
+    check("history order review has full-source machine duration",await evaluate("document.querySelector('details[open] .prod-film-duration').innerText.includes('29 h 3 sec')"));
     await clickText("Next");await wait("document.body.innerText.includes('PO-170')");
     check("history sends a keyset cursor",historyCalls.at(-1).params.before,"171");
     await clickText("Previous");await wait("document.body.innerText.includes('PO-220')");
@@ -263,6 +291,7 @@ const QRCode = require("qrcode");
     check("failure retains entered film weight", await evaluate("document.querySelector('#weight-2').value"), "2.50");
     await clickText("Retry"); await wait("!!document.querySelector('.prod-success')");
     check("write retry preserves operation UUID", writes.at(-1).input.request_id, failedKey);
+    check("film recording and retries never submit manual minutes",writes.filter(item=>item.route==="/production/orders/2/rolls").every(item=>!("production_minutes" in item.input)));
     check("successful film recovery clears the submitted draft",await evaluate("document.querySelector('#weight-2').value"),"");
     check("lost film response creates just one roll", [...committed.values()].filter(v=>v.route==="/production/orders/2/rolls").length,1);
     const beforeEmptyFilm=writes.length;

@@ -18,6 +18,7 @@ const uiRequests: {route:string;input:{first_position:number;second_position:num
   uiRequestsPath ? JSON.parse(readFileSync(uiRequestsPath,"utf8")) : undefined;
 import { createProductionRouter } from "../server/production/routes";
 import { verifyProductionHistory } from "./verify-production-history";
+import { verifyFilmDurations } from "./verify-film-durations";
 
 if (process.env.NODE_ENV === "production") throw Error("Integration tests are development-only.");
 if (process.argv.includes("--large") && !process.argv.includes("--local")) throw Error("Large fixtures require --local and a disposable database.");
@@ -378,7 +379,8 @@ try {
       assert.equal((await call("/history/receipts?status=done", "view_finished_inventory")).status, 400);
       assert.equal((await call("/history/rolls?status=completed", "operate_film")).status, 400);
       assert.equal((await call("/orders/9/rolls", "view_production", { ...key(), machine_id: "F1", weight_kg: "1" })).status, 403);
-      for (const extra of [{ stage: "done" }, { printed_at: "2026-10-01" }, { printing_machine_id: "P1" }, { request_id: "bad-key" }, { weight_kg: "-1" }, { weight_kg: "1.001" }]) {
+      for (const extra of [{ stage: "done" }, { printed_at: "2026-10-01" }, { printing_machine_id: "P1" }, { request_id: "bad-key" }, { weight_kg: "-1" }, { weight_kg: "1.001" },
+        { production_minutes: 10 }, { production_minutes: null }, { production_minutes: "10" }]) {
         assert.equal((await call("/orders/9/rolls", "operate_film", { ...key(), machine_id: "F1", weight_kg: "1", ...extra })).status, 400);
       }
       const denial = await call("/locations", "view_finished_inventory", { ...key(), name: "Unauthorized", name_ar: "مرفوض" });
@@ -393,6 +395,8 @@ try {
       assert.equal(rollDetail.production_order_status, "completed");
       assert.equal(rollDetail.production_stage, "completed");
       assert.ok(rollDetail.batch_number.startsWith("FP-"));
+      assert.equal(rollDetail.film_duration.machine_id, rollDetail.film_machine_id);
+      assert.ok(rollDetail.film_duration.roll_count >= 1);
       assert.equal((await call("/rolls/1/qr")).status, 401);
       assert.equal((await call("/rolls/1/qr", "view_orders")).status, 403);
       const qrResponse = await call("/rolls/1/qr", "operate_film");
@@ -404,6 +408,7 @@ try {
     } finally { await new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve())); }
   });
   await verifyProductionHistory(isolated, query, process.argv.includes("--large"));
+  await verifyFilmDurations(isolated, query);
   console.log(`Verified ${passed} PostgreSQL factory production integration scenarios.`);
 } catch (error) {
   console.error(error);

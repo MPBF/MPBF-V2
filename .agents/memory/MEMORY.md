@@ -81,3 +81,4 @@
 - [Ordered patch contexts](patch-hunk-order.md) — exact excerpts can still fail when same-file patch contexts are out of source order; arrange them from top to bottom.
 - [Recovery contract testing](recovery-contract-testing.md) — enforce real queue positions; lost-response tests must verify one commit, draft cleanup, and preservation of newer edits.
 - [Jest workspace discovery](jest-workspace-discovery.md) — installed skill packages can collide during root-wide test discovery; keep focused runs scoped to tests.
+- [Disposable PostgreSQL lifecycle](disposable-postgres-lifecycle.md) — use a persistent background shell for cross-call test servers; do not assume the system socket directory exists.

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "wouter";
 import type { ProductionHistoryKind, ProductionHistoryFilter, ProductionHistoryRecords, StorageLocation } from "../../../../shared/production";
 import { productionApi } from "../../lib/production-api";
+import { FilmDurationSummary } from "./FilmDurationSummary";
 
 type Record = ProductionHistoryRecords[ProductionHistoryKind];
 type Props = {
@@ -54,6 +55,7 @@ export function ProductionHistory({ kind, language, title, orderId, locations = 
             [label("المتبقي للاستلام", "Remaining to receive"), order.remaining_kg], [label("الهدر", "Waste"), order.waste_kg]]
             .map(([title, value]) => <div key={title}><span>{title}</span><strong>{n(value)} kg</strong></div>)}
         </div> : <p className="prod-muted">{label("أمر قديم بلا تنفيذ مسجل؛ لا تُستنتج كمياته الفعلية من الكمية المخططة.", "Historical order without recorded execution; actual quantities are not inferred from the plan.")}</p>}
+        <FilmDurationSummary durations={order.film_durations} language={language} />
         <ProductionHistory kind="rolls" title={`${label("كل الرولات", "All rolls")} · ${n(order.roll_count)}`} orderId={order.id} language={language} refresh={refresh}/>
       </article>;
     }

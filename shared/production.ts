@@ -15,6 +15,11 @@ export type ProductSnapshot = {
   printing_cylinder: string | null; punching: string | null; notes: string | null;
   front_print_colors: string[] | null; back_print_colors: string[] | null;
 };
+export type FilmMachineDuration = {
+  machine_id: string; machine_name: string | null; machine_name_ar: string | null;
+  roll_count: number; first_roll_at: string; last_roll_at: string;
+  duration_seconds: number | null;
+};
 export type ProductionOrderRecord = {
   id: number; order_id: number; production_order_number: string; order_number: string;
   customer_product_id: number | null; quantity_kg: string; final_quantity_kg: string; status: string;
@@ -23,6 +28,7 @@ export type ProductionOrderRecord = {
   is_printed: boolean; is_roll_product: boolean; stage: string | null;
   produced_kg: string; ready_kg: string; received_kg: string; remaining_kg: string; waste_kg: string;
   roll_count?: number;
+  film_durations: FilmMachineDuration[];
   previous_status?: string | null;
 };
 
@@ -53,6 +59,7 @@ export type ProductionMachine = {
   inline_printer_id: string | null; min_thickness: string | null; max_thickness: string | null;
   min_width_cm: string | null; max_width_cm: string | null;
 };
+export type ProductionRollDetail = ProductionRollRecord & { film_duration: FilmMachineDuration };
 export type ProductionQueue = { id: number; production_order_id: number; stage: ProductionStage; machine_id: string; position: number };
 export type StorageLocation = { id: number; name: string; name_ar: string; is_active: boolean };
 export type ReceiptItem = {
@@ -99,7 +106,7 @@ export type ReceiptInput = {
   items: { production_order_id: number; location_id: number; quantity_kg: string; packaging?: PackagingInput }[];
 };
 export type FilmInput = {
-  request_id: string; machine_id: string; weight_kg: string; production_minutes?: number;
+  request_id: string; machine_id: string; weight_kg: string;
   is_last_roll?: boolean; inline_printed?: boolean;
 };
 export function machineStage(type: string | null): ProductionStage | null {
