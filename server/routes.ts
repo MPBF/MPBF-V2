@@ -1,5 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, or, aliasedTable, sql } from "drizzle-orm";
+import { releaseOrderToProduction } from "./order-production-release";
+import { ORDER_PRODUCTION_RELEASE_STATUSES } from "../shared/order-production-release";
+import { ORDER_DISPLAY_FOLDERS, ORDER_WORKSPACE_ACTIONS, ORDER_WORKSPACE_STATUSES } from "../shared/order-workspace";
+import { applyOrderActions, moveOrderFolders, orderFolderCounts } from "./order-workspace";
+import { order_display_folder_assignments } from "../shared/schema";
+import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, isNull, or, aliasedTable, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import {
@@ -43,14 +48,17 @@ import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, v
 import { nextOrderNumber } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { getOrderDetails } from "./order-details";
+import { createPublicOrderPrintRouter, publicOrderPrintPath } from "./public-order-print";
 import { customerProductFacingNotice, deriveCustomerProductFields, PRINTING_CYLINDERS } from "@shared/customer-product-fields";
 import { authenticate, hashPassword, requireAnyPermission, requireAuth, requirePermission, resolveUser } from "./auth";
 import { canGrantPermissions, isProtectedProductionOrder, plannedFinalQuantity } from "./audit-rules";
 import { categoryProductionPlan } from "./category-production-plan";
 import hr from "./hr";
 import selfService from "./self-service";
+import factoryProduction from "./production/routes";
 
 const router = Router();
+router.use(createPublicOrderPrintRouter(getOrderDetails));
 const admin = requirePermission("admin");
 const usersRead = requireAnyPermission("manage_users", "admin");
 const rolesRead = requireAnyPermission("manage_users", "manage_roles", "admin");
@@ -617,6 +625,7 @@ function userId(raw: string) {
 router.get("/health", (_req, res) => res.json({ status: "ok" }));
 router.use("/self", selfService);
 router.use("/hr", hr);
+router.use("/production", factoryProduction);
 router.get("/public-branding", async (_req, res, next) => {
   try {
     const profile = (await db.select().from(company_profile).limit(1))[0] ?? null;
@@ -1063,6 +1072,54 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
   }
 });
 
+const workspaceItems = z.array(z.object({
+  id: z.number().int().positive().max(2147483647),
+  expected_status: z.enum(ORDER_WORKSPACE_STATUSES),
+}).strict()).min(1).max(100).refine(items => new Set(items.map(item => item.id)).size === items.length);
+const workspaceFailure = (error: unknown, res: Response, next: (error?: unknown) => void) => {
+  const failure = error as Error & { status?: number; message_en?: string };
+  if (failure.status) { res.status(failure.status).json({ message: failure.message, message_en: failure.message_en }); return; }
+  next(error);
+};
+router.get("/orders/display-folders", ordersRead, async (_req, res, next) => {
+  try { res.json(await orderFolderCounts()); } catch (error) { workspaceFailure(error, res, next); }
+});
+router.post("/orders/actions", ordersWrite, async (req, res, next) => {
+  try {
+    const input = z.object({ action: z.enum(ORDER_WORKSPACE_ACTIONS), items: workspaceItems }).strict().parse(req.body);
+    res.json(await applyOrderActions(input.action, input.items));
+  } catch (error) { workspaceFailure(error, res, next); }
+});
+router.post("/orders/display-folders/move", ordersWrite, async (req, res, next) => {
+  try {
+    const input = z.object({
+      folder: z.enum(ORDER_DISPLAY_FOLDERS),
+      items: z.array(z.object({ id: z.number().int().positive().max(2147483647),
+        expected_folder: z.enum(ORDER_DISPLAY_FOLDERS) }).strict()).min(1).max(100)
+        .refine(items => new Set(items.map(item => item.id)).size === items.length),
+    }).strict().parse(req.body);
+    res.json(await moveOrderFolders(input.folder, input.items, req.user!.id));
+  } catch (error) { workspaceFailure(error, res, next); }
+});
+
+router.post("/orders/:id/release-production", ordersWrite, async (req, res, next) => {
+  try {
+    const id = entityId("orders", req.params.id) as number;
+    const input = z.object({ expected_status: z.enum(ORDER_PRODUCTION_RELEASE_STATUSES) }).strict().parse(req.body);
+    res.json(await releaseOrderToProduction(id, input.expected_status));
+  } catch (error) { next(error); }
+});
+
+router.get("/orders/:id/print-link", ordersRead, async (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const id = entityId("orders", req.params.id) as number;
+    const [order] = await db.select({ id: orders.id }).from(orders).where(eq(orders.id, id)).limit(1);
+    if (!order) return res.status(404).json({ message: "الطلب غير موجود" });
+    res.json({ path: publicOrderPrintPath(id) });
+  } catch (error) { next(error); }
+});
+
 router.get("/orders/:id/details", ordersRead, async (req, res, next) => {
   try {
     const id = entityId("orders", req.params.id) as number;
@@ -1310,14 +1367,19 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           .where(search ? or(...conditions) : undefined)
           .orderBy(desc(customer_products.id)).limit(limit).offset(offset);
       } else if (path === "orders") {
+        const folder = z.enum(ORDER_DISPLAY_FOLDERS).optional().parse(req.query.display_folder);
         const conditions = [...entitySearch[path], customers.name, customers.name_ar].map((column) => ilike(column, term));
         rows = await db.select({
           ...getTableColumns(orders),
+          display_folder: sql<string>`COALESCE(${order_display_folder_assignments.folder}, 'new')`,
           customer_name: customers.name,
           customer_name_ar: customers.name_ar,
         }).from(orders)
           .leftJoin(customers, eq(orders.customer_id, customers.id))
-          .where(search ? or(...conditions) : undefined)
+          .leftJoin(order_display_folder_assignments, eq(order_display_folder_assignments.order_id, orders.id))
+          .where(and(search ? or(...conditions) : undefined,
+            folder === "new" ? or(isNull(order_display_folder_assignments.order_id), eq(order_display_folder_assignments.folder, "new"))
+              : folder ? eq(order_display_folder_assignments.folder, folder) : undefined))
           .orderBy(desc(orders.id)).limit(limit).offset(offset);
         if (rows.length) {
           const linked = await db.select({

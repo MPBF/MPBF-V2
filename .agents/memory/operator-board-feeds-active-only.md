@@ -1,29 +1,18 @@
 ---
 name: Operator board feeds are active-only
-description: Film/Cutting operator dashboards only ever show in-progress orders, so completed-state UI gating on them is dead code.
+description: Operator boards are work queues; rolls progress independently and completed review belongs in management.
 ---
 
-# Operator dashboard feeds only return active/in-progress orders
+# Operator boards are work queues, not history
 
-The film and cutting operator dashboards are fed by endpoints that filter to
-work still in progress:
+Printing and cutting follow each roll's eligibility while film continues.
+Never wait for the entire production order to move to the next stage.
+Completed-order review belongs in production management, not a conditional
+control on an operator's remaining-work list.
 
-- Cutting board (`/api/rolls/active-for-cutting`): returns only *uncut* rolls of
-  orders with `po.status IN ('pending','active')`. An order's rolls disappear as
-  they are cut, so `completedRolls === total_rolls` is effectively never true on
-  this board.
-- Film board (`/api/production-orders/active-for-operator`): filters
-  `po.status IN ('pending','active')`, `film_completed = false`,
-  `is_final_roll_created = false`. Completed/finalized orders are excluded before
-  reaching the UI.
+**Why:** the approved factory workflow makes each roll independently executable;
+waiting for the whole order would prevent parallel manufacturing.
 
-**Why:** these boards are "work to do now" queues, not history. Completed-order
-review happens on the **Today's Production** board (`/api/production/today`,
-last-24h roll-stage events), which *does* include completed orders.
-
-**How to apply:** never gate an operator-board UI element on a "this order is
-completed/final" condition — it will be unreachable. If a worker needs to act on
-an order while it is still on his board (e.g. print batch/packaging labels while
-packing), show the control on active orders and let the worker decide when to
-use it. Put completion-dependent UI on Today's Production (or
-ProductionOrdersManagement) instead.
+**How to apply:** keep operator actions on currently eligible work. Put history
+and completion-dependent review in management. Legacy dashboard endpoint names
+are not evidence that those endpoints still exist.

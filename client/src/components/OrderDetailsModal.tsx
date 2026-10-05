@@ -4,8 +4,10 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { displayValue, fetchOrderDetails, fieldLabel, formatOrderDate, numberText, orderStatusLabel, personName, productionStatusLabel, type OrderDetailsError } from "../lib/order-details";
 import "./OrderDetailsModal.css";
+import OrderProductionReleaseButton from "./OrderProductionReleaseButton";
+import MasterBatchSwatch from "./MasterBatchSwatch";
 
-type Props = { id: number; onClose: () => void; onPrint: () => void };
+type Props = { id: number; onClose: () => void; onPrint: () => void; canRelease?: boolean; onOrderChanged?: () => void };
 type LoadState = { status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: Awaited<ReturnType<typeof fetchOrderDetails>> };
 
 const orderFieldLabels: Record<string, string> = {
@@ -47,7 +49,7 @@ function DetailFields({ data, labels, omit = [] }: { data: Record<string, unknow
     </div>)}</dl>;
 }
 
-export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
+export default function OrderDetailsModal({ id, onClose, onPrint, canRelease = false, onOrderChanged }: Props) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [expanded, setExpanded] = useState<number[]>([]);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
           {order && <span className="odm-header-sub">{order.customer_id} <span>·</span> {orderStatusLabel(order.status)}</span>}
         </div>
         <div className="odm-head-actions">
+          {order && <OrderProductionReleaseButton id={id} status={order.status} enabled={canRelease} onReleased={() => { load(); onOrderChanged?.(); }} />}
           <button className="odm-print-button" type="button" onClick={onPrint} disabled={!data} aria-label={translate("فتح معاينة الطباعة في تبويب جديد")}>
             <Printer size={17} /> <span>{translate("معاينة الطباعة")}</span>
           </button>
@@ -181,7 +184,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
               <div><span>{translate("إجمالي المخطط (مع الزيادة)")}</span><strong dir="ltr">{numberText(data.totals.planned_kg)} <small>{translate("كجم")}</small></strong></div>
               <p>{translate("الكميات المعروضة تخص الطلبات وخطة الإنتاج؛ لا تمثل كمية منفذة فعلياً.")}</p>
             </div>
-            {data.actual_production.available === false && <div className="odm-actual-note" role="note">{data.actual_production.message || "لا تتوفر سجلات إنتاج فعلي."}{" "}{translate("لا تُعرض كمية الإنتاج الفعلي كصفر.")}</div>}
+            {data.actual_production.available === false && <div className="odm-actual-note" role="note">{translate("تفاصيل الطلب تعرض الكميات المطلوبة والمخططة فقط. سجلات التنفيذ الفعلي متاحة في وحدة الإنتاج بحسب الصلاحيات.")}{" "}{translate("لا تُعرض كمية الإنتاج الفعلي كصفر.")}</div>}
             {data.production_orders.length === 0 ? <div className="odm-empty-production">{translate("لا توجد أوامر إنتاج مرتبطة بهذا الطلب.")}</div> :
               <div className="odm-production-list">{data.production_orders.map((production, index) => {
                 const product = production.product;
@@ -203,7 +206,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
                         <div><span>{translate("الفئة")}</span><strong>{localizedName(product.category?.name_ar, product.category?.name)} {product.category?.code ? `· ${product.category.code}` : ""}</strong></div>
                         <div><span>{translate("الصنف")}</span><strong>{localizedName(product.item?.name_ar, product.item?.name)} {product.item?.code ? `· ${product.item.code}` : ""}</strong></div>
                         <div><span>{translate("لون الخلطة")}</span><strong>{localizedName(product.color?.name_ar, product.color?.name)} {product.color?.brand ? `· ${product.color.brand}` : ""}</strong></div>
-                        <div><span>{translate("اللون (عينة)")}</span><i className="odm-color-chip" style={{ backgroundColor: product.color?.color_hex || "transparent" }} aria-label={product.color?.name_ar || "غير محدد"} /></div>
+                        <div><span>{translate("اللون (عينة)")}</span><MasterBatchSwatch color={product.color} size={20} className="odm-color-chip" label={localizedName(product.color?.name_ar, product.color?.name, translate("غير محدد"))} /></div>
                       </div>
                     </> : <p className="odm-no-product">{translate("لم يعد المنتج المرتبط متاحاً.")}</p>}
                   </div>}
@@ -213,7 +216,7 @@ export default function OrderDetailsModal({ id, onClose, onPrint }: Props) {
         </>}
       </main>
       <footer className="odm-footer">
-        <span>{translate("عرض للقراءة فقط")}</span>
+        <span>{translate(canRelease ? "تفاصيل الطلب" : "عرض للقراءة فقط")}</span>
         <button type="button" className="odm-close-footer" onClick={onClose}>{translate("إغلاق")}</button>
       </footer>
     </section>

@@ -105,3 +105,13 @@ If a credential still can't be decrypted (e.g. the previous secret was lost), co
 - **Recharts**: [https://recharts.org/en-US/](https://recharts.org/en-US/)
 - **Three.js**: [https://threejs.org/](https://threejs.org/)
 - **i18next**: [https://www.i18next.com/](https://www.i18next.com/)
+
+## Factory production module
+
+- Factory execution lives in `server/production/`, with authenticated views under `/production` and shared contracts in `shared/production.ts`.
+- Apply the reviewed additive migration `migrations/0011_factory_roll_production.sql` before using these views. It does not backfill historical plans. Published database changes require separate approval; development verification is not a production migration.
+- Production rights are explicit role-tree permissions. Never grant new permissions automatically or infer administrator access from a role number.
+- Manufacturing completion and partial warehouse receipt are independent. QR records remain authenticated and permission-checked.
+- `npx tsx scripts/test-factory-production.ts` verifies transactions in a disposable development schema. Never run it against production.
+- `node scripts/check-factory-production.cjs` checks responsive views and permissions using browser-only API fixtures, without real sign-in or business writes.
+- For the combined UI/server queue contract check, run the browser script first, then `npx tsx scripts/test-factory-production.ts --ui-requests=/tmp/factory-ui-requests.json`. The captured requests contain synthetic fixtures only.

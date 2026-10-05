@@ -3,14 +3,15 @@ import { AlertTriangle, LoaderCircle, Printer, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BrandingSnapshot } from "../lib/branding";
-import { fetchOrderDetails, type OrderDetailsError } from "../lib/order-details";
+import { fetchOrderPrintDetails, fetchPublicOrderPrintDetails, type OrderDetailsError } from "../lib/order-details";
+import type { OrderPrintDetails } from "../../../shared/order-details";
 import OrderPrintSheet from "./OrderPrintSheet";
 import "./OrderPrintPage.css";
 
-type Props = { id: string; branding: BrandingSnapshot };
-type State = { status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: Awaited<ReturnType<typeof fetchOrderDetails>> };
+type Props = { id: string; branding: BrandingSnapshot; publicAccess?: boolean; publicKey?: string };
+type State = { status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: OrderPrintDetails };
 
-export default function OrderPrintPage({ id, branding }: Props) {
+export default function OrderPrintPage({ id, branding, publicAccess = false, publicKey = "" }: Props) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
@@ -21,15 +22,34 @@ export default function OrderPrintPage({ id, branding }: Props) {
 
   useEffect(() => {
     const previous = document.title;
-    document.title = orderNumber ? translate("أمر تشغيل إنتاج #{{number}}", { number: orderNumber }) : translate("معاينة طباعة الطلب");
-    return () => { document.title = previous; };
-  }, [orderNumber]);
+    const previousRobots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    const previousRobotsContent = previousRobots?.content;
+    const robots = publicAccess ? previousRobots ?? document.createElement("meta") : null;
+    if (publicAccess && robots) {
+      robots.name = "robots";
+      robots.content = "noindex, nofollow, noarchive";
+      if (!previousRobots) document.head.appendChild(robots);
+    }
+    document.title = orderNumber
+      ? translate("أمر تشغيل إنتاج #{{number}}", { number: orderNumber })
+      : publicAccess ? translate("نسخة الطباعة العامة للطلب") : translate("معاينة طباعة الطلب");
+    return () => {
+      document.title = previous;
+      if (publicAccess && robots) {
+        if (previousRobots) robots.content = previousRobotsContent ?? "";
+        else robots.remove();
+      }
+    };
+  }, [orderNumber, publicAccess]);
 
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();
     setState({ status: "loading" });
-    fetchOrderDetails(id, controller.signal).then((data) => {
+    const request = publicAccess
+      ? fetchPublicOrderPrintDetails(id, publicKey, controller.signal)
+      : fetchOrderPrintDetails(id, controller.signal);
+    request.then((data) => {
       if (!controller.signal.aborted && alive.current) setState({ status: "ready", data });
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
@@ -44,7 +64,7 @@ export default function OrderPrintPage({ id, branding }: Props) {
       alive.current = false;
       controller.abort();
     };
-  }, [id, attempt]);
+  }, [id, attempt, publicAccess, publicKey]);
 
   useEffect(() => {
     const unlock = () => {
@@ -101,7 +121,7 @@ export default function OrderPrintPage({ id, branding }: Props) {
 
   return <main className="opp-page" dir={document.documentElement.dir}>
     <div className="opp-toolbar">
-      <div className="opp-toolbar-copy"><span>{translate("معاينة مستند الإنتاج")}</span><strong>{translate("ورق A4 · أفقي")}</strong></div>
+      <div className="opp-toolbar-copy"><span>{translate("معاينة مستند الإنتاج")}</span><strong>{translate("ورق A4 · أفقي")}</strong>{!publicAccess && <small style={{ maxWidth: 320, color: "#6a8178", fontSize: 10 }}>{translate("رمز QR الجديد يتطلب إعادة طباعة النسخ السابقة.")}</small>}</div>
       {state.status === "ready" && <button type="button" className="opp-print-action" onClick={handlePrint} disabled={printing}>
         {printing ? <LoaderCircle size={17} className="opp-spin" /> : <Printer size={17} />}
         {printing ? translate("جارٍ تجهيز الطباعة…") : translate("طباعة المستند")}
@@ -114,7 +134,9 @@ export default function OrderPrintPage({ id, branding }: Props) {
     </div>}
     {state.status === "error" && <div className="opp-page-state opp-page-error" role="alert">
       <AlertTriangle size={27} />
-      <strong>{state.notFound ? translate("الطلب غير موجود") : translate("تعذر فتح معاينة الطباعة")}</strong>
+      <strong>{state.notFound
+        ? publicAccess ? translate("رابط الطباعة غير صالح أو غير متاح") : translate("الطلب غير موجود")
+        : translate("تعذر فتح معاينة الطباعة")}</strong>
       <span>{state.message}</span>
       {!state.notFound && <button type="button" onClick={() => setAttempt((value) => value + 1)}><RefreshCw size={15} />{" "}{translate("إعادة المحاولة")}</button>}
     </div>}

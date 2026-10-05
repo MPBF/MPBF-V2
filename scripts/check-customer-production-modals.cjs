@@ -48,6 +48,7 @@ const WebSocket = require("ws");
     let failReps = false;
     let failSave = false;
     let staleProduction = false;
+    let profileProducts = [];
     let customer = { id: "CID010", name: "Existing Customer", name_ar: "عميل تجريبي", phone: "0501234567",
       sales_rep_id: 7, sales_rep_name_ar: "مندوب تجريبي", is_active: true };
     let production = { id: 8, production_order_number: "123-01", order_id: 7, order_number: "123",
@@ -72,7 +73,7 @@ const WebSocket = require("ws");
         writes.push({ route, method: request.method, payload });
         status = failSave ? 400 : 201;
         data = failSave ? { message: "فشل الحفظ التجريبي" } : (customer = { ...payload, id: "CID333" });
-      } else if (/^\/customers\/[^/]+\/detail$/.test(route)) data = { customer, products: [] };
+      } else if (/^\/customers\/[^/]+\/detail$/.test(route)) data = { customer, products: profileProducts };
       else if (route === "/customers/CID010" && request.method === "PUT") {
         const payload = JSON.parse(request.postData);
         writes.push({ route, method: request.method, payload });
@@ -239,6 +240,32 @@ const WebSocket = require("ws");
     await click('[aria-label="عرض أمر الإنتاج"]');
     await wait("!!document.querySelector('.production-order-details')");
     verify("read-only user's dialog has no write actions", await evaluate("!document.querySelector('[role=dialog] input,[role=dialog] .production-order-submit')"));
+    await close();
+    permissions = ["view_orders"];
+    const profileProduct = (id, categoryId, categoryName, size) => ({
+      id, customer_id: customer.id, category_id: categoryId, category_name_ar: categoryName,
+      item_name_ar: "صنف تجريبي", size_caption: size, width: "20", thickness: "30",
+      printing_cylinder: "بدون طباعة", cutting_length_cm: "30", raw_material: "LDPE",
+    });
+    profileProducts = [
+      profileProduct(11, "CAT01", "شنط", "منتج الشنط"),
+      profileProduct(12, null, null, "منتج غير مصنف"),
+      profileProduct(13, "CAT02", "أكياس", "أكياس أول"),
+      profileProduct(14, "CAT03", "رولات", "منتج الرولات"),
+      profileProduct(15, "CAT02", "أكياس", "أكياس ثان"),
+    ];
+    const expectedSizes = ["أكياس أول", "أكياس ثان", "منتج الرولات", "منتج الشنط", "منتج غير مصنف"];
+    for (const width of [390, 768, 1280]) {
+      await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });
+      await navigate("/customers/CID010");
+      await wait("document.querySelectorAll('tbody tr').length===5");
+      const shown = await evaluate(`(()=>{const table=document.querySelector('tbody');const sizes=[...table.querySelectorAll('tr')].map(r=>r.querySelectorAll('td')[2].textContent);const sequence=[...table.querySelectorAll('tr')].map(r=>r.querySelector('td').textContent);const cards=[...document.querySelectorAll('.entity-card')].map(c=>[...c.querySelectorAll('.card-line')].find(l=>l.querySelector('span').textContent==='وصف المقاس').querySelector('b').textContent);return {sizes,sequence,cards,overflow:document.documentElement.scrollWidth>innerWidth};})()`);
+      verify(`${width}: profile table sorts alphabetically and places unclassified last`, shown.sizes, expectedSizes);
+      verify(`${width}: mobile cards have the same category order`, shown.cards, expectedSizes);
+      verify(`${width}: row numbers follow the displayed order`, shown.sequence, ["1", "2", "3", "4", "5"]);
+      verify(`${width}: no page-width overflow`, !shown.overflow);
+      await screenshot(`customer-category-sort-${width}`);
+    }
     verify("no users/roles endpoint exposed by either form", !requests.some((r) => ["/users", "/roles"].includes(r.route)));
     verify("no unexpected browser errors", errors, []);
     console.log(`Browser regression passed: ${checks} checks; all API calls used fixtures.`);

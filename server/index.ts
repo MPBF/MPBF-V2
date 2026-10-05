@@ -15,6 +15,13 @@ const port = Number(process.env.PORT || 5000);
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+app.use((req, res, next) => {
+  if (/^\/shared\/orders\/[^/]+\/print\/?$/.test(req.path)) {
+    res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet" });
+  }
+  next();
+});
 app.use("/api/customer-products", express.json({ limit: "16mb" }));
 app.use("/api/orders", express.json({ limit: "16mb" }));
 app.use(express.json({ limit: "10mb" }));
@@ -59,7 +66,12 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     });
   }
   const status = Number((error as { status?: number })?.status) || 500;
-  const code = (error as { code?: unknown })?.code;
+  const code = (error as { code?: unknown; cause?: { code?: unknown } })?.code
+    ?? (error as { cause?: { code?: unknown } })?.cause?.code;
+  if (code === "P0011") return res.status(409).json({
+    message: "لا يمكن تعديل خطة أو حالة أمر بدأ تنفيذه أو حذف سجلاته؛ استخدم إجراءات الإنتاج",
+    message_en: "A started production plan cannot be edited or deleted. Use the production actions.",
+  });
   if (status === 413) {
     const limit = /^\/api\/(?:orders|customer-products)(?:\/|\?|$)/.test(_req.originalUrl) ? "16 ميجابايت" : "10 ميجابايت";
     return res.status(413).json({ message: `حجم البيانات أكبر من الحد المسموح به (${limit})` });

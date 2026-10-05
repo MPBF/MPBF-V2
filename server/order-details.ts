@@ -52,11 +52,11 @@ export async function getOrderDetails(id: number) {
       ...header,
       production_orders: production,
       totals: orderProductionTotals(production),
-      // This application currently stores plans and status, not actual roll,
-      // printing, or cutting quantities. Never substitute a plan for output.
+      // Order details and its printout remain planned-only. Actual execution
+      // belongs to the permission-scoped production module, never this total.
       actual_production: {
         available: false as const,
-        message: "لا توجد سجلات للإنتاج الفعلي في النظام الحالي. الكميات المعروضة مطلوبة أو مخططة، وليست كميات إنتاج فعلية.",
+        message: "تفاصيل الطلب تعرض الكميات المطلوبة والمخططة فقط. سجلات التنفيذ الفعلي متاحة في وحدة الإنتاج بحسب الصلاحيات.",
       },
     };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
