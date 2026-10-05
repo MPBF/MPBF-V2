@@ -68,7 +68,7 @@
 - [File read consistency](file-read-consistency.md) — when file-reader and shell output disagree, verify current source in the shell before citing lines or editing.
 - [Skill/runtime capability drift](runtime-skill-drift.md) — installed skill documentation may describe an unsupported worker kind; use verified runtime capabilities.
 - [Production editor scope](production-editor-scope.md) — quantity-only is the Production Orders tab form restriction; keep existing transition APIs and started-order protections.
-- [Order printing scope](order-printing-scope.md) — user chose a standalone A4 landscape preview; the reference layout does not authorize public order sharing.
+- [Order printing scope](order-printing-scope.md) — standalone A4 landscape; full read-only public print QR explicitly approved, not broader system sharing.
 - [Manual order display folders](order-view-folders.md) — folders organize orders manually; moving folders never changes status and status changes never move folders.
 - [Transparent master-batch presentation](master-batch-presentation.md) — show transparent colors as white circles with black stripes throughout the app; ordinary white stays solid.
 - [Intl calendar defaults](intl-calendar-defaults.md) — Saudi locale with Latin digits still defaults to Hijri; date tests must account for the intended calendar.
@@ -81,3 +81,4 @@
 - [Ordered patch contexts](patch-hunk-order.md) — exact excerpts can still fail when same-file patch contexts are out of source order; arrange them from top to bottom.
 - [Recovery contract testing](recovery-contract-testing.md) — enforce real queue positions; lost-response tests must verify one commit, draft cleanup, and preservation of newer edits.
 - [Jest workspace discovery](jest-workspace-discovery.md) — installed skill packages can collide during root-wide test discovery; keep focused runs scoped to tests.
+- [Disposable PostgreSQL lifecycle](disposable-postgres-lifecycle.md) — use a persistent background shell for cross-call test servers; do not assume the system socket directory exists.

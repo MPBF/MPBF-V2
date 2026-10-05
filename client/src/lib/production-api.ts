@@ -1,5 +1,5 @@
 import i18n from "../i18n";
-import type { FilmInput, ProductionRollRecord, ProductionState, ReceiptInput, ProductionHistoryKind, ProductionHistoryFilter, ProductionHistoryPage, ProductionStateScope } from "../../../shared/production";
+import type { FilmInput, ProductionRollDetail, ProductionRollRecord, ProductionState, ReceiptInput, ProductionHistoryKind, ProductionHistoryFilter, ProductionHistoryPage, ProductionStateScope } from "../../../shared/production";
 
 export type ProductionRollLabel = {
   roll: ProductionRollRecord;
@@ -27,7 +27,7 @@ export const productionApi = {
     Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
     return productionRequest<ProductionHistoryPage<K>>(`/history/${kind}?${params}`);
   },
-  roll: (id: string | number) => productionRequest<ProductionState["rolls"][number]>(`/rolls/${encodeURIComponent(id)}`),
+  roll: (id: string | number) => productionRequest<ProductionRollDetail>(`/rolls/${encodeURIComponent(id)}`),
   qr: (id: number) => productionRequest<{ url: string; image: string }>(`/rolls/${id}/qr`),
   labelPage: (filters: Pick<ProductionHistoryFilter, "before" | "limit" | "search"> = {}) => {
     const params = new URLSearchParams();

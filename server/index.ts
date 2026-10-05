@@ -15,6 +15,13 @@ const port = Number(process.env.PORT || 5000);
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+app.use((req, res, next) => {
+  if (/^\/shared\/orders\/[^/]+\/print\/?$/.test(req.path)) {
+    res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet" });
+  }
+  next();
+});
 app.use("/api/customer-products", express.json({ limit: "16mb" }));
 app.use("/api/orders", express.json({ limit: "16mb" }));
 app.use(express.json({ limit: "10mb" }));

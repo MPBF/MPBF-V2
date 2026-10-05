@@ -24,6 +24,65 @@ export type OrderDetails = {
   actual_production: { available: false; message: string };
 };
 
+/** Narrow projection consumed by the private and anonymous order print sheets. */
+export type OrderPrintPerson = {
+  display_name: string | null;
+  display_name_ar: string | null;
+  full_name: string | null;
+  username: string | null;
+};
+export type OrderPrintProduct = {
+  size_caption: string | null;
+  width: string | null;
+  left_facing: string | null;
+  right_facing: string | null;
+  cutting_length_cm: number | null;
+  universal_thickness: string | null;
+  raw_material: string | null;
+  printing_cylinder: string | null;
+  punching: string | null;
+  is_printed: boolean | null;
+  front_print_colors: string[] | null;
+  back_print_colors: string[] | null;
+  notes: string | null;
+  cliche_front_design: string | null;
+  cliche_back_design: string | null;
+  item: { name: string | null; name_ar: string | null } | null;
+  color: { id: number | string; name: string | null; name_ar: string | null; color_hex: string | null } | null;
+};
+export type OrderPrintProduction = {
+  id: number;
+  quantity_kg: string;
+  final_quantity_kg: string;
+  product: OrderPrintProduct | null;
+};
+export type OrderPrintDetails = {
+  order: {
+    id: number;
+    order_number: string;
+    status: string | null;
+    notes: string | null;
+    created_at: string;
+    delivery_date: string | null;
+    delivery_days: number | string | null;
+    previous_status?: string | null;
+  };
+  customer: {
+    name: string | null;
+    name_ar: string | null;
+    phone: string | null;
+    plate_drawer_code: string | null;
+    /** Customer code printed by the sheet, when present. */
+    code?: string | null;
+  } | null;
+  creator: OrderPrintPerson | null;
+  sales_representative: OrderPrintPerson | null;
+  production_orders: OrderPrintProduction[];
+  totals: { planned_kg: string };
+  actual_production: { available: false; message: string };
+  public_print_path: string;
+};
+
 // Stored quantities have exactly two decimal places; sum integer hundredths,
 // not floating point values or inferred "produced" amounts.
 export function orderProductionTotals(rows: { quantity_kg: string; final_quantity_kg: string; status: string }[]): OrderDetails["totals"] {

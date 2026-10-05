@@ -45,6 +45,9 @@ const releaseOnly = process.argv.includes("--production-release-only");
     let largeRowCount = 38;
     let noLines = false;
     let language = "ar";
+    let anonymous = false;
+    const publicKey = "F".repeat(43);
+    const publicPath = `/shared/orders/7/print?key=${publicKey}`;
     const requests = [];
     const errors = [];
     let releaseLoad, failRelease = false;
@@ -107,9 +110,17 @@ const releaseOnly = process.argv.includes("--production-release-only");
         if(failRelease){failRelease=false;status=409;body={message:"تغيرت حالة الطلب؛ حدّث البيانات قبل تحويله إلى الإنتاج."};}
         else {order.previous_status=order.status;order.status="for_production";body={order};}
       }
-      else if (route === "/me") body = { user: { id: 42, display_name_ar: "مستخدم تجريبي", username: "test", preferred_language: language, permissions } };
+      else if (route === "/me") {
+        if(anonymous){status=401;body={message:"Unauthorized"};}
+        else body = { user: { id: 42, display_name_ar: "مستخدم تجريبي", username: "test", preferred_language: language, permissions } };
+      }
       else if (route === "/public-branding") body = { companyNameAr: "مصنع أكياس البلاستيك الحديث", companyNameEn: "Modern Plastic Bags Factory",
         logoSrc: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70"><rect width="70" height="70" rx="12" fill="#167a6d"/><text x="35" y="43" fill="white" font-size="20" text-anchor="middle">MPBF</text></svg>') };
+      else if (/^\/orders\/\d+\/print-link$/.test(route)) body = {path:publicPath};
+      else if (/^\/public\/orders\/\d+\/print$/.test(route)) {
+        status=route==="/public/orders/7/print"&&new URL(request.url).searchParams.get("key")===publicKey?200:404;
+        body=status===200?{...detail(),public_print_path:publicPath}:{message:"الطلب غير موجود",message_en:"Order not found."};
+      }
       else if (route === "/orders") body = [{ ...order, customer_name_ar: "عميل تجريبي", production_orders_summary: [] }];
       else if (route === "/orders/display-folders") body = { counts: { new: 1, production: 0, urgent: 0, archive: 0 }, total: 1 };
       else if (route === "/master-batch-colors") body = palette;
@@ -307,6 +318,39 @@ const releaseOnly = process.argv.includes("--production-release-only");
       finally { await send("Emulation.setEmulatedMedia", { media: "" }); }
     };
 
+    if (process.argv.includes("--public-print-only")) {
+      anonymous=true;
+      for(const width of [390,768,1280]){
+        await send("Emulation.setDeviceMetricsOverride",{width,height:900,deviceScaleFactor:1,mobile:width<700});
+        const before=requests.length;
+        await navigate(publicPath);
+        await wait("!!document.querySelector('.opp-sheet')");
+        check(`${width}: anonymous QR opens print copy, not login`,await evaluate("!!document.querySelector('.opp-sheet')&&!document.querySelector('input[type=password]')&&!document.querySelector('.shell')"));
+        check(`${width}: approved customer contact and creator are printed`,await evaluate("document.querySelector('.opp-sheet').textContent.includes('0501234567')&&document.querySelector('.opp-sheet').textContent.includes('منشئ تجريبي')"));
+        check(`${width}: public page uses only anonymous print API`,!requests.slice(before).some(r=>r.route.endsWith("/details")||r.route.endsWith("/print-link")));
+        check(`${width}: public preview fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+        check(`${width}: public page has QR and printable document`,await evaluate("!!document.querySelector('.opp-qr')&&!!document.querySelector('.opp-print-action')&&document.querySelectorAll('.opp-spec-row').length===2"));
+        if(width===1280){
+          await capture("public-order-print-anonymous");
+          await pdf("public-order-print-a4");
+          await evaluate("window.__prints=0;window.print=()=>{window.__prints++;window.dispatchEvent(new Event('afterprint'))}");
+          await click(".opp-print-action");
+          await wait("window.__prints===1");
+        }
+      }
+      for(const route of ["/shared/orders/7/print","/shared/orders/7/print?key=invalid",`/shared/orders/8/print?key=${publicKey}`]){
+        await navigate(route); await wait("!!document.querySelector('.opp-page-error')");
+        check(`invalid link ${route.split("?")[0]} reveals no document`,await evaluate("!document.querySelector('.opp-sheet')&&!document.querySelector('input[type=password]')"));
+      }
+      await navigate("/orders/7/print");await wait("!!document.querySelector('input[type=password]')");
+      check("internal print route still requires login",await evaluate("!document.querySelector('.opp-sheet')"));
+      await navigate("/orders");await wait("!!document.querySelector('input[type=password]')");
+      check("normal order pages still require login",await evaluate("!document.querySelector('.opp-sheet')"));
+      check("public preview makes no writes",requests.every(r=>r.method==="GET"));
+      check("public browser has no exceptions",errors,[]);
+      console.log(`Verified ${passed} anonymous public-print browser checks.`);
+      return;
+    }
     if (!process.argv.includes("--header-transparent-only")) {
     for (const width of (process.argv.includes("--print-only") ? [1280] : [390, 768, 1280])) {
       await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });

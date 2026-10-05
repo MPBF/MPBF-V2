@@ -8,7 +8,7 @@ import { machine } from "./machines";
 export class ProductionExecutionService {
   constructor(readonly pool: ConnectionPool) {}
   start(actor: ProductionUser, id: number, input: { request_id: string }) {
-    permission(actor, "manage_production");
+    permission(actor, "manage_production", "operate_film");
     return mutate(this.pool, actor, `start:${id}`, input, async tx => {
       const [order] = await lockOrders(tx, [id]);
       if (order.status !== "pending" || order.batch_number || order.previous_status && order.previous_status !== "pending" ||
@@ -44,12 +44,12 @@ export class ProductionExecutionService {
       const seq = (await one<{ next: number }>(tx, "SELECT COALESCE(max(sequence),0)+1 next FROM factory_rolls WHERE production_order_id=$1", [id])).next;
       const { at } = await one<{ at: Date }>(tx, "SELECT clock_timestamp() at");
       const roll = await one<ProductionRollRecord>(tx, `INSERT INTO factory_rolls
-        (production_order_id,sequence,roll_number,weight_kg,stage,film_machine_id,created_by,production_minutes,is_last_roll,
+        (production_order_id,sequence,roll_number,weight_kg,stage,film_machine_id,created_by,is_last_roll,
           printing_machine_id,printed_by,printed_at,created_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::varchar,$11,CASE WHEN $10::varchar IS NULL THEN NULL ELSE $12::timestamptz END,$12) RETURNING *`,
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::varchar,$10,CASE WHEN $9::varchar IS NULL THEN NULL ELSE $11::timestamptz END,$11) RETURNING *`,
       [id, seq, `${order.production_order_number}-R${String(seq).padStart(3, "0")}`, kgString(amount),
         stageAfterFilm(exec.is_printed, exec.is_roll_product, !!printerId), filmMachine.id, actor.id,
-        input.production_minutes ?? null, input.is_last_roll ?? false, printerId, printerId ? actor.id : null, at]);
+        input.is_last_roll ?? false, printerId, printerId ? actor.id : null, at]);
       if (input.is_last_roll) await this.close(tx, id, actor.id);
       await recompute(tx, order);
       return roll;

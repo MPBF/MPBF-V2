@@ -13,14 +13,26 @@ const QRCode = require("qrcode");
     ["--headless=new", "--no-sandbox", "--disable-gpu", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"],
     { stdio: ["ignore", "ignore", "pipe"] });
   let ws, session, onLoad, serial = 0, language = "en", permissions = ["admin"], failure = false, failWrite = false, historyFailure = false, passed = 0;
+  const filmReadyOnly = process.argv.includes("--film-ready-only");
+  let failStart = false;
   const pending = new Map(), errors = [], writes = [], committed = new Map(), historyCalls = [], stateScopes = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Plastic bag", name_ar: "كيس بلاستيك", customer_name: "Fixture customer", customer_name_ar: "عميل الاختبار",
     width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: "16", punching: "بنانة", notes: null, front_print_colors: [], back_print_colors: [] };
+  const duration = (machine_id = "F1", changes = {}) => ({
+    machine_id, machine_name: machine_id === "F1" ? "Film One" : "Film Two",
+    machine_name_ar: machine_id === "F1" ? "فيلم واحد" : "فيلم اثنان",
+    roll_count: 2, first_roll_at: "2026-10-01T20:59:59Z", last_roll_at: "2026-10-03T02:00:02Z",
+    duration_seconds: 104403, ...changes,
+  });
   const order = (id, changes = {}) => ({ id, order_id: id, order_number: `ORDER-${id}`, production_order_number: `PO-${id}`, customer_product_id: 1,
     quantity_kg: "100.00", final_quantity_kg: "110.00", status: "active", order_status: "in_production", batch_number: null, product,
     started_at: "2026-10-03T05:00:00Z", film_closed_at: null, completed_at: null, is_printed: true, is_roll_product: false, stage: "film",
-    produced_kg: "10.00", ready_kg: "0.00", received_kg: "0.00", remaining_kg: "0.00", waste_kg: "0.00", roll_count: 1, ...changes });
+    produced_kg: "10.00", ready_kg: "0.00", received_kg: "0.00", remaining_kg: "0.00", waste_kg: "0.00", roll_count: id === 2 ? 3 : 1,
+    film_durations: id === 1 || id === 6 ? [] : id === 2 ? [duration(), duration("F2", {roll_count:1,duration_seconds:null,
+      first_roll_at:"2026-10-02T12:00:00Z",last_roll_at:"2026-10-02T12:00:00Z"})] :
+      id === 3 ? [duration("F1", {duration_seconds:0,last_roll_at:"2026-10-01T20:59:59Z"})] : [duration()],
+    ...changes });
   const roll = (id, po, changes = {}) => ({ id, production_order_id: po, production_order_number: `PO-${po}`, roll_number: `PO-${po}-R001`, weight_kg: "10.00",
     stage: "film", film_machine_id: "F1", created_by: 42, created_at: "2026-10-03T05:30:00Z", production_minutes: 10, is_last_roll: false,
     printing_machine_id: null, printed_by: null, printed_at: null, cutting_machine_id: null, cut_by: null, cut_completed_at: null, net_weight_kg: null,
@@ -82,6 +94,15 @@ const QRCode = require("qrcode");
             assert.deepEqual(input, previous.input, "idempotent replay must preserve its payload");
             body = previous.body;
           } else {
+            if (filmReadyOnly && /^\/production\/orders\/\d+\/start$/.test(route)) {
+              if (failStart) {
+                failStart=false; status=409;
+                body={message:"تغيرت حالة الطلب؛ حدّث البيانات.",message_en:"Order state changed. Refresh and retry."};
+              } else {
+                const target=state.orders.find(order=>order.id===Number(route.split("/")[3]));
+                target.started_at="2026-10-05T09:00:00Z";target.status="active";target.order_status="in_production";target.stage="film";
+              }
+            }
             if (route === "/production/queues/reorder") {
               const first = state.queues.find(q=>q.id===input.first_id), second = state.queues.find(q=>q.id===input.second_id);
               if (!first || !second || first.position!==input.first_position || second.position!==input.second_position) {
@@ -123,7 +144,16 @@ const QRCode = require("qrcode");
           const rollId = route.split("/").at(-2);
           const url = new URL(`/production/rolls/${rollId}`, request.url).href;
           body = { url, image: await QRCode.toDataURL(url) };
-        } else if (/\/production\/rolls\/\d+$/.test(route)) body = state.rolls.find(r => r.id === Number(route.split("/").pop()));
+        } else if (/\/production\/rolls\/\d+$/.test(route)) {
+          const record = state.rolls.find(r => r.id === Number(route.split("/").pop()));
+          body = {...record,film_duration:state.orders.find(order=>order.id===record.production_order_id)
+            .film_durations.find(group=>group.machine_id===record.film_machine_id),
+            created_actor:{id:42,display_name:"Creator Person",display_name_ar:"منشئ الرول",full_name:"Creator Full Name",username:"creator"},
+            printed_actor:record.id===2?{id:43,display_name:"Printer Person",display_name_ar:"عامل الطباعة",full_name:"Printer Full Name",username:"printer"}:null,
+            cut_actor:record.id===2?{id:44,display_name:"Cutter Person",display_name_ar:"عامل القص",full_name:"Cutter Full Name",username:"cutter"}:null,
+            ...(record.id===2?{stage:"done",printed_by:43,cut_by:44,printed_at:"2026-10-03T06:10:11Z",
+              cut_completed_at:"2026-10-03T06:30:31Z",net_weight_kg:"9.00"}:{})};
+        }
         await send("Fetch.fulfillRequest", { requestId, responseCode: status, responseHeaders: [{ name: "Content-Type", value: "application/json" }],
           body: Buffer.from(JSON.stringify(body)).toString("base64") }, event.sessionId);
       })().catch(error => errors.push(error.message));
@@ -150,14 +180,86 @@ const QRCode = require("qrcode");
     };
     const clickText = label => evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}); if(!e)throw Error('Missing button '+${JSON.stringify(label)});e.click()})()`);
     const setInput = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}); if(!e)throw Error('Missing input'); const setter=Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+    if (filmReadyOnly) {
+      const ready = state.orders[0];
+      const reset = () => Object.assign(ready, {status:"pending",order_status:"for_production",previous_status:null,
+        batch_number:null,started_at:null,film_closed_at:null,completed_at:null,stage:null,produced_kg:"0.00",roll_count:0});
+      state.orders.push(order(80,{status:"pending",started_at:null,previous_status:"active"}),
+        order(81,{status:"pending",started_at:null,batch_number:"OLD"}),
+        order(82,{status:"pending",started_at:null,order_status:"paused"}),
+        order(83,{status:"pending",started_at:null,final_quantity_kg:"0.00"}));
+      for (const lang of ["ar","en"]) {
+        language=lang; permissions=["operate_film"];
+        for(const width of [390,768,1440]) {
+          reset();
+          await send("Emulation.setDeviceMetricsOverride",{width,height:950,deviceScaleFactor:1,mobile:width<500});
+          const before=writes.length;
+          await navigate("/production/film");
+          await wait("!!document.querySelector('[data-film-state=\"ready\"] .prod-start-film')");
+          check(`${lang} ${width}: ready order visible without starting`,writes.length,before);
+          check(`${lang} ${width}: ready plan stays pending`,[ready.status,ready.order_status,ready.started_at],["pending","for_production",null]);
+          check(`${lang} ${width}: readiness label localized`,await evaluate("document.querySelector('[data-film-state=\"ready\"]').textContent.includes("+JSON.stringify(lang==="ar"?"جاهز":"Ready")+")"));
+          check(`${lang} ${width}: exactly one eligible ready card`,await evaluate("document.querySelectorAll('[data-film-state=\"ready\"]').length"),1);
+          check(`${lang} ${width}: no execution controls before start`,await evaluate("!document.querySelector('[data-film-state=\"ready\"] input')&&!document.querySelector('#weight-1')"));
+          check(`${lang} ${width}: fits phone/tablet/desktop`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+          if(lang==="ar"&&width===390){
+            const shot=await send("Page.captureScreenshot",{format:"png"});
+            await fs.writeFile("/tmp/film-ready-mobile.png",Buffer.from(shot.data,"base64"));
+            failStart=true;
+            await evaluate("document.querySelector('.prod-start-film').click()");
+            await wait("!!document.querySelector('[role=\"alert\"]')");
+            check("failed start keeps plan ready",ready.started_at,null);
+            check("failed start has no weight controls",await evaluate("!document.querySelector('#weight-1')"));
+          }
+          const startBefore=writes.length;
+          await evaluate("(()=>{const b=document.querySelector('.prod-start-film');b.click();b.click()})()");
+          await wait("!document.querySelector('[data-film-state=\"ready\"]')&&!!document.querySelector('#weight-1')");
+          check(`${lang} ${width}: double click sends one start`,writes.length,startBefore+1);
+          check(`${lang} ${width}: start is scoped to child order`,writes.at(-1).route,"/production/orders/1/start");
+          check(`${lang} ${width}: start sends only request identity`,Object.keys(writes.at(-1).input),["request_id"]);
+          check(`${lang} ${width}: started order becomes active`,ready.status,"active");
+        }
+        reset(); permissions=["view_production"];
+        await navigate("/production/film");
+        await wait("!!document.querySelector('[data-film-state=\"ready\"]')");
+        check(`${lang}: readonly users see ready orders without start button`,await evaluate("!document.querySelector('.prod-start-film')"));
+      }
+      check("no film ready browser runtime errors",errors,[]);
+      console.log(`Verified ${passed} film-ready browser checks; fixture writes only.`);
+      return;
+    }
     for (const lang of ["en", "ar"]) {
       language = lang;
       for (const width of [390, 768, 1440]) {
         await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
-        for (const route of ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2"]) {
+        for (const route of ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2", "/production/rolls/3"]) {
           await navigate(route);
           check(`${lang} ${width} ${route} fits viewport`, await evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
           check(`${lang} ${width} ${route} renders content`, await evaluate("document.querySelector('.production-app').innerText.length > 50"));
+          if(route==="/production/film"){
+            check(`${lang} ${width} duplicate close-film button absent`,await evaluate("![...document.querySelectorAll('button')].some(button=>/Close film with existing rolls|إغلاق الفيلم باستخدام الرولات المسجلة/.test(button.textContent))"));
+            check(`${lang} ${width} final-roll checkbox remains`,await evaluate("!!document.querySelector('.prod-label-inline input[type=\"checkbox\"]')&&/final roll|آخر رول/.test(document.querySelector('.production-app').innerText)"));
+            check(`${lang} ${width} manual duration input removed`,await evaluate("document.querySelectorAll('input[id^=\"minutes-\"]').length"),0);
+            const groups=await evaluate(`(()=>{const card=[...document.querySelectorAll('.prod-order')].find(node=>node.querySelector('h3 .prod-number')?.textContent==='PO-2');return [...card.querySelectorAll('.prod-film-duration-item')].map(node=>node.innerText)})()`);
+            check(`${lang} ${width} separate machine summaries`,groups.length,2);
+            check(`${lang} ${width} aggregate spans more than a day`,groups[0].includes(lang==="en"?"29 h 3 sec":"29 س 3 ث"));
+            check(`${lang} ${width} one roll is pending`,groups[1].includes(lang==="en"?"duration not yet determined":"لم تُحدد المدة بعد"));
+            check(`${lang} ${width} both endpoints visible`,await evaluate("document.querySelectorAll('.prod-film-duration-times time').length>=4"));
+            check(`${lang} ${width} legitimate zero span`,await evaluate(`document.querySelector('.production-app').innerText.includes(${JSON.stringify(lang==="en"?"0 sec":"0 ث")})`));
+          }
+          if(route==="/production/rolls/2"){
+            const detailText=await evaluate("document.querySelector('.prod-roll-detail').innerText");
+            for(const name of lang==="en"?["Creator Person","Printer Person","Cutter Person"]:["منشئ الرول","عامل الطباعة","عامل القص"]){
+              check(`${lang} ${width} recorded actor ${name}`,detailText.includes(name));
+            }
+            check(`${lang} ${width} all authoritative actor IDs remain`,["#42","#43","#44"].every(id=>detailText.includes(id)));
+            check(`${lang} ${width} no receiver tracking`,!(/Received by|استلمها|مستلم الرول/.test(detailText)));
+            check(`${lang} ${width} detail uses its order/machine aggregate`,await evaluate(`document.querySelector('.prod-roll-detail .prod-film-duration').innerText.includes(${JSON.stringify(lang==="en"?"29 h 3 sec":"29 س 3 ث")})`));
+            check(`${lang} ${width} detail does not show old manual minutes`,await evaluate("!document.querySelector('.prod-roll-detail').innerText.includes('Production time (minutes)')&&!document.querySelector('.prod-roll-detail').innerText.includes('مدة الإنتاج (دقيقة)')"));
+          }
+          if(route==="/production/rolls/3"){
+            check(`${lang} ${width} absent stage actors not guessed`,await evaluate(`document.querySelector('.prod-roll-detail').innerText.includes(${JSON.stringify(lang==="en"?"Not recorded":"غير مسجل")})`));
+          }
           if (lang === "en" && route === "/production" && [390, 1440].includes(width)) {
             const shot = await send("Page.captureScreenshot", { format: "png" });
             await fs.writeFile(`/tmp/factory-production-${width}.png`, Buffer.from(shot.data, "base64"));
@@ -173,6 +275,7 @@ const QRCode = require("qrcode");
     await evaluate("[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()==='Order history').click()");
     await wait("document.body.innerText.includes('PO-220')");
     check("history first page is limited and includes full-source actuals",await evaluate("document.querySelectorAll('details[open] .prod-record').length===50&&document.body.innerText.includes('1,000 kg')"));
+    check("history order review has full-source machine duration",await evaluate("document.querySelector('details[open] .prod-film-duration').innerText.includes('29 h 3 sec')"));
     await clickText("Next");await wait("document.body.innerText.includes('PO-170')");
     check("history sends a keyset cursor",historyCalls.at(-1).params.before,"171");
     await clickText("Previous");await wait("document.body.innerText.includes('PO-220')");
@@ -204,6 +307,7 @@ const QRCode = require("qrcode");
     check("failure retains entered film weight", await evaluate("document.querySelector('#weight-2').value"), "2.50");
     await clickText("Retry"); await wait("!!document.querySelector('.prod-success')");
     check("write retry preserves operation UUID", writes.at(-1).input.request_id, failedKey);
+    check("film recording and retries never submit manual minutes",writes.filter(item=>item.route==="/production/orders/2/rolls").every(item=>!("production_minutes" in item.input)));
     check("successful film recovery clears the submitted draft",await evaluate("document.querySelector('#weight-2').value"),"");
     check("lost film response creates just one roll", [...committed.values()].filter(v=>v.route==="/production/orders/2/rolls").length,1);
     const beforeEmptyFilm=writes.length;

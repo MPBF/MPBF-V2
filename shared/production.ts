@@ -15,6 +15,11 @@ export type ProductSnapshot = {
   printing_cylinder: string | null; punching: string | null; notes: string | null;
   front_print_colors: string[] | null; back_print_colors: string[] | null;
 };
+export type FilmMachineDuration = {
+  machine_id: string; machine_name: string | null; machine_name_ar: string | null;
+  roll_count: number; first_roll_at: string; last_roll_at: string;
+  duration_seconds: number | null;
+};
 export type ProductionOrderRecord = {
   id: number; order_id: number; production_order_number: string; order_number: string;
   customer_product_id: number | null; quantity_kg: string; final_quantity_kg: string; status: string;
@@ -23,7 +28,21 @@ export type ProductionOrderRecord = {
   is_printed: boolean; is_roll_product: boolean; stage: string | null;
   produced_kg: string; ready_kg: string; received_kg: string; remaining_kg: string; waste_kg: string;
   roll_count?: number;
+  film_durations: FilmMachineDuration[];
+  previous_status?: string | null;
 };
+
+/** Pending plans are visible before execution, but historical work cannot restart. */
+export function canStartFilmProductionOrder(order: Pick<ProductionOrderRecord,
+  "status" | "order_status" | "batch_number" | "final_quantity_kg"> &
+  Partial<Pick<ProductionOrderRecord, "previous_status" | "started_at" | "film_closed_at" | "completed_at">>): boolean {
+  if (!["for_production", "in_production"].includes(order.order_status) ||
+    order.status !== "pending" || order.batch_number || order.started_at ||
+    order.film_closed_at || order.completed_at ||
+    (order.previous_status && order.previous_status !== "pending")) return false;
+  try { return kgHundredths(order.final_quantity_kg) > 0n; }
+  catch { return false; }
+}
 export type ProductionRollRecord = {
   id: number; production_order_id: number; roll_number: string; weight_kg: string;
   stage: "film" | "printing" | "done"; film_machine_id: string; created_by: number | null;
@@ -39,6 +58,16 @@ export type ProductionMachine = {
   id: string; name: string | null; name_ar: string | null; type: string; status: string;
   inline_printer_id: string | null; min_thickness: string | null; max_thickness: string | null;
   min_width_cm: string | null; max_width_cm: string | null;
+};
+export type ProductionActor = {
+  id: number; display_name: string | null; display_name_ar: string | null;
+  full_name: string | null; username: string | null;
+};
+export type ProductionRollDetail = ProductionRollRecord & {
+  film_duration: FilmMachineDuration;
+  created_actor: ProductionActor | null;
+  printed_actor: ProductionActor | null;
+  cut_actor: ProductionActor | null;
 };
 export type ProductionQueue = { id: number; production_order_id: number; stage: ProductionStage; machine_id: string; position: number };
 export type StorageLocation = { id: number; name: string; name_ar: string; is_active: boolean };
@@ -86,7 +115,7 @@ export type ReceiptInput = {
   items: { production_order_id: number; location_id: number; quantity_kg: string; packaging?: PackagingInput }[];
 };
 export type FilmInput = {
-  request_id: string; machine_id: string; weight_kg: string; production_minutes?: number;
+  request_id: string; machine_id: string; weight_kg: string;
   is_last_roll?: boolean; inline_printed?: boolean;
 };
 export function machineStage(type: string | null): ProductionStage | null {

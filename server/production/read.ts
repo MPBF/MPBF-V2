@@ -1,8 +1,8 @@
 import { one, permission, rows, ProductionError, type ConnectionPool, type Connection } from "./core";
 
 // Execution snapshots are frozen at start. Unstarted plans use current product data.
-import { hasProductionPermission, isPlasticRoll, productionPermissions, type ProductionState, type ProductionStateScope, type ProductionUser, type ProductionRollRecord, type ProductionOrderRecord, type ProductionHistoryKind, type ProductionHistoryFilter, type ProductionHistoryPage } from "../../shared/production";
-import { orderSelect, rollSelect } from "./read-queries";
+import { hasProductionPermission, isPlasticRoll, productionPermissions, type ProductionState, type ProductionStateScope, type ProductionUser, type ProductionRollRecord, type ProductionRollDetail, type ProductionOrderRecord, type ProductionHistoryKind, type ProductionHistoryFilter, type ProductionHistoryPage } from "../../shared/production";
+import { orderSelect, rollSelect, filmMachineGroups, filmDurationJSON, productionActorJSON } from "./read-queries";
 import { historyPage } from "./history";
 export class ProductionReadService {
   constructor(readonly pool: ConnectionPool) {}
@@ -67,9 +67,17 @@ export class ProductionReadService {
       ["view_finished_inventory", "manage_finished_warehouse", "receive_production"]));
     return this.read(tx => historyPage(tx, kind, filters));
   }
-  async roll(actor: ProductionUser, id: number): Promise<ProductionRollRecord> {
+  async roll(actor: ProductionUser, id: number): Promise<ProductionRollDetail> {
     permission(actor, ...productionPermissions);
-    return this.read(tx => one(tx, `${rollSelect} WHERE r.id=$1`, [id]));
+    return this.read(tx => one(tx, `SELECT detail.*,${filmDurationJSON} film_duration,
+      ${productionActorJSON("creator")} created_actor,
+      ${productionActorJSON("printer")} printed_actor,
+      ${productionActorJSON("cutter")} cut_actor
+      FROM (${rollSelect} WHERE r.id=$1) detail
+      LEFT JOIN users creator ON creator.id=detail.created_by
+      LEFT JOIN users printer ON printer.id=detail.printed_by
+      LEFT JOIN users cutter ON cutter.id=detail.cut_by
+      JOIN LATERAL (${filmMachineGroups("detail.production_order_id", "detail.film_machine_id")}) g ON true`, [id]));
   }
   async labelPage(actor: ProductionUser, filters: Pick<ProductionHistoryFilter, "before" | "limit" | "search">): Promise<ProductionHistoryPage<"rolls">> {
     // Label discovery has the same access rules as labels and roll detail,
