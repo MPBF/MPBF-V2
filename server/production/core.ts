@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { hasProductionPermission, type ProductSnapshot, type ProductionUser } from "../../shared/production";
+import { masterBatchJSON } from "./read-queries";
 
 export interface Connection {
   query(text: string, values?: any[]): Promise<{ rows: any[] }>;
@@ -88,9 +89,11 @@ export async function productSnapshot(tx: Connection, order: LockedOrder) {
       'left_facing',cp.left_facing::text,'right_facing',cp.right_facing::text,
       'universal_thickness',cp.universal_thickness::text,'cutting_length_cm',cp.cutting_length_cm,
       'raw_material',cp.raw_material,'printing_cylinder',cp.printing_cylinder,'punching',cp.punching,
-      'notes',cp.notes,'front_print_colors',cp.front_print_colors,'back_print_colors',cp.back_print_colors) product,
+      'notes',cp.notes,'front_print_colors',cp.front_print_colors,'back_print_colors',cp.back_print_colors,
+      'size_caption',cp.size_caption,'master_batch',${masterBatchJSON}) product,
       COALESCE(cp.is_printed,false) is_printed,cp.status
     FROM customer_products cp JOIN items i ON i.id=cp.item_id JOIN customers c ON c.id=cp.customer_id
+    LEFT JOIN master_batch_colors mb ON mb.id=cp.master_batch_id
     WHERE cp.id=$1 AND cp.customer_id=$2 FOR SHARE OF cp,i,c`, [order.customer_product_id, order.customer_id]);
   if (row.status !== "active") throw new ProductionError("منتج العميل غير نشط", "The customer product is inactive.");
   return row;

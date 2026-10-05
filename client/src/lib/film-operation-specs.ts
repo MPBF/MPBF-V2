@@ -1,0 +1,34 @@
+import type { ProductSnapshot } from "../../../shared/production";
+import { isTransparentMasterBatch } from "./master-batch-color";
+
+const arabic = /[\u0600-\u06ff]/;
+export function safeFilmName(value: string | null | undefined, language: string, fallback: string) {
+  const clean = (value ?? "").trim();
+  return clean && (language !== "en" || !arabic.test(clean)) ? clean : fallback;
+}
+
+export function filmSearchTerm(value: string) {
+  return value.trim().replace(/[٠-٩]/g, digit => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, digit => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).toLocaleLowerCase();
+}
+
+type Formatter = (value: string | number | null | undefined, digits?: number) => string;
+const positive = (value: string | null | undefined) =>
+  value !== null && value !== undefined && value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) > 0;
+
+export function filmOperationSpecs(product: ProductSnapshot | null, language: string, number: Formatter, unrecorded: string) {
+  if (!product) return { size: unrecorded, material: unrecorded, thickness: unrecorded, batchName: unrecorded, batch: null };
+  const caption = safeFilmName(product.size_caption, language, "");
+  const width = positive(product.width) ? `${number(product.width)} cm` : "";
+  const faces = [product.left_facing, product.right_facing].filter(positive).map(value => number(value));
+  const gusset = faces.length ? `${faces.join(" / ")} cm` : "";
+  const size = caption || [width && `${language === "en" ? "Width" : "العرض"} ${width}`,
+    gusset && `${language === "en" ? "Gusset" : "الكسرة"} ${gusset}`].filter(Boolean).join(" · ") || unrecorded;
+  const thickness = positive(product.universal_thickness) ? `${number(product.universal_thickness)} µm` : unrecorded;
+  const batch = product.master_batch ?? null;
+  const batchName = !batch ? unrecorded : isTransparentMasterBatch(batch)
+    ? language === "en" ? "Transparent" : "شفاف"
+    : (language === "en" ? [batch.name, batch.color_hex] : [batch.name_ar, batch.name, batch.color_hex])
+      .map(value => safeFilmName(value, language, "")).find(Boolean) || unrecorded;
+  return { size, material: safeFilmName(product.raw_material, language, unrecorded), thickness, batchName, batch };
+}

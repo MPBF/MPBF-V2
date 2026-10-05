@@ -102,3 +102,11 @@ multiple production orders.
 touch-friendly controls; group production orders by their customer order.
 The film-board focus is size, raw material, film color and thickness, not
 customer/production status or stage badges.
+
+Only one customer-order group should be open at a time on the film board.
+
+**Why:** the user selected «طلب واحد مفتوح (موصى به)» instead of showing
+all customer-order groups expanded.
+
+**How to apply:** preserve this phone-oriented disclosure preference when
+changing the film board; do not expand all requests by default.

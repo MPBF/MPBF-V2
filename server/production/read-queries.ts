@@ -21,15 +21,28 @@ export const productionActorJSON = (alias: string) => `CASE WHEN ${alias}.id IS 
   ELSE jsonb_build_object('id',${alias}.id,'display_name',${alias}.display_name,
     'display_name_ar',${alias}.display_name_ar,'full_name',${alias}.full_name,
     'username',${alias}.username) END`;
+export const masterBatchJSON = `CASE WHEN mb.id IS NULL THEN NULL ELSE jsonb_build_object(
+  'id',mb.id,'name',mb.name,'name_ar',mb.name_ar,'color_hex',mb.color_hex) END`;
 export const liveProduct = `jsonb_build_object('id',cp.id,'item_id',cp.item_id,'name',i.name,'name_ar',i.name_ar,
   'customer_name',c.name,'customer_name_ar',c.name_ar,'width',cp.width::text,
   'left_facing',cp.left_facing::text,'right_facing',cp.right_facing::text,
   'universal_thickness',cp.universal_thickness::text,'cutting_length_cm',cp.cutting_length_cm,
   'raw_material',cp.raw_material,'printing_cylinder',cp.printing_cylinder,'punching',cp.punching,
-  'notes',cp.notes,'front_print_colors',cp.front_print_colors,'back_print_colors',cp.back_print_colors)`;
+   'notes',cp.notes,'front_print_colors',cp.front_print_colors,'back_print_colors',cp.back_print_colors,
+   'size_caption',cp.size_caption,'master_batch',${masterBatchJSON})`;
+// Supplement only fields absent from older snapshots, without rewriting them
+// or replacing deliberately saved nulls. All original execution specs stay frozen.
+const displayedProduct = `e.product ||
+  CASE WHEN e.product ? 'size_caption' THEN '{}'::jsonb ELSE jsonb_build_object('size_caption',
+    CASE WHEN (e.product->>'width') IS NOT DISTINCT FROM cp.width::text
+      AND (e.product->>'left_facing') IS NOT DISTINCT FROM cp.left_facing::text
+      AND (e.product->>'right_facing') IS NOT DISTINCT FROM cp.right_facing::text
+    THEN cp.size_caption ELSE NULL END) END ||
+  CASE WHEN e.product ? 'master_batch' THEN '{}'::jsonb ELSE jsonb_build_object('master_batch',${masterBatchJSON}) END`;
 export const orderSelect = `SELECT p.id,p.order_id,p.production_order_number,p.customer_product_id,
   p.quantity_kg,p.final_quantity_kg,p.status,p.previous_status,p.batch_number,o.order_number,o.status order_status,
-  CASE WHEN cp.id IS NULL THEN e.product ELSE COALESCE(e.product,${liveProduct}) END product,
+   CASE WHEN cp.id IS NULL THEN e.product WHEN e.product IS NULL THEN ${liveProduct}
+     ELSE ${displayedProduct} END product,
   e.started_at,e.film_closed_at,e.completed_at,e.stage,COALESCE(e.is_printed,cp.is_printed,false) is_printed,
   COALESCE(e.is_roll_product,false) is_roll_product,
   COALESCE(r.produced,0)::text produced_kg,COALESCE(r.ready,0)::text ready_kg,COALESCE(r.waste,0)::text waste_kg,
@@ -40,6 +53,7 @@ export const orderSelect = `SELECT p.id,p.order_id,p.production_order_number,p.c
   LEFT JOIN factory_execution e ON e.production_order_id=p.id
   LEFT JOIN customer_products cp ON cp.id=p.customer_product_id LEFT JOIN items i ON i.id=cp.item_id
   LEFT JOIN customers c ON c.id=o.customer_id
+   LEFT JOIN master_batch_colors mb ON mb.id=cp.master_batch_id
   LEFT JOIN LATERAL (SELECT sum(g.produced) produced,sum(g.waste) waste,sum(g.roll_count) roll_count,
     sum(CASE WHEN e.is_roll_product THEN g.ready_roll ELSE g.ready_net END) ready,
     jsonb_agg(${filmDurationJSON} ORDER BY g.first_roll_at,g.machine_id) film_durations

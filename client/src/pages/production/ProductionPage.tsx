@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { useTranslation } from "react-i18next";
 import { ArrowDown, ArrowUp, Check, ChevronRight, Factory, Plus, RefreshCw, Settings2, X } from "lucide-react";
 import { Link } from "wouter";
+import FilmOperatorOrders from "./FilmOperatorOrders";
 import RollLabelControls from "./RollLabelControls";
 import "./roll-labels.css";
 import {
@@ -44,7 +45,7 @@ const messages: Record<string, [string, string]> = {
   reload: ["تحديث البيانات", "Refresh data"], retry: ["إعادة المحاولة", "Retry"], failedLoad: ["تعذر تحميل بيانات الإنتاج.", "Production data could not be loaded."], loading: ["جارٍ تحميل بيانات الإنتاج", "Loading production data"], noRows: ["لا توجد سجلات لعرضها الآن", "There are no records to show right now"], unrecorded: ["غير مسجل", "Unrecorded"], ready: ["جاهز", "Ready"], running: ["قيد التشغيل", "In progress"], started: ["بدأ الإنتاج", "Production started"], start: ["بدء الإنتاج", "Start production"], noEligible: ["لا توجد أوامر مؤهلة لهذه المرحلة.", "No orders are eligible for this stage."],
   order: ["أمر الإنتاج", "Production order"], customerOrder: ["طلب العميل", "Customer order"], customerStatus: ["حالة طلب العميل", "Customer order status"], productionStatus: ["حالة أمر الإنتاج", "Production-order status"], stage: ["مرحلة الأمر", "Order stage"], rollStage: ["مرحلة الرول", "Roll stage"], product: ["المنتج", "Product"], planned: ["المخطط النهائي", "Final planned"], produced: ["المنتج فعلياً", "Produced actual"], readyKg: ["الجاهز", "Ready"], received: ["المستلم", "Received"], waste: ["الهدر", "Waste"], remaining: ["المتبقي للاستلام", "Receivable"], rolls: ["الرولات", "Rolls"], created: ["تم الحفظ بنجاح.", "Saved successfully."], saving: ["جارٍ الحفظ…", "Saving…"], readonly: ["عرض فقط — لا تتوفر صلاحية التشغيل.", "Read only — operation permission is not granted."],
   startedAt: ["بدأ في", "Started"], closedAt: ["إغلاق الفيلم", "Film closure"], filmClosed: ["الفيلم مغلق", "Film closed"], historical: ["أمر تاريخي بلا سجلات تنفيذ؛ لا تُعرض أوزان فعلية.", "Historical order without execution records; actual weights are not reported."], filmReadyExplanation: ["الخطة معتمدة وجاهزة. يبدأ التنفيذ عند اختيار «بدء الإنتاج».", "The plan is released and ready. Execution begins when an operator selects Start production."],
-  addRoll: ["تسجيل رول", "Register roll"], weight: ["وزن الفيلم (كجم)", "Film weight (kg)"], machine: ["ماكينة التشغيل", "Operating machine"], chooseMachine: ["اختر ماكينة", "Choose machine"], changeMachine: ["تغيير الماكينة", "Change machine"], lastRoll: ["آخر رول", "This is the final roll — close film"], inline: ["طباعة إنلاين", "Inline printing"], noMachine: ["لا توجد ماكينة نشطة مناسبة.", "No active compatible machine is available."], machineSaved: ["تم حفظ اختيار الماكينة لهذا المشغل.", "Machine choice saved for this operator."],
+  addRoll: ["تسجيل رول", "Register roll"], weight: ["وزن الفيلم (كجم)", "Film weight (kg)"], machine: ["ماكينة التشغيل", "Operating machine"], chooseMachine: ["اختر ماكينة", "Choose machine"], changeMachine: ["تغيير الماكينة", "Change machine"], lastRoll: ["آخر رول — إغلاق الفيلم", "This is the final roll — close film"], inline: ["طباعة إنلاين", "Inline printing"], noMachine: ["لا توجد ماكينة نشطة مناسبة.", "No active compatible machine is available."], machineSaved: ["تم حفظ اختيار الماكينة لهذا المشغل.", "Machine choice saved for this operator."],
   printRoll: ["تسجيل الطباعة", "Record printing"], cutRoll: ["إكمال القص", "Complete cutting"], netWeight: ["الوزن الصافي بعد القص (كجم)", "Net weight after cutting (kg)"], completed: ["مكتمل", "Complete"], queue: ["توزيع الطابور", "Queue assignment"], stageSelect: ["المرحلة", "Stage"], position: ["الترتيب", "Position"], assign: ["إضافة للطابور", "Add to queue"], queueList: ["طوابير الماكينات", "Machine queues"], remove: ["إزالة", "Remove"], up: ["أعلى", "Move up"], down: ["أسفل", "Move down"], noQueue: ["لا توجد أوامر موزعة على الطوابير.", "No orders are assigned to queues."],
   eligibleWeight: ["الوزن الجاهز غير المستلم", "Ready, not yet received"], receiveBatch: ["استلام دفعة", "Receive batch"], storage: ["موقع التخزين", "Storage location"], quantity: ["كمية الاستلام (كجم)", "Receipt quantity (kg)"], notes: ["ملاحظات السند", "Voucher notes"], packaging: ["بيانات التعبئة اختيارية", "Optional packaging details"], rollGrams: ["وزن الرول (جرام)", "Roll weight (grams)"], rollsUnit: ["رولات في الوحدة", "Rolls per unit"], units: ["عدد الوحدات", "Units"], addLine: ["إضافة أمر للاستلام", "Add order to receipt"], saveReceipt: ["حفظ سند الاستلام", "Save receipt"], location: ["الموقع", "Location"], saveLocation: ["حفظ الموقع", "Save location"], locationName: ["اسم الموقع", "Location name"], locationAr: ["الاسم بالعربية", "Arabic name"], locationEn: ["الاسم بالإنجليزية", "English name"], active: ["نشط", "Active"], inactive: ["غير نشط", "Inactive"], locations: ["مواقع التخزين", "Storage locations"], balances: ["أرصدة المواد التامة", "Finished-goods balances"], movements: ["حركات المخزون", "Inventory movements"], vouchers: ["سندات الاستلام المحفوظة", "Saved receipt vouchers"], noLocations: ["أضف موقع تخزين قبل حفظ سند.", "Add a storage location before saving a voucher."], unknownRoll: ["الرول غير موجود أو لا تملك صلاحية عرضه.", "The roll does not exist or you do not have permission to view it."],
   qr: ["رمز QR خاص داخل النظام", "Private in-system QR code"], createdAt: ["تاريخ التسجيل", "Registered at"], filmMachine: ["ماكينة الفيلم", "Film machine"], printMachine: ["ماكينة الطباعة", "Printing machine"], cutMachine: ["ماكينة القص", "Cutting machine"], net: ["صافي الوزن", "Net weight"], goManagement: ["إدارة الإنتاج", "Production management"], errorGeneric: ["تعذر تنفيذ العملية. أعد المحاولة دون إدخالها مرة أخرى.", "The operation failed. Retry without entering it again."], enterPositive: ["أدخل قيمة موجبة صحيحة.", "Enter a valid positive value."], locationCreated: ["تم حفظ الموقع.", "Location saved."], receiptCreated: ["تم حفظ سند الاستلام.", "Receipt saved."], startConfirm: ["بدء أمر الإنتاج؟", "Start this production order?"], permission: ["لا تتوفر صلاحية لهذا العرض.", "You do not have permission to view this page."], noRolls: ["لا توجد رولات مؤهلة حالياً.", "No rolls are eligible right now."], chooseOrder: ["اختر أمراً", "Choose an order"], historyStatus: ["حالة السند", "Voucher status"], movementDate: ["وقت الحركة", "Movement time"],
@@ -338,29 +339,18 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
     {(write.error||write.success)&&(write.error?<ErrorBanner message={write.error} language={language} retry={()=>void write.retry()}/>:<div className="prod-success" role="status">{write.success}</div>)}
     <Card title={text("machine",language)}>{machinePicker}</Card>
     {!canOperate&&<div className="prod-callout" style={{marginTop:14}}>{text("readonly",language)}</div>}
-    {stage==="film" ? <>
-      {!!readyFilmOrders.length&&<><div className="prod-section-title"><h3>{text("ready",language)} · {text("order",language)}</h3></div>
-        <div className="prod-list">{readyFilmOrders.map(order=><article className="prod-order prod-film-ready" data-film-state="ready" key={order.id}>
-          <OrderSummary order={order} language={language} showFilmDuration={false}/>
-          <div className="prod-measure"><span>{text("planned",language)}</span><strong>{number(order.final_quantity_kg,language)} kg</strong></div>
-          <div className="prod-callout prod-film-readiness">{text("filmReadyExplanation",language)}</div>
-          {canOperate&&<button className="prod-btn prod-start-film" disabled={!canOperate||write.saving} onClick={()=>startFilm(order)}><Factory/>{text("start",language)}</button>}
-        </article>)}</div>
-      </>}
-      {!!orders.length&&<><div className="prod-section-title"><h3>{text("film",language)} · {text("order",language)}</h3></div>
-      <div className="prod-list">{orders.map(order=><article className="prod-order" key={order.id}>
-        <OrderSummary order={order} language={language} showFilmDuration={false}/>
-        <div className="prod-measure"><span>{text("planned",language)}</span><strong>{number(order.final_quantity_kg,language)} kg</strong></div>
-        <div className="prod-measure"><span>{text("produced",language)}</span><strong>{number(order.produced_kg,language)} kg</strong></div>
-        <div className="prod-measure"><span>{text("rolls",language)}</span><strong>{number(order.roll_count??0,language,0)}</strong></div>
-        <div className="prod-inline"><div className="prod-field"><label htmlFor={`weight-${order.id}`}>{text("weight",language)}</label><input id={`weight-${order.id}`} inputMode="decimal" min="0.01" step="0.01" type="number" value={weights[order.id]??""} onChange={event=>setWeights(values=>({...values,[order.id]:event.target.value}))}/></div>
-          {order.is_printed&&inlinePrinter(selectedMachine)&&<label className="prod-label-inline"><input type="checkbox" checked={!!inline[order.id]} onChange={event=>setInline(values=>({...values,[order.id]:event.target.checked}))}/>{text("inline",language)}</label>}
-          <label className="prod-label-inline"><input type="checkbox" checked={!!last[order.id]} onChange={event=>setLast(values=>({...values,[order.id]:event.target.checked}))}/>{text("lastRoll",language)}</label>
-          <button className="prod-btn" disabled={!canOperate||write.saving||!selectedMachine} onClick={()=>recordFilm(order)}><Plus/>{text("addRoll",language)}</button>
-        </div>
-      </article>)}</div></>}
-      {!readyFilmOrders.length&&!orders.length&&<Empty title={text("noEligible",language)}/>}
-      </>:
+    {stage==="film" ? <FilmOperatorOrders
+      orders={[...orders,...readyFilmOrders].sort((a,b)=>priority(a.id)-priority(b.id)||a.id-b.id)}
+      readyIds={new Set(readyFilmOrders.map(order=>order.id))}
+      language={language} canOperate={canOperate} saving={write.saving} selectedMachine={selectedMachine}
+      weights={weights} last={last} inline={inline} inlinePrinterAvailable={!!inlinePrinter(selectedMachine)}
+      text={key=>text(key,language)} number={(value,digits)=>number(value,language,digits)}
+      productName={order=>orderProduct(order,language)}
+      onWeight={(id,value)=>setWeights(values=>({...values,[id]:value}))}
+      onLast={(id,value)=>setLast(values=>({...values,[id]:value}))}
+      onInline={(id,value)=>setInline(values=>({...values,[id]:value}))}
+      onRecord={recordFilm} onStart={startFilm}
+    />:
     <><div className="prod-section-title"><h3>{text("rolls",language)} · {text(stage,language)}</h3></div>
       {rolls.length?<div className="prod-list">{rolls.map(roll=><article className="prod-order" key={roll.id}>
         <div className="prod-order-main"><h3><Link className="prod-number" href={`/production/rolls/${roll.id}`}>{roll.roll_number}</Link></h3><div className="prod-order-meta"><span className="prod-number">{roll.production_order_number}</span> · {orderProduct({product:roll.product} as ProductionOrderRecord,language)}</div><div className="prod-chips" style={{marginTop:8}}>{(()=>{const parent=state.orders.find(order=>order.id===roll.production_order_id);return <>{parent&&<><span className="prod-chip">{text("customerStatus",language)}: {text(parent.order_status,language)}</span><span className="prod-chip">{text("productionStatus",language)}: {text(parent.status,language)}</span><span className="prod-chip muted">{text("stage",language)}: {text(parent.stage??"—",language)}</span></>}<span className="prod-chip warm">{text("rollStage",language)}: {text(roll.stage,language)}</span><span className="prod-chip">{text("weight",language)}: {number(roll.weight_kg,language)} kg</span></>;})()}</div></div>

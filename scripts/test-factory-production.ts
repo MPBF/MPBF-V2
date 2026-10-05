@@ -20,6 +20,7 @@ import { createProductionRouter } from "../server/production/routes";
 import { verifyProductionHistory } from "./verify-production-history";
 import { verifyFilmDurations } from "./verify-film-durations";
 import { verifyRollActors } from "./verify-roll-actors";
+import { verifyFilmOperationSpecs } from "./verify-film-operation-specs";
 
 if (process.env.NODE_ENV === "production") throw Error("Integration tests are development-only.");
 if (process.argv.includes("--large") && !process.argv.includes("--local")) throw Error("Large fixtures require --local and a disposable database.");
@@ -63,10 +64,11 @@ try {
       full_name text,password text,email text,phone text);
     CREATE TABLE customers(id varchar(20) PRIMARY KEY,name text,name_ar text);
     CREATE TABLE items(id varchar(20) PRIMARY KEY,name text,name_ar text);
+    CREATE TABLE master_batch_colors(id varchar(20) PRIMARY KEY,name text,name_ar text,color_hex text);
     CREATE TABLE customer_products(id integer PRIMARY KEY,customer_id varchar(20),item_id varchar(20),
       width numeric,left_facing numeric,right_facing numeric,universal_thickness numeric,cutting_length_cm integer,
       raw_material text,printing_cylinder text,punching text,notes text,front_print_colors text[],back_print_colors text[],
-      is_printed boolean,status text);
+      is_printed boolean,status text,size_caption text,master_batch_id varchar(20));
     CREATE TABLE machines(id varchar(20) PRIMARY KEY,name text,name_ar text,type text,status text,inline_printer_id varchar(20),
       min_thickness numeric,max_thickness numeric,min_width_cm numeric,max_width_cm numeric,raw_material_type text,
       max_print_colors integer,min_cylinder_inch numeric,max_cylinder_inch numeric,min_length_cm numeric,max_length_cm numeric);
@@ -412,6 +414,7 @@ try {
   await verifyProductionHistory(isolated, query, process.argv.includes("--large"));
   await verifyFilmDurations(isolated, query);
   await verifyRollActors(isolated, query);
+  await verifyFilmOperationSpecs(isolated, query);
   console.log(`Verified ${passed} PostgreSQL factory production integration scenarios.`);
 } catch (error) {
   console.error(error);

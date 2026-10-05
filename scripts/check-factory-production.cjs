@@ -18,7 +18,8 @@ const QRCode = require("qrcode");
   const pending = new Map(), errors = [], writes = [], committed = new Map(), historyCalls = [], stateScopes = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Plastic bag", name_ar: "كيس بلاستيك", customer_name: "Fixture customer", customer_name_ar: "عميل الاختبار",
-    width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: "16", punching: "بنانة", notes: null, front_print_colors: [], back_print_colors: [] };
+    width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: "16", punching: "بنانة", notes: null, front_print_colors: ["Red"], back_print_colors: [],
+    size_caption:"28 + 7 + 7 cm",master_batch:{id:"BLUE",name:"Blue",name_ar:"أزرق",color_hex:"#2463EB"} };
   const duration = (machine_id = "F1", changes = {}) => ({
     machine_id, machine_name: machine_id === "F1" ? "Film One" : "Film Two",
     machine_name_ar: machine_id === "F1" ? "فيلم واحد" : "فيلم اثنان",
@@ -39,7 +40,9 @@ const QRCode = require("qrcode");
     waste_kg: "0.00", product, is_printed: true, is_roll_product: false, ...changes });
   const state = { orders: [order(1, { status: "pending", started_at: null }), order(2), order(3, { is_printed: false }),
     order(4, { is_printed: false, is_roll_product: true, ready_kg: "10.00", remaining_kg: "7.00", received_kg: "3.00" }),
-    order(5, { is_roll_product: true }), order(6, { started_at: null, status: "completed", order_status: "completed" }), order(7, { order_status: "paused" })],
+    order(5, { is_roll_product: true }), order(6, { started_at: null, status: "completed", order_status: "completed" }), order(7, { order_status: "paused" }),
+    order(8,{order_id:2,order_number:"ORDER-2",product:{...product,master_batch:{id:"TRANS",name:"Transparent",name_ar:"شفاف",color_hex:"#FFFFFF"}}}),
+    order(9,{order_id:2,order_number:"ORDER-2",product:{...product,master_batch:{id:"WHITE",name:"White",name_ar:"أبيض",color_hex:"#FFFFFF"}}})],
     rolls: [roll(2, 2), roll(3, 3, { is_printed: false }), roll(4, 4, { is_printed: false, is_roll_product: true, stage: "done" }),
       roll(5, 5, { is_roll_product: true }), roll(7, 7)], machines: [
       { id: "F1", name: "Film One", name_ar: "فيلم واحد", type: "extruder", status: "active", inline_printer_id: "P1" },
@@ -177,9 +180,14 @@ const QRCode = require("qrcode");
       await send("Page.navigate", { url: origin + route }); await loaded;
       await wait("!!document.querySelector('.production-app')");
       await wait("!document.querySelector('.prod-loading')");
+      if(route==="/production/film")await openFilmOrder(filmReadyOnly?1:2);
     };
     const clickText = label => evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}); if(!e)throw Error('Missing button '+${JSON.stringify(label)});e.click()})()`);
     const setInput = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}); if(!e)throw Error('Missing input'); const setter=Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+    const openFilmOrder = async id => {
+      await evaluate(`(()=>{const b=document.querySelector('[data-film-order-id="${id}"]');if(!b)throw Error('Missing group ${id}');if(b.getAttribute('aria-expanded')!=='true')b.click()})()`);
+      await wait(`document.querySelector('[data-film-order-id="${id}"]').getAttribute('aria-expanded')==='true'`);
+    };
     if (filmReadyOnly) {
       const ready = state.orders[0];
       const reset = () => Object.assign(ready, {status:"pending",order_status:"for_production",previous_status:null,
@@ -228,21 +236,59 @@ const QRCode = require("qrcode");
       console.log(`Verified ${passed} film-ready browser checks; fixture writes only.`);
       return;
     }
-    for (const lang of ["en", "ar"]) {
+    for (const lang of ["ar", "en"]) {
       language = lang;
-      for (const width of [390, 768, 1440]) {
+      for (const width of [320, 390, 430, 768, 1440]) {
         await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
         for (const route of ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2", "/production/rolls/3"]) {
+          permissions=route==="/production/film"?["operate_film"]:["admin"];
           await navigate(route);
           check(`${lang} ${width} ${route} fits viewport`, await evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
           check(`${lang} ${width} ${route} renders content`, await evaluate("document.querySelector('.production-app').innerText.length > 50"));
           if(route==="/production/film"){
+            check(`${lang} ${width} one customer group open`,await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"]').length"),1);
+            check(`${lang} ${width} related production orders grouped`,await evaluate("document.querySelector('#film-order-panel-2').querySelectorAll('[data-production-order-id]').length"),3);
+            check(`${lang} ${width} one header per customer order`,await evaluate("document.querySelectorAll('[data-film-order-id=\"2\"]').length"),1);
+            check(`${lang} ${width} no film status chips`,await evaluate("document.querySelectorAll('.film-operator .prod-chips,.film-operator .prod-chip').length"),0);
+            check(`${lang} ${width} four clear operating specs`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').children.length"),4);
+            check(`${lang} ${width} real size material and micron thickness`,await evaluate("['28 + 7 + 7 cm','HDPE','25 µm'].every(value=>document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').innerText.includes(value))"));
+            check(`${lang} ${width} film color not printing ink`,await evaluate(`document.querySelector('[data-production-order-id="2"] .film-color-spec').innerText.includes(${JSON.stringify(lang==="en"?"Blue":"أزرق")})`));
+            check(`${lang} ${width} transparent color striped`,await evaluate("document.querySelector('[data-production-order-id=\"8\"] .master-batch-swatch').dataset.transparent"),"true");
+            check(`${lang} ${width} ordinary white remains solid`,await evaluate("document.querySelector('[data-production-order-id=\"9\"] .master-batch-swatch').dataset.transparent"),"false");
+            const targets=await evaluate("[...document.querySelectorAll('.film-operator button,.film-operator input:not([type=\"checkbox\"]),.film-operator .prod-label-inline')].map(node=>({id:node.id,kind:node.className,height:node.getBoundingClientRect().height,min:getComputedStyle(node).minHeight}))");
+            if(targets.some(node=>node.height<43.5))console.log("Small touch targets",JSON.stringify(targets.filter(node=>node.height<43.5)));
+            check(`${lang} ${width} touch targets at least 44px`,targets.every(node=>node.height>=43.5));
+            check(`${lang} ${width} accessible disclosure controls`,await evaluate("[...document.querySelectorAll('[data-film-order-id]')].every(node=>!!document.getElementById(node.getAttribute('aria-controls')))"));
             check(`${lang} ${width} duplicate close-film button absent`,await evaluate("![...document.querySelectorAll('button')].some(button=>/Close film with existing rolls|إغلاق الفيلم باستخدام الرولات المسجلة/.test(button.textContent))"));
             check(`${lang} ${width} final-roll checkbox remains`,await evaluate("!!document.querySelector('.prod-label-inline input[type=\"checkbox\"]')&&/final roll|آخر رول/.test(document.querySelector('.production-app').innerText)"));
             check(`${lang} ${width} manual duration input removed`,await evaluate("document.querySelectorAll('input[id^=\"minutes-\"]').length"),0);
             check(`${lang} ${width} film duration summary hidden on operator board`,await evaluate("document.querySelectorAll('.prod-film-duration').length"),0);
             check(`${lang} ${width} film duration endpoints hidden on operator board`,await evaluate("document.querySelectorAll('.prod-film-duration-times time').length"),0);
             check(`${lang} ${width} duration remains in records`,state.orders.find(order=>order.id===2).film_durations.length,2);
+            if([320,390,430].includes(width)){
+              await evaluate("window.scrollTo(0,document.querySelector('.film-order-groups').getBoundingClientRect().top+scrollY-80)");
+              await new Promise(resolve=>setTimeout(resolve,220));
+              const shot=await send("Page.captureScreenshot",{format:"png"});
+              await fs.writeFile(`/tmp/film-ops-${lang}-${width}.png`,Buffer.from(shot.data,"base64"));
+            }
+            await setInput("#weight-2","2.75");
+            await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-last-roll input').click()");
+            await openFilmOrder(3);
+            check(`${lang} ${width} opening another group closes previous`,await evaluate("document.querySelector('[data-film-order-id=\"2\"]').getAttribute('aria-expanded')"),"false");
+            await openFilmOrder(2);
+            check(`${lang} ${width} disclosure retains weight draft`,await evaluate("document.querySelector('#weight-2').value"),"2.75");
+            check(`${lang} ${width} disclosure retains final-roll draft`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-last-roll input').checked"));
+            await setInput("[data-film-search]",lang==="en"?"PO-8":"PO-٨");
+            check(`${lang} ${width} search filters child production orders`,await evaluate("document.querySelectorAll('[data-production-order-id]').length"),1);
+            check(`${lang} ${width} matched production order visible`,await evaluate("!!document.querySelector('[data-production-order-id=\"8\"]')"));
+            await setInput("[data-film-search]",lang==="en"?"Fixture customer":"عميل الاختبار");
+            check(`${lang} ${width} search matches customer names`,await evaluate("document.querySelectorAll('[data-film-order-id]').length"),5);
+            await setInput("[data-film-search]","ORDER-3");
+            check(`${lang} ${width} customer order search matches one group`,await evaluate("document.querySelectorAll('[data-film-order-id]').length"),1);
+            await setInput("[data-film-search]","NO-FILM-MATCH");
+            check(`${lang} ${width} search has clear empty result`,await evaluate("!!document.querySelector('.film-no-results')&&!document.querySelector('[data-film-order-id]')"));
+            await setInput("[data-film-search]","");await openFilmOrder(2);
+            check(`${lang} ${width} searching retains weight and flags`,await evaluate("document.querySelector('#weight-2').value==='2.75'&&document.querySelector('[data-production-order-id=\"2\"] .film-last-roll input').checked"));
           }
           if(route==="/production/rolls/2"){
             const detailText=await evaluate("document.querySelector('.prod-roll-detail').innerText");
@@ -265,6 +311,47 @@ const QRCode = require("qrcode");
       }
     }
     language = "en";
+    await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    const stressOffset=state.orders.length;
+    state.orders.push(...Array.from({length:180},(_,index)=>order(1000+index,{
+      order_id:500+Math.floor(index/3),order_number:`ORDER-${500+Math.floor(index/3)}`,
+      product:{...product,customer_name:"A very long customer name with several identifying words",
+        customer_name_ar:"اسم عميل طويل متعدد الكلمات لاختبار وضوح العرض على شاشة الهاتف"}
+    })),order(94,{order_id:2,order_number:"ORDER-2",status:"pending",started_at:null,stage:null}),
+      order(95,{product:{...product,size_caption:null,width:null,left_facing:null,right_facing:null,
+        raw_material:null,universal_thickness:null,master_batch:null}}));
+    const beforeStressWrites=writes.length;
+    for(const lang of ["ar","en"]){
+      language=lang;
+      await send("Emulation.setDeviceMetricsOverride",{width:320,height:900,deviceScaleFactor:1,mobile:true});
+      await navigate("/production/film");
+      check(`${lang} many customer orders do not duplicate group headers`,await evaluate("document.querySelectorAll('[data-film-order-id]').length"),66);
+      check(`${lang} only one group renders operation cards among many orders`,await evaluate("document.querySelectorAll('[data-production-order-id]').length"),4);
+      check(`${lang} ready and active orders share their customer group`,await evaluate("!!document.querySelector('#film-order-panel-2 [data-film-state=\"ready\"][data-production-order-id=\"94\"]')"));
+      check(`${lang} long customer names fit a 320px phone`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+      await setInput("[data-film-search]","ORDER-559");
+      check(`${lang} search reaches last customer order in large list`,await evaluate("document.querySelectorAll('[data-production-order-id]').length"),3);
+      await setInput("[data-film-search]","");await openFilmOrder(95);
+      check(`${lang} missing operating fields explicit, no invented swatch`,await evaluate(`document.querySelector('[data-production-order-id="95"] .film-spec-grid').innerText.includes(${JSON.stringify(lang==="en"?"Unrecorded":"غير مسجل")})&&!document.querySelector('[data-production-order-id="95"] .master-batch-swatch')`));
+    }
+    check("large-list browsing never writes business data",writes.length,beforeStressWrites);
+    state.orders.splice(stressOffset);
+    language="en";
+    permissions=["view_production"];
+    await navigate("/production/film");
+    check("read-only film user sees specs but cannot write",await evaluate("!!document.querySelector('.film-spec-grid')&&[...document.querySelectorAll('.film-roll-entry input,.film-roll-entry button')].every(node=>node.disabled)"));
+    permissions=["admin"];
+    await navigate("/production/film");
+    await setInput("#weight-2","6.25");
+    const closing=state.orders.filter(order=>order.order_id===2);
+    const beforeClosing=closing.map(order=>({...order}));
+    closing.forEach(order=>Object.assign(order,{film_closed_at:"2026-10-05T11:00:00Z",status:"completed",order_status:"completed"}));
+    await clickText("Refresh data");
+    await wait("!document.querySelector('[data-film-order-id=\"2\"]')");
+    check("selected finished group recovers to another eligible request",await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"]').length"),1);
+    closing.forEach((order,index)=>Object.assign(order,beforeClosing[index]));
+    await clickText("Refresh data");await wait("!!document.querySelector('[data-film-order-id=\"2\"]')");await openFilmOrder(2);
+    check("refresh and temporary eligibility changes retain per-order draft",await evaluate("document.querySelector('#weight-2').value"),"6.25");
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     await navigate("/production");
     check("historical records explicitly unrecorded", await evaluate("document.body.innerText.includes('Unrecorded')"));

@@ -204,6 +204,75 @@
   justify-self:start;
   min-width:148px;
 }
+.film-operator { min-width:0; }
+.film-search {
+  display:flex; align-items:center; gap:10px; min-height:48px; max-width:620px;
+  margin:0 0 12px; padding:0 12px; border:1px solid #b9cec4; background:#fbfdf9;
+  color:var(--prod-deep); box-shadow:0 2px 8px rgba(27,64,57,.035);
+}
+.film-search svg { width:18px; height:18px; flex:none; }
+.film-search input {
+  width:100%; min-width:0; min-height:46px; padding:8px 0; border:0; outline:0;
+  background:transparent; color:var(--prod-ink); font:inherit; font-size:13px;
+}
+.film-search input::placeholder { color:#81938b; }
+.film-search:focus-within { border-color:var(--prod-accent); box-shadow:0 0 0 2px rgba(216,120,78,.17); }
+.film-order-groups { display:grid; gap:9px; min-width:0; }
+.film-order-group { min-width:0; border:1px solid #cadbd1; background:#f9fcf8; }
+.film-order-disclosure {
+  width:100%; min-height:58px; display:flex; align-items:center; gap:12px; padding:9px 13px;
+  border:0; text-align:start; color:var(--prod-ink); background:#e8f1eb; cursor:pointer;
+  transition:transform .16s ease, opacity .16s ease;
+}
+.film-order-disclosure:hover { background:#deebe2; }
+.film-order-disclosure:focus-visible { outline:3px solid rgba(216,120,78,.55); outline-offset:-3px; }
+.film-order-disclosure > svg { flex:none; width:19px; height:19px; color:var(--prod-deep); transition:transform .16s ease; }
+.film-order-disclosure > svg.is-open { transform:rotate(180deg); }
+.film-group-customer { display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 12px; min-width:0; flex:1; }
+.film-group-customer strong { color:var(--prod-deep); font-size:13px; }
+.film-group-customer > span { font-size:13px; font-weight:700; overflow-wrap:anywhere; }
+.film-group-count { flex:none; color:var(--prod-deep); font:700 12px "IBM Plex Mono",monospace; white-space:nowrap; }
+.film-group-count span { font-size:10px; font-weight:600; font-family:inherit; }
+.film-group-content { display:grid; gap:8px; padding:9px; border-top:1px solid #cadbd1; }
+.film-production-order {
+  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:11px 16px; min-width:0;
+  padding:12px; border:1px solid #d6e2da; background:#fffefa;
+  animation:prod-rise .18s ease both;
+}
+.film-production-order.prod-film-ready { border-inline-start:3px solid var(--prod-signal); background:#fffdf7; }
+.film-order-identity { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; grid-column:1/-1; min-width:0; }
+.film-group-content[hidden] { display:none; }
+.film-order-identity h3 { margin:0; color:var(--prod-deep); font:700 14px "IBM Plex Mono",monospace; overflow-wrap:anywhere; }
+.film-order-identity p { margin:3px 0 0; color:var(--prod-muted); font-size:12px; overflow-wrap:anywhere; }
+.film-ready-label { display:inline-flex; align-items:center; gap:6px; flex:none; padding:4px 8px; background:#f8efd8; color:#705b2b; font-size:10px; font-weight:800; }
+.film-ready-label span { width:7px; height:7px; border-radius:50%; background:#ba9142; }
+.film-spec-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); grid-column:1/-1; gap:6px; min-width:0; }
+.film-spec {
+  display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:2px 6px; min-width:0;
+  min-height:54px; padding:7px 8px; background:#f0f5f0; border-inline-start:2px solid #9bb9a9;
+}
+.film-spec > svg { width:15px; height:15px; color:#527a6c; grid-row:1; }
+.film-spec > span { min-width:0; color:var(--prod-muted); font-size:12px; line-height:1.25; }
+.film-spec > strong { grid-column:1/-1; color:var(--prod-ink); font-size:16px; line-height:1.35; overflow-wrap:anywhere; }
+.film-spec.film-color-spec { grid-template-columns:16px minmax(0,1fr) 25px; }
+.film-color-spec > strong { grid-column:1/3; }
+.film-color-spec .master-batch-swatch { grid-column:3; grid-row:1/3; width:25px; height:25px; }
+.film-order-metrics { display:flex; flex-wrap:wrap; align-items:center; gap:6px 18px; grid-column:1/-1; min-width:0; }
+.film-order-metrics > div { display:flex; align-items:baseline; gap:6px; min-width:0; }
+.film-order-metrics span { color:var(--prod-muted); font-size:10px; font-weight:700; }
+.film-order-metrics strong { color:var(--prod-ink); font-size:12px; font-variant-numeric:tabular-nums; }
+.film-roll-entry { display:flex; align-items:end; flex-wrap:wrap; gap:8px; grid-column:1/-1; min-width:0; }
+.film-weight-field { width:min(100%,170px); }
+.film-roll-entry input:not([type="checkbox"]), .film-search input { min-height:44px; font-size:16px; }
+.film-roll-entry .prod-label-inline { min-height:44px; margin:0; padding:6px 3px; align-items:center; }
+.film-roll-entry .prod-label-inline input { flex:none; width:20px; height:20px; min-height:20px; }
+.film-roll-entry .prod-btn { min-height:44px; }
+.film-roll-entry .film-last-roll { color:#75482f; }
+.prod-film-readiness { grid-column:1/-1; margin:0; }
+.prod-start-film { min-height:44px; }
+.film-no-results { margin-top:4px; }
+.film-no-results > span { display:block; font-size:12px; }
+.film-operator .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 @keyframes prod-rise { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
 @keyframes prod-shimmer { to{background-position:-200% 0} }
 @media(max-width:1000px) {
@@ -232,6 +301,14 @@
   .production .prod-film-duration-item { grid-template-columns:1fr 1fr; gap:9px; }
   .production .prod-film-duration-times { grid-column:1/-1; }
   .prod-btn { min-height:44px; }
+  .film-order-disclosure { min-height:56px; padding:8px 10px; gap:8px; }
+  .film-group-customer { gap:3px 8px; }
+  .film-spec-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .film-production-order { padding:10px; gap:9px; }
+  .film-roll-entry { align-items:stretch; }
+  .film-roll-entry .prod-btn { flex:1 1 100%; }
+  .film-weight-field { flex:1 1 125px; width:auto; }
+  .film-roll-entry .prod-label-inline { flex:1 1 auto; }
 }
 @media(max-width:420px) {
   .production .prod-film-duration-item { grid-template-columns:1fr; }
