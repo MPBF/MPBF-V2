@@ -7,7 +7,20 @@ description: How displayed numbers are formatted app-wide (thousands separators)
 
 Displayed numbers across the app must use Latin/English digits and thousands separators (e.g. `1,000`).
 
-Decimal values show 0–2 fractional digits: omit the decimal point for whole numbers, strip trailing zeros, and retain up to two meaningful decimal places.
+Outside the film operator board, decimal values show 0–2 fractional digits:
+omit the decimal point for whole numbers, strip trailing zeros, and retain up
+to two meaningful decimal places.
+
+The film operator board must always round numeric display values to the nearest
+whole number, without changing raw quantities, saved weights or weight-entry
+precision.
+
+**Why:** the user corrected the returning decimal display and explicitly chose
+«عدد صحيح بلا كسور: 12.34 تصبح 12».
+
+**How to apply:** treat this as the film-board exception to the normal precision
+rule. Calculate remaining production from raw quantities before rounding for
+display, not by subtracting already-rounded labels.
 
 Use the current central display helper when available; do not assume the
 historical camel-case helper filenames still exist. Display formatting must

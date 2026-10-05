@@ -73,6 +73,15 @@ scope: «عفوا لا اريد تحديد من استلم الرول».
 receiver selection, per-roll receipt allocation or warehouse workflow changes
 under this request.
 
+The film-board final-roll checkbox label must be only «آخر رول», without adding
+an adjacent closure explanation.
+
+**Why:** the user explicitly requested «خيار اخر رول قم بتعديل النص بجانبه
+ليكون فقط اخر رول».
+
+**How to apply:** keep this short label while preserving the existing final-roll
+closure behavior; do not restore longer explanatory checkbox text unasked.
+
 The film operator must not have the duplicate “Close film with existing rolls”
 button.
 

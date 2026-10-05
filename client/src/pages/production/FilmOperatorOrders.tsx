@@ -2,7 +2,7 @@ import { ChevronDown, Factory, Gauge, Layers3, Palette, Plus, Ruler, Search } fr
 import { useEffect, useMemo, useState } from "react";
 
 import MasterBatchSwatch from "../../components/MasterBatchSwatch";
-import { filmOperationSpecs, filmSearchTerm, safeFilmName as englishSafe } from "../../lib/film-operation-specs";
+import { filmOperationSpecs, filmRemainingQuantity, filmSearchTerm, safeFilmName as englishSafe } from "../../lib/film-operation-specs";
 
 import type { ProductionOrderRecord } from "../../../../shared/production";
 
@@ -134,19 +134,19 @@ export default function FilmOperatorOrders(props: Props) {
                   <div className="film-spec"><Gauge aria-hidden="true" /><span>{language === "en" ? "Thickness" : "السماكة"}</span><strong><bdi dir="auto">{spec.thickness}</bdi></strong></div>
                 </div>
                 <div className="film-order-metrics">
-                  <div><span>{text("planned")}</span><strong><bdi dir="ltr">{number(order.final_quantity_kg)} kg</bdi></strong></div>
-                  {!isReady && <div><span>{text("produced")}</span><strong><bdi dir="ltr">{number(order.produced_kg)} kg</bdi></strong></div>}
+                  <div><span>{language === "en" ? "Quantity" : "الكمية"}</span><strong><bdi dir="ltr">{number(order.final_quantity_kg)} kg</bdi></strong></div>
+                  {!isReady && <div><span>{language === "en" ? "Remaining" : "المتبقي"}</span><strong><bdi dir="ltr">{number(filmRemainingQuantity(order.final_quantity_kg, order.produced_kg))} kg</bdi></strong></div>}
                   {!isReady && <div><span>{text("rolls")}</span><strong>{number(order.roll_count ?? 0, 0)}</strong></div>}
                 </div>
                 {isReady ? <>
                   {canOperate && <button className="prod-btn prod-start-film" data-prod-start-film disabled={saving} onClick={() => onStart(order)}><Factory />{text("start")}</button>}
                 </> : <div className="film-roll-entry">
                   <div className="prod-field film-weight-field">
-                    <label htmlFor={`weight-${order.id}`}>{text("weight")}</label>
+                    <label htmlFor={`weight-${order.id}`}>{language === "en" ? "Roll weight (kg)" : "وزن الرول (كجم)"}</label>
                     <input id={`weight-${order.id}`} disabled={!canOperate} inputMode="decimal" min="0.01" step="0.01" type="number" value={weights[order.id] ?? ""} onChange={event => onWeight(order.id, event.target.value)} />
                   </div>
                   {order.is_printed && inlinePrinterAvailable && <label className="prod-label-inline"><input type="checkbox" disabled={!canOperate} checked={!!inline[order.id]} onChange={event => onInline(order.id, event.target.checked)} />{text("inline")}</label>}
-                  <label className="prod-label-inline film-last-roll"><input type="checkbox" disabled={!canOperate} checked={!!last[order.id]} onChange={event => onLast(order.id, event.target.checked)} />{text("lastRoll")}</label>
+                  <label className="prod-label-inline film-last-roll"><input type="checkbox" disabled={!canOperate} checked={!!last[order.id]} onChange={event => onLast(order.id, event.target.checked)} />{language === "en" ? "Final roll" : "آخر رول"}</label>
                   <button className="prod-btn" disabled={!canOperate || saving || !selectedMachine} onClick={() => onRecord(order)}><Plus />{text("addRoll")}</button>
                 </div>}
               </article>;

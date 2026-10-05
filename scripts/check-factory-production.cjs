@@ -41,8 +41,13 @@ const QRCode = require("qrcode");
   const state = { orders: [order(1, { status: "pending", started_at: null }), order(2), order(3, { is_printed: false }),
     order(4, { is_printed: false, is_roll_product: true, ready_kg: "10.00", remaining_kg: "7.00", received_kg: "3.00" }),
     order(5, { is_roll_product: true }), order(6, { started_at: null, status: "completed", order_status: "completed" }), order(7, { order_status: "paused" }),
-    order(8,{order_id:2,order_number:"ORDER-2",product:{...product,master_batch:{id:"TRANS",name:"Transparent",name_ar:"شفاف",color_hex:"#FFFFFF"}}}),
-    order(9,{order_id:2,order_number:"ORDER-2",product:{...product,master_batch:{id:"WHITE",name:"White",name_ar:"أبيض",color_hex:"#FFFFFF"}}})],
+    order(8,{order_id:2,order_number:"ORDER-2",final_quantity_kg:"110.49",produced_kg:"10.51",
+      product:{...product,size_caption:"28.5 + 7.25 + 7.25 cm",universal_thickness:"25.6",
+        master_batch:{id:"TRANS",name:"Transparent",name_ar:"شفاف",color_hex:"#FFFFFF"}}}),
+    order(9,{order_id:2,order_number:"ORDER-2",produced_kg:"120.00",
+      product:{...product,name:"Special plastic bag with a long product name for a busy factory operator",
+        name_ar:"كيس بلاستيك خاص باسم صنف طويل وواضح لعامل الإنتاج في المصنع",
+        master_batch:{id:"WHITE",name:"White",name_ar:"أبيض",color_hex:"#FFFFFF"}}})],
     rolls: [roll(2, 2), roll(3, 3, { is_printed: false }), roll(4, 4, { is_printed: false, is_roll_product: true, stage: "done" }),
       roll(5, 5, { is_roll_product: true }), roll(7, 7)], machines: [
       { id: "F1", name: "Film One", name_ar: "فيلم واحد", type: "extruder", status: "active", inline_printer_id: "P1" },
@@ -251,6 +256,16 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} one header per customer order`,await evaluate("document.querySelectorAll('[data-film-order-id=\"2\"]').length"),1);
             check(`${lang} ${width} no film status chips`,await evaluate("document.querySelectorAll('.film-operator .prod-chips,.film-operator .prod-chip').length"),0);
             check(`${lang} ${width} four clear operating specs`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').children.length"),4);
+            check(`${lang} ${width} quantity and actual remaining labels`,await evaluate(`(()=>{const labels=[...document.querySelectorAll('[data-production-order-id="2"] .film-order-metrics span')].map(node=>node.innerText);return labels[0]===${JSON.stringify(lang==="en"?"Quantity":"الكمية")}&&labels[1]===${JSON.stringify(lang==="en"?"Remaining":"المتبقي")}})()`));
+            check(`${lang} ${width} remaining is planned minus produced`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-order-metrics > div:nth-child(2) strong').innerText"),"100 kg");
+            check(`${lang} ${width} compute before rounding, preserve decimal data`,await evaluate("document.querySelector('[data-production-order-id=\"8\"] .film-order-metrics > div:nth-child(2) strong').innerText"),"100 kg");
+            check(`${lang} ${width} overproduction never shows negative remaining`,await evaluate("document.querySelector('[data-production-order-id=\"9\"] .film-order-metrics > div:nth-child(2) strong').innerText"),"0 kg");
+            check(`${lang} ${width} operating specs round to whole numbers`,await evaluate("document.querySelector('[data-production-order-id=\"8\"] .film-spec-grid').innerText.includes('29 + 7 + 7 cm')&&document.querySelector('[data-production-order-id=\"8\"] .film-spec-grid').innerText.includes('26 µm')"));
+            check(`${lang} ${width} all numeric metrics have no decimal fractions`,await evaluate("[...document.querySelectorAll('.film-order-metrics strong')].every(node=>!/[.٫][0-9٠-٩]/.test(node.innerText))"));
+            check(`${lang} ${width} final roll label is concise`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-last-roll').innerText"),lang==="en"?"Final roll":"آخر رول");
+            check(`${lang} ${width} roll weight label localized`,await evaluate("document.querySelector('label[for=\"weight-2\"]').innerText"),lang==="en"?"Roll weight (kg)":"وزن الرول (كجم)");
+            check(`${lang} ${width} product name larger and emphasized`,await evaluate("[...document.querySelectorAll('.film-order-identity p')].every(node=>parseFloat(getComputedStyle(node).fontSize)>=16&&Number(getComputedStyle(node).fontWeight)>=600)"));
+            check(`${lang} ${width} saved decimal quantities unchanged`,[state.orders.find(order=>order.id===8).final_quantity_kg,state.orders.find(order=>order.id===8).produced_kg],["110.49","10.51"]);
             check(`${lang} ${width} real size material and micron thickness`,await evaluate("['28 + 7 + 7 cm','HDPE','25 µm'].every(value=>document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').innerText.includes(value))"));
             check(`${lang} ${width} film color not printing ink`,await evaluate(`document.querySelector('[data-production-order-id="2"] .film-color-spec').innerText.includes(${JSON.stringify(lang==="en"?"Blue":"أزرق")})`));
             check(`${lang} ${width} transparent color striped`,await evaluate("document.querySelector('[data-production-order-id=\"8\"] .master-batch-swatch').dataset.transparent"),"true");
@@ -260,7 +275,7 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} touch targets at least 44px`,targets.every(node=>node.height>=43.5));
             check(`${lang} ${width} accessible disclosure controls`,await evaluate("[...document.querySelectorAll('[data-film-order-id]')].every(node=>!!document.getElementById(node.getAttribute('aria-controls')))"));
             check(`${lang} ${width} duplicate close-film button absent`,await evaluate("![...document.querySelectorAll('button')].some(button=>/Close film with existing rolls|إغلاق الفيلم باستخدام الرولات المسجلة/.test(button.textContent))"));
-            check(`${lang} ${width} final-roll checkbox remains`,await evaluate("!!document.querySelector('.prod-label-inline input[type=\"checkbox\"]')&&/final roll|آخر رول/.test(document.querySelector('.production-app').innerText)"));
+            check(`${lang} ${width} final-roll checkbox remains`,await evaluate("!!document.querySelector('.film-last-roll input[type=\"checkbox\"]')"));
             check(`${lang} ${width} manual duration input removed`,await evaluate("document.querySelectorAll('input[id^=\"minutes-\"]').length"),0);
             check(`${lang} ${width} film duration summary hidden on operator board`,await evaluate("document.querySelectorAll('.prod-film-duration').length"),0);
             check(`${lang} ${width} film duration endpoints hidden on operator board`,await evaluate("document.querySelectorAll('.prod-film-duration-times time').length"),0);
@@ -459,7 +474,7 @@ const QRCode = require("qrcode");
     failure = true;
     await navigate("/production"); await wait("!!document.querySelector('.prod-error')");
     failure = false;
-    await clickText("Retry"); await wait("!document.querySelector('.prod-error')");
+    await clickText("Retry"); await wait("!document.querySelector('.prod-error')&&!document.querySelector('.prod-loading')&&document.querySelector('.production-app').innerText.includes('PO-2')");
     check("load failure retry restores data", await evaluate("document.querySelector('.production-app').innerText.includes('PO-2')"));
     permissions=["admin"];
     for(const lang of ["en","ar"]){

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@jest/globals";
-import { filmOperationSpecs, filmSearchTerm } from "../client/src/lib/film-operation-specs";
+import { filmOperationSpecs, filmRemainingQuantity, filmSearchTerm } from "../client/src/lib/film-operation-specs";
+import { formatNumber, formatWholeNumber } from "../client/src/lib/format-number";
 import type { ProductSnapshot } from "../shared/production";
 
 const product: ProductSnapshot = {
@@ -59,5 +60,41 @@ describe("film operation specs", () => {
     const value = filmOperationSpecs(null, "ar", format, "غير مسجل");
     expect(value.size).toBe("غير مسجل");
     expect(value.batchName).toBe("غير مسجل");
+  });
+
+  it("rounds film display to whole numbers while keeping normal display precision", () => {
+    expect(formatWholeNumber("12.34")).toBe("12");
+    expect(formatWholeNumber("12.50")).toBe("13");
+    expect(formatWholeNumber("1234.56")).toBe("1,235");
+    expect(formatNumber("12.34")).toBe("12.34");
+    expect(formatWholeNumber(null)).toBe("—");
+    expect(formatWholeNumber("broken")).toBe("—");
+  });
+
+  it("rounds numeric specs and decimal captions without mutating saved specs", () => {
+    const saved = { ...product, size_caption: "28.5 + 7.25 + 7.25 cm", universal_thickness: "35.6" };
+    const before = structuredClone(saved);
+    const value = filmOperationSpecs(saved, "en", formatWholeNumber, "Unrecorded");
+    expect(value.size).toBe("29 + 7 + 7 cm");
+    expect(value.thickness).toBe("36 µm");
+    expect(saved).toEqual(before);
+    expect(filmOperationSpecs({ ...saved, size_caption: "٢٨٫٥ + ٧٫٢٥ سم" }, "ar",
+      formatWholeNumber, "غير مسجل").size).toBe("29 + 7 سم");
+  });
+
+  it("computes remaining production from raw quantities before rounding the result", () => {
+    expect(filmRemainingQuantity("110.49", "10.51")).toBe(99.98);
+    expect(formatWholeNumber(filmRemainingQuantity("110.49", "10.51"))).toBe("100");
+    expect(filmRemainingQuantity("100.10", "0.60")).toBe(99.5);
+    expect(formatWholeNumber(filmRemainingQuantity("100.10", "0.60"))).toBe("100");
+    expect(filmRemainingQuantity("10.00", "12.50")).toBe(0);
+    expect(filmRemainingQuantity("10.00", "0.00")).toBe(10);
+  });
+
+  it("does not fabricate remaining quantities when raw data is missing or invalid", () => {
+    for (const value of [null, undefined, "", "broken", "-1"]) {
+      expect(filmRemainingQuantity(value, "1")).toBeNull();
+      expect(filmRemainingQuantity("10", value)).toBeNull();
+    }
   });
 });

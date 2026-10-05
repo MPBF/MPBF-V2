@@ -243,7 +243,16 @@
 .film-order-identity { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; grid-column:1/-1; min-width:0; }
 .film-group-content[hidden] { display:none; }
 .film-order-identity h3 { margin:0; color:var(--prod-deep); font:700 14px "IBM Plex Mono",monospace; overflow-wrap:anywhere; }
-.film-order-identity p { margin:3px 0 0; color:var(--prod-muted); font-size:12px; overflow-wrap:anywhere; }
+.film-order-identity > div { min-width:0; }
+.film-order-identity p {
+  min-width:0;
+  margin:3px 0 0;
+  color:var(--prod-ink);
+  font-size:16px;
+  font-weight:600;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
 .film-ready-label { display:inline-flex; align-items:center; gap:6px; flex:none; padding:4px 8px; background:#f8efd8; color:#705b2b; font-size:10px; font-weight:800; }
 .film-ready-label span { width:7px; height:7px; border-radius:50%; background:#ba9142; }
 .film-spec-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); grid-column:1/-1; gap:6px; min-width:0; }

@@ -12,6 +12,7 @@ import {
 } from "../../../../shared/production";
 import { productionApi } from "../../lib/production-api";
 import { productionActorName } from "../../lib/production-actors";
+import { formatWholeNumber } from "../../lib/format-number";
 import "./production.css";
 import { ProductionHistory } from "./ProductionHistory";
 import { FilmDurationSummary } from "./FilmDurationSummary";
@@ -344,7 +345,7 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
       readyIds={new Set(readyFilmOrders.map(order=>order.id))}
       language={language} canOperate={canOperate} saving={write.saving} selectedMachine={selectedMachine}
       weights={weights} last={last} inline={inline} inlinePrinterAvailable={!!inlinePrinter(selectedMachine)}
-      text={key=>text(key,language)} number={(value,digits)=>number(value,language,digits)}
+      text={key=>text(key,language)} number={value=>formatWholeNumber(value==null?value:latinDigits(String(value)))}
       productName={order=>orderProduct(order,language)}
       onWeight={(id,value)=>setWeights(values=>({...values,[id]:value}))}
       onLast={(id,value)=>setLast(values=>({...values,[id]:value}))}
