@@ -45,7 +45,7 @@ import { nextMachineId } from "./machine-id";
 import { nextMasterBatchColorId } from "./master-batch-id";
 import { nextAdminIdNumber } from "./admin-id-sequence";
 import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, validateCustomerSalesRepresentative } from "./customer-form";
-import { nextOrderNumber } from "./order-number";
+import { nextOrderNumber, ORDER_NUMBER_MAX_SQL, productionOrderNumber, productionOrderSequence } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { getOrderDetails } from "./order-details";
 import { createPublicOrderPrintRouter, publicOrderPrintPath } from "./public-order-print";
@@ -437,6 +437,12 @@ function assertGrantWithinActor(actorPermissions: unknown, grant: unknown) {
   if (!canGrantPermissions(actorPermissions, Array.isArray(grant) ? grant : [])) {
     throw Object.assign(new Error("لا يمكن منح صلاحيات تتجاوز صلاحياتك الفعلية"), { status: 403 });
   }
+}
+
+async function allocateOrderNumber(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${1})`);
+  const result = await tx.execute<{ max_number: string | null }>(sql.raw(ORDER_NUMBER_MAX_SQL));
+  return nextOrderNumber(result.rows[0]?.max_number ?? null);
 }
 
 async function assertProductionProductMatchesOrder(tx: any, orderId: number, productId?: number | null) {
@@ -1008,13 +1014,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
     const result = await db.transaction(async (tx) => {
       // Serialize number allocation with the insert, so concurrent requests
       // cannot both claim the same number and a rolled-back order leaves no gap.
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${1})`);
-      const numericOrders = await tx.execute<{ max_number: string | null }>(sql`
-        SELECT MAX(order_number::numeric)::text AS max_number
-        FROM orders
-        WHERE order_number ~ '^[0-9]+$'
-      `);
-      const orderNumber = nextOrderNumber(numericOrders.rows[0]?.max_number ?? null);
+      const orderNumber = await allocateOrderNumber(tx);
       const customer = await tx.select({ id: customers.id }).from(customers)
         .where(eq(customers.id, input.customer_id)).limit(1);
       if (!customer.length) {
@@ -1052,7 +1052,7 @@ router.post("/orders/with-items", ordersWrite, async (req, res, next) => {
         }
         const plan = await categoryProductionPlan(tx, productId, line.quantity_kg);
         const [productionOrder] = await tx.insert(production_orders).values({
-          production_order_number: `${orderNumber}-${String(index + 1).padStart(2, "0")}`,
+          production_order_number: productionOrderNumber(orderNumber, index + 1),
           order_id: order.id,
           customer_product_id: productId,
           quantity_kg: line.quantity_kg,
@@ -1181,9 +1181,7 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
         throw orderError("تغيرت بنود الطلب منذ فتحها؛ أعد فتح الطلب قبل الحفظ");
       }
       let nextSuffix = existing.reduce((max, line) => {
-        const suffix = line.production_order_number.startsWith(`${order.order_number}-`)
-          ? Number(line.production_order_number.slice(order.order_number.length + 1)) : NaN;
-        return Number.isSafeInteger(suffix) && suffix > max ? suffix : max;
+        return Math.max(max, productionOrderSequence(order.order_number, line.production_order_number));
       }, 0);
       const [updatedOrder] = await tx.update(orders).set({
         notes: input.notes ?? null,
@@ -1224,7 +1222,7 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
           nextSuffix += 1;
           const plan = await categoryProductionPlan(tx, productId, line.quantity_kg);
           const [created] = await tx.insert(production_orders).values({
-            production_order_number: `${order.order_number}-${String(nextSuffix).padStart(2, "0")}`,
+            production_order_number: productionOrderNumber(order.order_number, nextSuffix),
             order_id: id, customer_product_id: productId, quantity_kg: line.quantity_kg,
             ...plan, status: "pending",
           }).returning();
@@ -1515,14 +1513,27 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
       }
       if (path === "production-orders") {
         const productionInput = parsed(productionOrderInputSchema, input);
-        if (!productionInput.production_order_number || !productionInput.order_id || !productionInput.quantity_kg) {
-          return res.status(400).json({ message: "رقم أمر الإنتاج والطلب والكمية المطلوبة حقول إلزامية" });
+        if (!productionInput.order_id || !productionInput.quantity_kg) {
+          return res.status(400).json({ message: "الطلب والكمية المطلوبة حقول إلزامية" });
         }
         const row = await db.transaction(async (tx) => {
+          // Share the parent lock with order editing before allocating a child.
+          const [parent] = await tx.select().from(orders)
+            .where(eq(orders.id, productionInput.order_id!)).for("update").limit(1);
+          if (!parent) throw orderError("الطلب المحدد غير موجود", 400);
+          let number = productionInput.production_order_number;
+          if (/^O[0-9]+$/.test(parent.order_number) || !number) {
+            const siblings = await tx.select({ production_order_number: production_orders.production_order_number })
+              .from(production_orders).where(eq(production_orders.order_id, parent.id));
+            const sequence = siblings.reduce((max, sibling) =>
+              Math.max(max, productionOrderSequence(parent.order_number, sibling.production_order_number)), 0) + 1;
+            number = productionOrderNumber(parent.order_number, sequence);
+          }
           await assertProductionProductMatchesOrder(tx, productionInput.order_id!, productionInput.customer_product_id);
           const plan = await categoryProductionPlan(tx, productionInput.customer_product_id, productionInput.quantity_kg!);
           const values = {
             ...productionInput,
+            production_order_number: number,
             ...plan,
             final_quantity_kg: productionQuantity.parse(plan.final_quantity_kg),
           };
@@ -1614,7 +1625,15 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         const row = await db.insert(maintenance_component_catalog).values(body).returning();
         return res.status(201).json(row[0]);
       }
-      if (path === "orders" && !input.status) input.status = "waiting";
+      if (path === "orders") {
+        if (!input.status) input.status = "waiting";
+        const row = await db.transaction(async (tx) => {
+          input.order_number = await allocateOrderNumber(tx);
+          const body = parsed(schemas[path].strict(), input);
+          return tx.insert(orders).values(body).returning();
+        });
+        return res.status(201).json(row[0]);
+      }
       if (path === "system-settings") input.updated_by = req.user!.id;
       const body = parsed(schemas[path].strict(), input);
       const row: any[] = (await db.insert(table).values(body).returning()) as any;

@@ -163,6 +163,24 @@ describe("editing an order with production lines", () => {
     expect(state.order.delivery_date).toBe("2026-01-22");
   });
 
+  it("continues JO numbering on new-format orders without renaming surviving lines", async () => {
+    const state = {
+      order: { ...structuredClone(baseOrder), order_number: "O00123" },
+      lines: structuredClone(baseLines).map((line, index) => ({
+        ...line, production_order_number: `O00123-JO${index ? "99" : "01"}`,
+      })),
+    };
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    const response = await request([
+      { id: 12, customer_product_id: 2, quantity_kg: "20.00" },
+      { customer_product_id: 3, quantity_kg: "5.00" },
+    ]);
+    expect(response.status).toBe(200);
+    expect(state.order.order_number).toBe("O00123");
+    expect(state.lines.map(line => line.production_order_number)).toEqual(["O00123-JO99", "O00123-JO100"]);
+    expect(state.lines.map(line => line.id)).toEqual([12, 99]);
+  });
+
   it("rolls back the metadata update and keeps both old lines if inserting a replacement fails", async () => {
     const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };
     jest.mocked(db.transaction).mockImplementation(fakeTransaction(state, true) as typeof db.transaction);

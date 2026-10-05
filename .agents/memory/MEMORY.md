@@ -62,6 +62,7 @@
 - [Unfinished Git merges](unfinished-git-merges.md) — when conflicts recur after a passing preview, check MERGE_HEAD and resolve/complete the merge, not just the working tree.
 - [Order delivery calendar days](order-delivery-calendar-days.md) — delivery is based on the original order day in Riyadh; preserve editable historical dates after they pass.
 - [Mixed item identifier prefixes](mixed-item-identifiers.md) — preserve legacy ITEM and ITM IDs; allocate new items in the dominant ITM series and sort naturally within each prefix.
+- [Order numbering scope](order-numbering-scope.md) — user approved O/JO numbering for new customer orders only; preserve historical saved and displayed identifiers.
 - [Responsive browser focus testing](responsive-browser-testing.md) — run focus-dependent iframe checks sequentially; concurrent frames steal focus and falsely close dropdowns.
 - [Product calculation provenance](product-calculation-provenance.md) — legacy size/cylinder rules were reconstructed from records, not supplied formulas; retain untouched historical cutting lengths.
 - [Order product drafts](order-product-draft-lifecycle.md) — sharing the customer-product editor must preserve deferred, atomic creation; cancelling an order must not leave new products behind.

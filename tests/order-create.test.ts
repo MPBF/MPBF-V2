@@ -60,17 +60,80 @@ describe("creating an order with delivery days", () => {
     const response = await fetch(`${url}/api/orders/with-items`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-test-permission": "manage_orders" },
-      body: JSON.stringify({ customer_id: "C1", delivery_days: 20, items: [{ customer_product_id: 3, quantity_kg: "10.00" }] }),
+      body: JSON.stringify({ customer_id: "C1", delivery_days: 20, items: [
+        { customer_product_id: 3, quantity_kg: "10.00" },
+        { customer_product_id: 3, quantity_kg: "20.00" },
+      ] }),
     });
     expect(response.status).toBe(201);
     const result = await response.json();
-    expect(result.order.order_number).toBe("000020");
+    expect(result.order.order_number).toBe("O00020");
     expect(result.order.delivery_days).toBe(20);
     expect(result.order.delivery_date).toBe(deliveryDateFromDays(orderDateInRiyadh(new Date(result.order.created_at)), 20));
-    expect(result.production_orders[0].production_order_number).toBe("000020-01");
+    expect(result.production_orders[0].production_order_number).toBe("O00020-JO01");
+    expect(result.production_orders[1].production_order_number).toBe("O00020-JO02");
     expect(result.production_orders[0]).toMatchObject({
       quantity_kg: "10.00", overrun_percentage: String(percentage),
       final_quantity_kg: (10 * (1 + percentage / 100)).toFixed(2),
     });
+  });
+
+  function directTransaction(parentNumber: string, existingNumbers: string[] = []) {
+    const writes: { table: unknown; values: Record<string, unknown> }[] = [];
+    const tx = {
+      execute: async () => ({ rows: [{ max_number: "25" }] }),
+      select: () => ({
+        from: (table: unknown) => {
+          const rows = table === orders ? [{ id: 7, customer_id: "C1", order_number: parentNumber }] :
+            table === production_orders ? existingNumbers.map(production_order_number => ({ production_order_number })) : [];
+          const query: any = {
+            where: () => query, for: () => query, limit: async () => rows,
+            then: (resolve: (rows: any[]) => unknown) => Promise.resolve(rows).then(resolve),
+          };
+          return query;
+        },
+      }),
+      insert: (table: unknown) => ({
+        values: (values: Record<string, unknown>) => {
+          writes.push({ table, values });
+          return { returning: async () => [{ id: 99, ...values }] };
+        },
+      }),
+    };
+    jest.mocked(db.transaction).mockImplementation(async (callback: any) => callback(tx) as any);
+    return writes;
+  }
+
+  it("uses the shared allocator for direct customer-order creation", async () => {
+    directTransaction("unused");
+    const response = await fetch(`${url}/api/orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-test-permission": "manage_orders" },
+      body: JSON.stringify({ customer_id: "C1", order_number: "CLIENT-NUMBER" }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).order_number).toBe("O00026");
+  });
+
+  it.each([undefined, "CLIENT-NUMBER"])("generates direct children of new-format orders, ignoring supplied number %s", async (supplied) => {
+    directTransaction("O00025", ["O00025-JO01", "O00025-JO03"]);
+    const response = await fetch(`${url}/api/production-orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-test-permission": "manage_production" },
+      body: JSON.stringify({ order_id: 7, quantity_kg: "10.00", production_order_number: supplied }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).production_order_number).toBe("O00025-JO04");
+  });
+
+  it("keeps explicitly supplied legacy direct-production identifiers unchanged", async () => {
+    directTransaction("000025");
+    const response = await fetch(`${url}/api/production-orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-test-permission": "manage_production" },
+      body: JSON.stringify({ order_id: 7, quantity_kg: "10.00", production_order_number: "LEGACY-25-07" }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).production_order_number).toBe("LEGACY-25-07");
   });
 });
