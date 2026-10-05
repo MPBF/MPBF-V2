@@ -62,3 +62,21 @@ or migrate the published database.
 
 **How to apply:** use disposable local databases for volume benchmarks.
 Any published-database change needs separate approval.
+
+Each roll must record who created it, printed it, cut it and received it.
+
+**Why:** the user required «كل رول يجب ان يسجل من انشاءه ومن طبعه ومن قام
+بقطعه ومن استلمه».
+
+**How to apply:** preserve individual-roll traceability when changing production
+or warehouse receipt workflows; order-level receipt attribution alone does not
+identify the receiver of a particular roll.
+
+The film operator must not have the duplicate “Close film with existing rolls”
+button.
+
+**Why:** the user requested «الغاء زر اغلاق الفيلم باستخدام الرولات المسجلة
+لانه مكرر».
+
+**How to apply:** remove that operator-board button without inferring permission
+to remove the final-roll closure workflow or unrelated backend capabilities.
