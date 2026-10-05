@@ -19,6 +19,7 @@ const uiRequests: {route:string;input:{first_position:number;second_position:num
 import { createProductionRouter } from "../server/production/routes";
 import { verifyProductionHistory } from "./verify-production-history";
 import { verifyFilmDurations } from "./verify-film-durations";
+import { verifyRollActors } from "./verify-roll-actors";
 
 if (process.env.NODE_ENV === "production") throw Error("Integration tests are development-only.");
 if (process.argv.includes("--large") && !process.argv.includes("--local")) throw Error("Large fixtures require --local and a disposable database.");
@@ -58,7 +59,8 @@ try {
   await setup.query(`CREATE SCHEMA "${schema}"`);
   await setup.query(`SET search_path TO "${schema}"`);
   await setup.query(`
-    CREATE TABLE users(id integer PRIMARY KEY);
+    CREATE TABLE users(id integer PRIMARY KEY,username text,display_name text,display_name_ar text,
+      full_name text,password text,email text,phone text);
     CREATE TABLE customers(id varchar(20) PRIMARY KEY,name text,name_ar text);
     CREATE TABLE items(id varchar(20) PRIMARY KEY,name text,name_ar text);
     CREATE TABLE customer_products(id integer PRIMARY KEY,customer_id varchar(20),item_id varchar(20),
@@ -72,7 +74,7 @@ try {
     CREATE TABLE production_orders(id integer PRIMARY KEY,order_id integer REFERENCES orders(id) ON DELETE CASCADE,
       production_order_number varchar(50),customer_product_id integer,quantity_kg numeric(14,2),final_quantity_kg numeric(14,2),
       overrun_percentage numeric DEFAULT 0,status text,batch_number varchar(50),previous_status text);
-    INSERT INTO users VALUES(1);
+    INSERT INTO users(id) VALUES(1);
     INSERT INTO customers VALUES('C1','Fixture customer','عميل الاختبار');
     INSERT INTO items VALUES('BAG','Bag','كيس'),('ROLL','Plastic Roll','رول بلاستيك');
     INSERT INTO customer_products(id,customer_id,item_id,width,universal_thickness,cutting_length_cm,raw_material,printing_cylinder,is_printed,status)
@@ -409,6 +411,7 @@ try {
   });
   await verifyProductionHistory(isolated, query, process.argv.includes("--large"));
   await verifyFilmDurations(isolated, query);
+  await verifyRollActors(isolated, query);
   console.log(`Verified ${passed} PostgreSQL factory production integration scenarios.`);
 } catch (error) {
   console.error(error);

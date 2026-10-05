@@ -147,7 +147,12 @@ const QRCode = require("qrcode");
         } else if (/\/production\/rolls\/\d+$/.test(route)) {
           const record = state.rolls.find(r => r.id === Number(route.split("/").pop()));
           body = {...record,film_duration:state.orders.find(order=>order.id===record.production_order_id)
-            .film_durations.find(group=>group.machine_id===record.film_machine_id)};
+            .film_durations.find(group=>group.machine_id===record.film_machine_id),
+            created_actor:{id:42,display_name:"Creator Person",display_name_ar:"منشئ الرول",full_name:"Creator Full Name",username:"creator"},
+            printed_actor:record.id===2?{id:43,display_name:"Printer Person",display_name_ar:"عامل الطباعة",full_name:"Printer Full Name",username:"printer"}:null,
+            cut_actor:record.id===2?{id:44,display_name:"Cutter Person",display_name_ar:"عامل القص",full_name:"Cutter Full Name",username:"cutter"}:null,
+            ...(record.id===2?{stage:"done",printed_by:43,cut_by:44,printed_at:"2026-10-03T06:10:11Z",
+              cut_completed_at:"2026-10-03T06:30:31Z",net_weight_kg:"9.00"}:{})};
         }
         await send("Fetch.fulfillRequest", { requestId, responseCode: status, responseHeaders: [{ name: "Content-Type", value: "application/json" }],
           body: Buffer.from(JSON.stringify(body)).toString("base64") }, event.sessionId);
@@ -227,11 +232,13 @@ const QRCode = require("qrcode");
       language = lang;
       for (const width of [390, 768, 1440]) {
         await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
-        for (const route of ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2"]) {
+        for (const route of ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2", "/production/rolls/3"]) {
           await navigate(route);
           check(`${lang} ${width} ${route} fits viewport`, await evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
           check(`${lang} ${width} ${route} renders content`, await evaluate("document.querySelector('.production-app').innerText.length > 50"));
           if(route==="/production/film"){
+            check(`${lang} ${width} duplicate close-film button absent`,await evaluate("![...document.querySelectorAll('button')].some(button=>/Close film with existing rolls|إغلاق الفيلم باستخدام الرولات المسجلة/.test(button.textContent))"));
+            check(`${lang} ${width} final-roll checkbox remains`,await evaluate("!!document.querySelector('.prod-label-inline input[type=\"checkbox\"]')&&/final roll|آخر رول/.test(document.querySelector('.production-app').innerText)"));
             check(`${lang} ${width} manual duration input removed`,await evaluate("document.querySelectorAll('input[id^=\"minutes-\"]').length"),0);
             const groups=await evaluate(`(()=>{const card=[...document.querySelectorAll('.prod-order')].find(node=>node.querySelector('h3 .prod-number')?.textContent==='PO-2');return [...card.querySelectorAll('.prod-film-duration-item')].map(node=>node.innerText)})()`);
             check(`${lang} ${width} separate machine summaries`,groups.length,2);
@@ -241,8 +248,17 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} legitimate zero span`,await evaluate(`document.querySelector('.production-app').innerText.includes(${JSON.stringify(lang==="en"?"0 sec":"0 ث")})`));
           }
           if(route==="/production/rolls/2"){
+            const detailText=await evaluate("document.querySelector('.prod-roll-detail').innerText");
+            for(const name of lang==="en"?["Creator Person","Printer Person","Cutter Person"]:["منشئ الرول","عامل الطباعة","عامل القص"]){
+              check(`${lang} ${width} recorded actor ${name}`,detailText.includes(name));
+            }
+            check(`${lang} ${width} all authoritative actor IDs remain`,["#42","#43","#44"].every(id=>detailText.includes(id)));
+            check(`${lang} ${width} no receiver tracking`,!(/Received by|استلمها|مستلم الرول/.test(detailText)));
             check(`${lang} ${width} detail uses its order/machine aggregate`,await evaluate(`document.querySelector('.prod-roll-detail .prod-film-duration').innerText.includes(${JSON.stringify(lang==="en"?"29 h 3 sec":"29 س 3 ث")})`));
             check(`${lang} ${width} detail does not show old manual minutes`,await evaluate("!document.querySelector('.prod-roll-detail').innerText.includes('Production time (minutes)')&&!document.querySelector('.prod-roll-detail').innerText.includes('مدة الإنتاج (دقيقة)')"));
+          }
+          if(route==="/production/rolls/3"){
+            check(`${lang} ${width} absent stage actors not guessed`,await evaluate(`document.querySelector('.prod-roll-detail').innerText.includes(${JSON.stringify(lang==="en"?"Not recorded":"غير مسجل")})`));
           }
           if (lang === "en" && route === "/production" && [390, 1440].includes(width)) {
             const shot = await send("Page.captureScreenshot", { format: "png" });

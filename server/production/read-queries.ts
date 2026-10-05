@@ -16,6 +16,11 @@ export const filmMachineGroups = (orderId: string, machineId?: string) => `SELEC
 export const filmDurationJSON = `jsonb_build_object('machine_id',g.machine_id,
   'machine_name',g.machine_name,'machine_name_ar',g.machine_name_ar,'roll_count',g.roll_count,
   'first_roll_at',g.first_roll_at,'last_roll_at',g.last_roll_at,'duration_seconds',g.duration_seconds)`;
+// Explicit allowlist: never project a complete users row into roll traceability.
+export const productionActorJSON = (alias: string) => `CASE WHEN ${alias}.id IS NULL THEN NULL
+  ELSE jsonb_build_object('id',${alias}.id,'display_name',${alias}.display_name,
+    'display_name_ar',${alias}.display_name_ar,'full_name',${alias}.full_name,
+    'username',${alias}.username) END`;
 export const liveProduct = `jsonb_build_object('id',cp.id,'item_id',cp.item_id,'name',i.name,'name_ar',i.name_ar,
   'customer_name',c.name,'customer_name_ar',c.name_ar,'width',cp.width::text,
   'left_facing',cp.left_facing::text,'right_facing',cp.right_facing::text,

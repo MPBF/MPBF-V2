@@ -59,7 +59,16 @@ export type ProductionMachine = {
   inline_printer_id: string | null; min_thickness: string | null; max_thickness: string | null;
   min_width_cm: string | null; max_width_cm: string | null;
 };
-export type ProductionRollDetail = ProductionRollRecord & { film_duration: FilmMachineDuration };
+export type ProductionActor = {
+  id: number; display_name: string | null; display_name_ar: string | null;
+  full_name: string | null; username: string | null;
+};
+export type ProductionRollDetail = ProductionRollRecord & {
+  film_duration: FilmMachineDuration;
+  created_actor: ProductionActor | null;
+  printed_actor: ProductionActor | null;
+  cut_actor: ProductionActor | null;
+};
 export type ProductionQueue = { id: number; production_order_id: number; stage: ProductionStage; machine_id: string; position: number };
 export type StorageLocation = { id: number; name: string; name_ar: string; is_active: boolean };
 export type ReceiptItem = {
