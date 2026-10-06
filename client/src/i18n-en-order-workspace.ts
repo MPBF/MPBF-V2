@@ -29,4 +29,5 @@ const orderWorkspaceEnglish: Record<string, string> = {
   "لا يمكن تنفيذ إجراء على أكثر من 100 طلب في العملية الواحدة.": "A single operation can include no more than 100 orders.",
 };
 
+orderWorkspaceEnglish["تعذر تحميل رقم الطلب."] = "The order number could not be loaded.";
 export default orderWorkspaceEnglish;

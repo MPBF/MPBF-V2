@@ -39,3 +39,11 @@ carriage-return text passed.
 
 **How to apply:** focus the summary after activating its page, then send Enter
 keydown with `text: "\r"` and its corresponding keyup before checking `open`.
+
+Wait for Chromium to exit before removing its temporary profile.
+
+**Why:** Chromium can continue writing its profile after receiving termination,
+making successful browser checks fail during cleanup with ENOTEMPTY.
+
+**How to apply:** synchronize child-process exit before profile cleanup and
+allow bounded retries for remaining filesystem activity.

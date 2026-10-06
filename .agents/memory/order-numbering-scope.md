@@ -25,3 +25,14 @@ one can associate an old label with a different order.
 
 **How to apply:** retain numbering reservations independently of business-data
 deletion, and commit them atomically with successful order creation.
+
+The customer-order form shows a read-only preview of the next available
+number. Opening or cancelling the form must not reserve or consume a number.
+The save transaction remains authoritative, so another user's intervening
+save can change the final assigned number.
+
+**Why:** displaying a number should not create order records or consume
+identifiers for abandoned drafts.
+
+**How to apply:** do not turn number previews into reservations without
+separate approval; retain concurrency-safe allocation at save time.

@@ -241,6 +241,9 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const [productsError, setProductsError] = useState("");
   const [reloadOptions, setReloadOptions] = useState(0);
   const [orderNumber, setOrderNumber] = useState("");
+  const [numberLoading, setNumberLoading] = useState(!editId);
+  const [numberError, setNumberError] = useState("");
+  const [numberRetry, setNumberRetry] = useState(0);
   const [orderCreatedDate, setOrderCreatedDate] = useState(() => riyadhDate());
   const [deliveryDays, setDeliveryDays] = useState("20");
   const [notes, setNotes] = useState("");
@@ -272,6 +275,24 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     const timer = window.setInterval(() => setOrderCreatedDate(riyadhDate()), 60_000);
     return () => window.clearInterval(timer);
   }, [editId]);
+
+  useEffect(() => {
+    if (editId) return;
+    let active = true;
+    setNumberLoading(true);
+    setNumberError("");
+    readApi("/api/orders/next-number", { cache: "no-store" }).then((data) => {
+      if (typeof data.order_number !== "string" || !/^O\d+$/.test(data.order_number)) {
+        throw new Error(translate("تعذر تحميل رقم الطلب."));
+      }
+      if (active) setOrderNumber(data.order_number);
+    }).catch((cause) => {
+      if (active) setNumberError((cause as Error).message);
+    }).finally(() => {
+      if (active) setNumberLoading(false);
+    });
+    return () => { active = false; };
+  }, [editId, numberRetry]);
 
   useEffect(() => {
     if (!editId) return;
@@ -481,9 +502,10 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
             <div className="order-create-grid">
               <div className="order-create-field order-create-number">
                 <label htmlFor="order-number">{translate("رقم الطلب")}</label>
-                <div className="order-create-field-static order-number-readonly" id="order-number" dir={editId ? "ltr" : "rtl"}>
-                  {editId ? (orderNumber || "—") : translate("عند الحفظ")}
+                <div className="order-create-field-static order-number-readonly" id="order-number" dir="ltr" aria-busy={numberLoading}>
+                  {numberLoading ? <LoaderCircle size={18} aria-label={translate("جارٍ التحميل…")} /> : (numberError ? "—" : orderNumber || "—")}
                 </div>
+                {numberError && <Alert>{numberError}<button type="button" className="order-options-state-retry" onClick={() => setNumberRetry(value => value + 1)}>{translate("إعادة المحاولة")}</button></Alert>}
               </div>
               <div className="order-create-field order-created-date-field">
                 <label htmlFor="order-created-date">{translate("تاريخ الطلب")}</label>
@@ -503,11 +525,9 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                   onChange={(event) => setDeliveryDays(normalizeDigits(event.target.value).replace(/[^\d]/g, ""))}
                   minLength={1}
                   maxLength={4}
-                  aria-describedby="order-delivery-days-hint"
                   disabled={saving}
                   required
                 />
-                <small className="order-create-hint" id="order-delivery-days-hint">{translate("1–3650 يوم")}</small>
               </div>
               <div className="order-create-field order-customer-field">
                 <label htmlFor="order-customer">{translate("العميل")}{" "}<span aria-hidden="true">*</span></label>

@@ -14,6 +14,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
   const failures = [];
   const requests = { orderSaves: [], customerProductWrites: [], details: [] };
   let failNextOrderSave = false;
+  let failNextNumber = false, numberPreviews = 0;
 
   const check = (label, fn) => {
     try {
@@ -40,12 +41,14 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
         import React from "react";
         import { createRoot } from "react-dom/client";
         import OrderCreateModal from "./client/src/components/OrderCreateModal";
+        import i18n from "./client/src/i18n";
+        void i18n.changeLanguage(new URLSearchParams(location.search).get("lang") || "ar");
         const editId = Number(new URLSearchParams(location.search).get("editId")) || undefined;
         createRoot(document.getElementById("root")).render(<OrderCreateModal
           editId={editId}
           onSaved={() => { window.saved = (window.saved || 0) + 1; }}
           onClose={() => { window.closed = (window.closed || 0) + 1; }} />);
-      `, resolveDir: process.cwd(), loader: "tsx" },
+       `, resolveDir: process.cwd(), loader: "tsx" },
       bundle: true, jsx: "automatic", platform: "browser", outfile: path.join(temp, "fixture.js"),
       logLevel: "silent",
     });
@@ -91,9 +94,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
       const method = request.method();
       if (url.pathname === "/__order-check") return route.fulfill({
         contentType: "text/html",
-        body: `<html lang="ar" dir="rtl"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/src/index.css?direct"><style>${css}</style></head><body><div id="root"></div><script src="/__order-check.js"></script></body></html>`,
+        body: `<html lang="${url.searchParams.get("lang")==="en"?"en":"ar"}" dir="${url.searchParams.get("lang")==="en"?"ltr":"rtl"}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/src/index.css?direct"><style>${css}</style></head><body><div id="root"></div><script src="/__order-check.js"></script></body></html>`,
       });
       if (url.pathname === "/__order-check.js") return route.fulfill({ contentType: "text/javascript", body: js });
+      if (url.pathname === "/api/orders/next-number") {
+        numberPreviews++;
+        if (failNextNumber) {
+          failNextNumber = false;
+          return route.fulfill({status: 500, json: {message: "تعذر تحميل رقم الطلب.", message_en: "The order number could not be loaded."}});
+        }
+        return route.fulfill({json: {order_number: "O0001"}});
+      }
       if (url.pathname === "/api/customers") return route.fulfill({ json: customers });
       if (url.pathname === "/api/categories") return route.fulfill({ json: categories });
       if (url.pathname === "/api/items") return route.fulfill({ json: [] });
@@ -165,6 +176,51 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
       name, mimeType: type, buffer: Buffer.alloc(size, 0x41),
     });
 
+    if (process.argv.includes("--order-fields-only")) {
+      for (const lang of ["ar", "en"]) for (const width of [390, 768, 1440]) {
+        await page.setViewportSize({width,height:1000});
+        await page.goto(`${origin}/__order-check?lang=${lang}`);
+        await page.waitForFunction(() => document.querySelector("#order-number")?.textContent === "O0001");
+        const fields = await page.evaluate(() => ({
+          number: getComputedStyle(document.querySelector("#order-number")).justifyContent,
+          date: getComputedStyle(document.querySelector("#order-created-date")).justifyContent,
+          days: getComputedStyle(document.querySelector("#order-delivery-days")).textAlign,
+          quantity: getComputedStyle(document.querySelector("#order-quantity-1")).textAlign,
+          quantityPadding: [
+            getComputedStyle(document.querySelector("#order-quantity-1")).paddingLeft,
+            getComputedStyle(document.querySelector("#order-quantity-1")).paddingRight,
+          ],
+          hint: !!document.querySelector("#order-delivery-days-hint"),
+          description: document.querySelector("#order-delivery-days").getAttribute("aria-describedby"),
+          fits: document.documentElement.scrollWidth <= innerWidth + 1,
+        }));
+        check(`${lang} ${width}: fields centered and helper removed`, () => {
+          for (const key of ["number", "date", "days", "quantity"]) assert.equal(fields[key], "center");
+          assert.equal(fields.quantityPadding[0], fields.quantityPadding[1]);
+          assert.equal(fields.hint, false);
+          assert.equal(fields.description, null);
+          assert.equal(fields.fits, true);
+        });
+        await page.locator("#order-quantity-1").fill("12.50");
+        const quantity = await page.locator("#order-quantity-1").inputValue();
+        check(`${lang} ${width}: decimal quantity remains editable`, () => assert.equal(quantity, "12.50"));
+        if (lang === "ar" && width === 390) await page.screenshot({path:"/tmp/order-fields-ar-390.png"});
+      }
+      const beforeEdit = numberPreviews;
+      await go(390,77);
+      await page.waitForFunction(() => document.querySelector("#order-number")?.textContent === "ORD-077");
+      check("editing keeps the saved number and does not fetch a new one", () => assert.equal(numberPreviews,beforeEdit));
+      failNextNumber=true;
+      await go(390);
+      await page.locator(".order-create-number [role=alert]").waitFor();
+      await page.locator(".order-create-number button").click();
+      await page.waitForFunction(() => document.querySelector("#order-number")?.textContent === "O0001");
+      check("preview retry succeeds without business writes", () => assert.equal(requests.orderSaves.length,0));
+      check("no order-field runtime errors", () => assert.deepEqual(pageErrors,[]));
+      if (failures.length) throw new Error(failures.join("\\n"));
+      console.log("Verified customer order fields on phone, tablet and desktop with isolated API fixtures.");
+      return;
+    }
     for (const width of [390, 768, 1024]) {
       await checkAsync(`nested modal opens and exposes complete product editor at ${width}px`, async () => {
         await go(width);

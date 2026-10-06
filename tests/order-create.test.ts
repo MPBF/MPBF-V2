@@ -5,7 +5,7 @@ import { deliveryDateFromDays, orderDateInRiyadh } from "../server/order-deliver
 import router from "../server/routes";
 import { db } from "../server/db";
 
-jest.mock("../server/db", () => ({ db: { transaction: jest.fn() } }));
+jest.mock("../server/db", () => ({ db: { transaction: jest.fn(), execute: jest.fn() } }));
 jest.mock("../server/hr", () => ({ __esModule: true, default: express.Router() }));
 jest.mock("../server/self-service", () => ({ __esModule: true, default: express.Router() }));
 jest.mock("../server/auth", () => ({
@@ -22,6 +22,22 @@ jest.mock("../server/auth", () => ({
 }));
 
 describe("creating an order with delivery days", () => {
+  it("provides an uncached, read-only order-number preview to order creators", async () => {
+    jest.mocked(db.execute).mockResolvedValueOnce({ rows: [{ max_number: null }] } as any)
+      .mockResolvedValueOnce({ rows: [{ used: false }] } as any);
+    const result = await fetch(`${url}/api/orders/next-number`, {
+      headers: { "x-test-permission": "manage_orders" },
+    });
+    expect(result.status).toBe(200);
+    expect(result.headers.get("cache-control")).toBe("no-store");
+    expect(await result.json()).toEqual({ order_number: "O0001" });
+    expect(jest.mocked(db.execute).mock.calls).toHaveLength(2);
+    const denied = await fetch(`${url}/api/orders/next-number`, {
+      headers: { "x-test-permission": "view_customers" },
+    });
+    expect(denied.status).toBe(403);
+    jest.mocked(db.execute).mockReset();
+  });
   let server: ReturnType<ReturnType<typeof express>["listen"]>;
   let url: string;
   beforeAll(async () => {

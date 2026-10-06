@@ -21,9 +21,8 @@ export function nextOrderNumber(lastNumericOrderNumber: string | null): string {
 
 type NumberTransaction = { execute(query: SQL): Promise<{ rows: Record<string, any>[] }> };
 
-/** Reserve and insert the order in the SAME transaction. Never reuse deleted numbers. */
-export async function allocateOrderNumber(tx: NumberTransaction) {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${1})`);
+/** Read-only preview; the authoritative number is allocated at save time. */
+export async function previewOrderNumber(tx: NumberTransaction) {
   const result = await tx.execute(sql.raw(ORDER_NUMBER_MAX_SQL));
   let number = nextOrderNumber(result.rows[0]?.max_number ?? null);
   while ((await tx.execute(sql`SELECT EXISTS(
@@ -31,6 +30,13 @@ export async function allocateOrderNumber(tx: NumberTransaction) {
   ) AS used`)).rows[0]?.used) {
     number = nextOrderNumber(number.slice(1));
   }
+  return number;
+}
+
+/** Reserve and insert the order in the SAME transaction. Never reuse deleted numbers. */
+export async function allocateOrderNumber(tx: NumberTransaction) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${1})`);
+  const number = await previewOrderNumber(tx);
   await tx.execute(sql`INSERT INTO order_number_allocations(sequence,order_number)
     VALUES(${number.slice(1)}::numeric,${number})`);
   return number;

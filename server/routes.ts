@@ -46,7 +46,7 @@ import { nextMachineId } from "./machine-id";
 import { nextMasterBatchColorId } from "./master-batch-id";
 import { nextAdminIdNumber } from "./admin-id-sequence";
 import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, validateCustomerSalesRepresentative } from "./customer-form";
-import { allocateOrderNumber, productionOrderNumber, productionOrderSequence } from "./order-number";
+import { allocateOrderNumber, previewOrderNumber, productionOrderNumber, productionOrderSequence } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { getOrderDetails } from "./order-details";
 import { createPublicOrderPrintRouter, publicOrderPrintPath } from "./public-order-print";
@@ -998,6 +998,13 @@ router.delete("/sections/:id", admin, async (req, res, next) => {
     if (!row) return res.status(404).json({ message: "القسم غير موجود" });
     res.json({ success: true, id: row.id });
   } catch (e) { next(e); }
+});
+
+router.get("/orders/next-number", ordersWrite, async (_req, res, next) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json({ order_number: await previewOrderNumber(db) });
+  } catch (error) { next(error); }
 });
 
 // Save the order and every planned line in one transaction. An invalid item

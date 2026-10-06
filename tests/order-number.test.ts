@@ -1,7 +1,21 @@
 import { describe, expect, it } from "@jest/globals";
-import { nextOrderNumber, productionOrderNumber, productionOrderSequence, productionRollNumber } from "../server/order-number";
+import { nextOrderNumber, productionOrderNumber, productionOrderSequence, productionRollNumber, previewOrderNumber } from "../server/order-number";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 describe("order number allocation", () => {
+  it("previews the next available number without locks, writes or consuming it", async () => {
+    const queries: string[] = [];
+    const dialect = new PgDialect();
+    const tx = { execute: async (query: any) => {
+      const statement = dialect.sqlToQuery(query).sql;
+      queries.push(statement);
+      return { rows: [statement.includes("MAX(sequence)") ? { max_number: null } : { used: false }] };
+    } };
+    expect(await previewOrderNumber(tx)).toBe("O0001");
+    expect(await previewOrderNumber(tx)).toBe("O0001");
+    expect(queries.every(query => query.trim().startsWith("SELECT"))).toBe(true);
+    expect(queries.some(query => /INSERT|UPDATE|DELETE|advisory/.test(query))).toBe(false);
+  });
   it("starts with O and four digits", () => {
     expect(nextOrderNumber(null)).toBe("O0001");
   });
