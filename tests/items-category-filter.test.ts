@@ -80,4 +80,24 @@ describe("items category filter", () => {
     expect((await get("?category_id=CAT01", "manage_users")).status).toBe(403);
     expect(db.select).not.toHaveBeenCalled();
   });
+  it.each(["manage_items", "admin", "view_orders"])(
+    "loads category options using the item read permission: %s", async permission => {
+      expect((await get("/category-options?limit=2&offset=2", permission)).status).toBe(200);
+      expect(Object.keys(jest.mocked(db.select).mock.calls[0][0] as object)).toEqual(["id", "name", "name_ar"]);
+      expect(query.limit).toHaveBeenCalledWith(2);
+      expect(query.offset).toHaveBeenCalledWith(2);
+      expect(query.leftJoin).not.toHaveBeenCalled();
+    },
+  );
+  it("does not grant item managers access to the category management endpoint", async () => {
+    const response = await fetch(`${url}/api/categories`, {
+      headers: { "x-test-permission": "manage_items" },
+    });
+    expect(response.status).toBe(403);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+  it("rejects category-option reads without item permissions", async () => {
+    expect((await get("/category-options", "manage_users")).status).toBe(403);
+    expect(db.select).not.toHaveBeenCalled();
+  });
 });

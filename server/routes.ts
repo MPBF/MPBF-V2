@@ -1322,6 +1322,20 @@ router.get("/customer-products/form-options", customerProductsRead, async (_req,
   } catch (error) { next(error); }
 });
 
+// Item readers need classification labels for filtering, not category-management
+// access. Keep this lookup narrow and retain the existing category CRUD guards.
+router.get("/items/category-options", itemsRead, async (req, res, next) => {
+  try {
+    const { limit, offset } = page(req);
+    const rows = await db.select({
+      id: categories.id,
+      name: categories.name,
+      name_ar: categories.name_ar,
+    }).from(categories).orderBy(asc(categories.id)).limit(limit).offset(offset);
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
 for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
   const mutationGuard = entityWrite[path];
   router.get(`/${path}`, entityRead[path], async (req, res, next) => {

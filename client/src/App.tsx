@@ -322,7 +322,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     let active = true;
     setCategoriesBusy(true);
     setCategoriesError("");
-    void list("/categories").then((value) => {
+    void list("/items/category-options").then((value) => {
       if (active) setCategories(value);
     }).catch((categoryError) => {
       if (active) setCategoriesError((categoryError as Error).message || translate("تعذر تحميل التصنيفات"));

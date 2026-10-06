@@ -8,7 +8,7 @@ const WebSocket = require("ws");
 
 (async () => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "items-category-"));
-  let chrome, ws, session, serial = 0, failCategories = false, slow = false, fixtureLanguage = "ar";
+  let chrome, ws, session, serial = 0, failCategories = false, slow = false, fixtureLanguage = "ar", fixturePermissions = ["manage_items", "manage_categories"];
   const pending = new Map(), errors = [], requests = [];
   const categories = Array.from({ length: 201 }, (_, i) => ({
     id: `CAT${String(i + 1).padStart(3, "0")}`, name: `Category ${i + 1}`, name_ar: `تصنيف ${i + 1}`,
@@ -52,9 +52,12 @@ const WebSocket = require("ws");
         assert.equal(request.method, "GET", "No business writes allowed");
         let body = [], status = 200;
         const offset = Number(url.searchParams.get("offset") || 0), limit = Number(url.searchParams.get("limit") || 200);
-        if (url.pathname === "/api/me") body = { user: { id: 42, username: "fixture", display_name_ar: "مستخدم تجريبي", preferred_language: fixtureLanguage, permissions: ["manage_items", "manage_categories"] } };
+        if (url.pathname === "/api/me") body = { user: { id: 42, username: "fixture", display_name_ar: "مستخدم تجريبي", preferred_language: fixtureLanguage, permissions: fixturePermissions } };
         if (url.pathname === "/api/public-branding") body = { companyNameAr: "مصنع تجريبي", companyNameEn: "Test Factory", logoSrc: "" };
-        if (url.pathname === "/api/categories") {
+        if (url.pathname === "/api/categories" && !fixturePermissions.some(p => ["admin", "manage_categories"].includes(p))) {
+          status = 403; body = { message: "لا تملك صلاحية تنفيذ هذا الإجراء" };
+        }
+        if (url.pathname === "/api/items/category-options") {
           if (failCategories) { failCategories = false; status = 500; body = { message: "تعذر تحميل التصنيفات" }; }
           else body = categories.slice(offset, offset + limit);
         }
@@ -90,8 +93,9 @@ const WebSocket = require("ws");
     })()`);
     const origin = process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "http://127.0.0.1:5000";
     const openItems = async () => {
+      await evaluate("window.__categoryFixtureNavigating=true");
       await send("Page.navigate", { url: `${origin}/admin` });
-      await wait("!!document.querySelector('#admin-tab-items')");
+      await wait("!window.__categoryFixtureNavigating&&!!document.querySelector('#admin-tab-items')");
       await evaluate("document.querySelector('#admin-tab-items').click()");
       await wait("!!document.querySelector('#items-category-filter')");
     };
@@ -127,6 +131,22 @@ const WebSocket = require("ws");
     assert.equal(await evaluate("document.querySelectorAll('tbody tr').length"), 30);
     assert.equal(await evaluate("document.querySelector('tbody').textContent.includes('صنف 221')"), true);
     slow = false;
+    // Previously this role could open Items but its filter was disabled by the
+    // category-management endpoint's 403. Exercise the least-privileged path.
+    fixturePermissions = ["manage_items"];
+    await openItems();
+    await wait("document.querySelector('#items-category-filter').options.length===202&&!document.querySelector('#items-category-filter').disabled");
+    await set("#items-category-filter", "CAT002"); await loaded(30);
+    assert.equal(requests.at(-1).category_id, "CAT002");
+    assert.equal(await evaluate("!!document.querySelector('#admin-tab-categories')"), false);
+    console.log("PASS item-only role: working classification filter without category-management access");
+    fixturePermissions = ["admin"];
+    await openItems(); await loaded(200);
+    await wait("document.querySelector('#items-category-filter').options.length===202&&!document.querySelector('#items-category-filter').disabled");
+    await set("#items-category-filter", "CAT002"); await loaded(30);
+    assert.equal(requests.at(-1).category_id, "CAT002");
+    assert.equal(await evaluate("document.querySelector('#admin-tab-items').getAttribute('aria-selected')"), "true");
+    console.log("PASS admin role: selection stays on Items and filters the displayed records");
     await evaluate("document.querySelector('#admin-tab-categories').click()");
     await wait("!document.querySelector('#items-category-filter')");
     failCategories = true;

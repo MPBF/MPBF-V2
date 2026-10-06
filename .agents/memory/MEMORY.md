@@ -84,3 +84,4 @@
 - [Recovery contract testing](recovery-contract-testing.md) — enforce real queue positions; lost-response tests must verify one commit, draft cleanup, and preservation of newer edits.
 - [Jest workspace discovery](jest-workspace-discovery.md) — installed skill packages can collide during root-wide test discovery; keep focused runs scoped to tests.
 - [Disposable PostgreSQL lifecycle](disposable-postgres-lifecycle.md) — use a persistent background shell for cross-call test servers; do not assume the system socket directory exists.
+- [Permission-scoped lookups](permission-scoped-lookups.md) — selectors need lookups under their owning module's read permission; test minimum-permission roles, not only admins.
