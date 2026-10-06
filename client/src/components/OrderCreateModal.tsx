@@ -477,7 +477,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   return (
     <div className="order-create-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !saving && productEditorKey === null && onClose()}>
       <section ref={orderPanelRef} className="order-create-modal" role="dialog" aria-modal={productEditorKey === null} aria-hidden={productEditorKey !== null ? true : undefined} aria-labelledby="order-create-title">
-        <header className="order-create-head">
+        <header className="order-create-head bg-[#183f3a] text-[#fbfcf8]">
           <div className="order-create-heading">
             <span className="order-create-mark" aria-hidden="true"><ClipboardList size={21} /></span>
             <div>
@@ -540,9 +540,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
 
           <section className="order-create-section" aria-labelledby="order-items-heading">
             <h3 className="order-create-section-title" id="order-items-heading"><span>02</span>{" "}{translate("منتجات الطلب")}</h3>
-            {!selectedCustomer ? (
-              <div className="order-options-state">{translate("اختر العميل أولاً لعرض منتجاته المسجلة أو إضافة منتج جديد.")}</div>
-            ) : productsLoading ? (
+            {!selectedCustomer ? null : productsLoading ? (
               <div className="order-create-skeleton order-products-loading" aria-label={translate("جارٍ تحميل منتجات العميل")} aria-busy="true"><i /><i /><i /></div>
             ) : productsError ? (
               <div className="order-options-state" role="alert">{translate("تعذر تحميل منتجات هذا العميل:")}{" "}{productsError}<button type="button" onClick={retryProducts}>{translate("إعادة المحاولة")}</button></div>
