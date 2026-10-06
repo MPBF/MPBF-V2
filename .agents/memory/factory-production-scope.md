@@ -25,6 +25,16 @@ ongoing film production, not a sequential whole-order pipeline.
 **How to apply:** preserve these distinctions when adding labels, reports,
 scheduling, or warehouse extensions.
 
+Future-stage queue planning must remain possible while film production is
+still open, even if there are no currently eligible rolls for that stage.
+
+**Why:** the user explicitly required retaining this existing business rule
+when preventing completed printing from being queued again.
+
+**How to apply:** distinguish advance planning during open film from
+downstream queue eligibility after film closes; do not turn queue assignment
+into an implicit film closure or rewrite historical production.
+
 The approved warehouse scope is finished goods received from production with
 storage locations, not purchasing, transfers, raw materials, or customer
 delivery. Industrial hardware integration, automatic scheduling and public

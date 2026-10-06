@@ -117,8 +117,19 @@ export class ProductionExecutionService {
       const printed = exec?.is_printed ?? liveProduct!.is_printed;
       const rollProduct = exec?.is_roll_product ?? isPlasticRoll(product.name, product.name_ar);
       if (input.stage === "printing" && !printed || input.stage === "cutting" && rollProduct ||
-          input.stage === "film" && exec?.film_closed_at)
+          input.stage === "film" && exec?.film_closed_at || exec?.completed_at)
         throw new ProductionError("المرحلة غير مطلوبة لهذا المنتج أو مغلقة", "This stage is not required for this product or is closed.", 400);
+      // While film is open, future rolls may still need either downstream stage.
+      // Once closed, use the same eligibility rules as the actual roll actions.
+      if (exec?.film_closed_at && input.stage !== "film") {
+        const rolls = await rows<Pick<ProductionRollRecord, "stage" | "printed_at" | "cut_completed_at">>(tx,
+          "SELECT stage,printed_at,cut_completed_at FROM factory_rolls WHERE production_order_id=$1", [order.id]);
+        const remaining = rolls.some(roll => input.stage === "printing"
+          ? roll.stage === "film" && !roll.printed_at
+          : eligibleForCutting({ ...roll, is_printed: printed, is_roll_product: rollProduct }) && !roll.cut_completed_at);
+        if (!remaining)
+          throw new ProductionError("لا يوجد عمل مؤهل متبقٍ لهذه المرحلة", "There is no eligible work remaining for this stage.", 400);
+      }
       await machine(tx, input.machine_id, input.stage, product);
       const saved = await one<{ id: number }>(tx, `INSERT INTO factory_queues(production_order_id,stage,machine_id,position,updated_by)
         VALUES($1,$2,$3,$4,$5) ON CONFLICT(production_order_id,stage) DO UPDATE SET
