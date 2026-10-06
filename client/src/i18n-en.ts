@@ -128,6 +128,8 @@ const english: Record<string, string> = {
   "التسليم:": "Delivery:",
   "التصاميم وألوان الطباعة": "Designs and print colors",
   "التصنيف": "Category",
+  "جميع التصنيفات": "All categories",
+  "تعذر تحميل التصنيفات": "Could not load categories",
   "التفاصيل": "Details",
   "التوقيعات": "Signatures",
   "الجنسية": "Nationality",

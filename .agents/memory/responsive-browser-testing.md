@@ -9,6 +9,12 @@ Run focus-dependent interaction checks sequentially across responsive iframe vie
 
 **How to apply:** Finish one frame's search, keyboard, selection, and blur checks before starting the next. Hidden or transparent frames still compete for focus.
 
+Run app screenshot capture separately from local Chromium fixture checks in this workspace.
+
+**Why:** a local Chromium launch timed out when started alongside screenshot capture; the same unchanged browser check passed when run alone.
+
+**How to apply:** serialize these browser operations rather than treating their shared browser resources as independent.
+
 HTML intercepted for isolated React component tests must receive the Vite React refresh preamble when it imports modules from the development server.
 
 **Why:** Intercepting the HTML bypasses Vite's HTML transformation, while its module transformation still expects the refresh globals. The resulting preamble error is a test-host failure, not a broken component.

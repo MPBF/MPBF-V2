@@ -57,10 +57,11 @@ const api = async (path: string, options: RequestInit = {}) => {
   }
   return normalizePayload(body);
 };
-const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE, displayFolder?: OrderDisplayFolder) => {
+const listPage = (path: string, search = "", offset = 0, limit = LIST_PAGE_SIZE, displayFolder?: OrderDisplayFolder, categoryId?: string) => {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (search) query.set("search", search);
   if (displayFolder) query.set("display_folder", displayFolder);
+  if (categoryId) query.set("category_id", categoryId);
   return api(`${path}?${query.toString()}`).then((value) => {
     if (!Array.isArray(value)) throw new Error(translate("تعذر تحميل قائمة البيانات"));
     return value as Row[];
@@ -311,6 +312,31 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   const [viewingProduction, setViewingProduction] = useState<Row | null>(null);
   const [viewingOrder, setViewingOrder] = useState<number | null>(null);
   const viewOrderQuery = params.get("viewOrder");
+  const [categories, setCategories] = useState<Row[]>([]);
+  const [categoriesBusy, setCategoriesBusy] = useState(false);
+  const [categoriesError, setCategoriesError] = useState("");
+  const [categoriesRetry, setCategoriesRetry] = useState(0);
+  const activeCategoryId = kind === "items" ? params.get("categoryId") || undefined : undefined;
+  useEffect(() => {
+    if (kind !== "items") return;
+    let active = true;
+    setCategoriesBusy(true);
+    setCategoriesError("");
+    void list("/categories").then((value) => {
+      if (active) setCategories(value);
+    }).catch((categoryError) => {
+      if (active) setCategoriesError((categoryError as Error).message || translate("تعذر تحميل التصنيفات"));
+    }).finally(() => {
+      if (active) setCategoriesBusy(false);
+    });
+    return () => { active = false; };
+  }, [kind, categoriesRetry]);
+  useEffect(() => {
+    if (kind === "items" || !params.has("categoryId")) return;
+    const next = new URLSearchParams(params);
+    next.delete("categoryId");
+    setParams(next, { replace: true });
+  }, [kind, params, setParams]);
   useEffect(() => {
     if (kind !== "orders") return;
     const id = Number(viewOrderQuery);
@@ -328,7 +354,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   const showActions = viewable || writable || deletable || clonable;
   const requestGate = useRef(createLatestRequestGate());
   const activeFolder = kind === "orders" && displayFolder !== "all" ? displayFolder : undefined;
-  const activeKey = `${cfg.path}|${search}|${page}|${activeFolder || "all"}|${refreshToken}`;
+  const activeKey = `${cfg.path}|${search}|${page}|${activeFolder || "all"}|${activeCategoryId || "all"}|${refreshToken}`;
   const rows = resultKey === activeKey ? loadedRows : [];
   const busy = busyState || resultKey !== activeKey;
   const load = useCallback(() => {
@@ -337,7 +363,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     setBusy(true);
     setResultKey("");
     setError("");
-    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE, LIST_PAGE_SIZE, activeFolder), {
+    void runLatestRequest(requestGate.current, request, listPage(cfg.path, search, page * LIST_PAGE_SIZE, LIST_PAGE_SIZE, activeFolder, activeCategoryId), {
       onSuccess: (value) => {
         setRows(value.map((row, index) => ({ ...row, __sequence: page * LIST_PAGE_SIZE + index + 1 })));
         setResultKey(requestKey);
@@ -349,7 +375,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       },
       onSettled: () => setBusy(false),
     });
-  }, [activeKey, activeFolder, cfg.path, page, search]);
+  }, [activeKey, activeFolder, activeCategoryId, cfg.path, page, search]);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   useEffect(() => {
@@ -457,12 +483,31 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       />}
       <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
-        <div className="tools">
+        <div className={kind === "items" ? "tools entity-tools-categories" : "tools"}>
           <Search size={17} aria-hidden="true" />
           <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
           <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setSelectedOrderIds([]); setEdit(null); }} />
+          {kind === "items" && <div className="entity-category-filter">
+            <label htmlFor="items-category-filter">{translate("التصنيف")}</label>
+            <select id="items-category-filter" value={activeCategoryId || ""} disabled={categoriesBusy || Boolean(categoriesError)} onChange={(event) => {
+              const next = new URLSearchParams(params);
+              if (event.target.value) next.set("categoryId", event.target.value);
+              else next.delete("categoryId");
+              setParams(next, { replace: true });
+              setPage(0);
+              setSelectedOrderIds([]);
+              setEdit(null);
+            }}>
+              <option value="">{translate("جميع التصنيفات")}</option>
+              {categories.map((category) => <option value={String(category.id)} key={category.id}>{localizedName(category.name_ar, category.name, String(category.id))}</option>)}
+            </select>
+          </div>}
         </div>
       </div>
+      {kind === "items" && categoriesError && <div className="error entity-category-error" role="alert">
+        <span>{categoriesError}</span>
+        <button className="btn btn-muted" type="button" onClick={() => setCategoriesRetry((retry) => retry + 1)}>{translate("إعادة المحاولة")}</button>
+      </div>}
       {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>{translate("لا توجد سجلات مطابقة")}</strong>{translate("ابدأ بإضافة أول سجل لهذا القسم.")}</div> : <div className="table-wrap">
         <table>
           <thead><tr>{kind === "orders" && writable && <th className="order-row-select"><span className="sr-only">{translate("حدد الصفحة الحالية")}</span></th>}{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>

@@ -1445,6 +1445,7 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
              asc(categories.id),
            ).limit(limit).offset(offset);
       } else if (path === "items") {
+        const categoryId = parsed(z.string().trim().max(20).optional(), req.query.category_id);
         const conditions = [...entitySearch[path], itemCategory.name, itemCategory.name_ar].map((column) => ilike(column, term));
         rows = await db.select({
           ...getTableColumns(items),
@@ -1452,7 +1453,10 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           category_name_ar: itemCategory.name_ar,
         }).from(items)
           .leftJoin(itemCategory, eq(items.category_id, itemCategory.id))
-          .where(search ? or(...conditions) : undefined)
+          .where(and(
+            categoryId ? eq(items.category_id, categoryId) : undefined,
+            search ? or(...conditions) : undefined,
+          ))
            .orderBy(
              sql`regexp_replace(${items.id}, '[0-9]+$', '')`,
              sql`substring(${items.id} from '[0-9]+$')::numeric ASC NULLS LAST`,
