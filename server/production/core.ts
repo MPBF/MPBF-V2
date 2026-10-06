@@ -12,6 +12,7 @@ export type LockedOrder = {
   quantity_kg: string; final_quantity_kg: string; status: string; batch_number: string | null;
   order_status: string; customer_id: string;
   previous_status: string | null;
+  compact_roll_numbering?: boolean;
 };
 export type Execution = {
   production_order_id: number; customer_product_id: number; item_id: string; product: ProductSnapshot;
@@ -71,7 +72,9 @@ export async function lockOrders(tx: Connection, ids: number[], running = true) 
   if (references.length !== sorted.length) throw new ProductionError("أمر الإنتاج غير موجود", "A production order was not found.", 404);
   const parentIds = [...new Set(references.map(p => p.order_id))].sort((a, b) => a - b);
   await tx.query("SELECT id FROM orders WHERE id=ANY($1::int[]) ORDER BY id FOR UPDATE", [parentIds]);
-  const records = await rows<LockedOrder>(tx, `SELECT p.*,o.status order_status,o.customer_id FROM production_orders p
+  const records = await rows<LockedOrder>(tx, `SELECT p.*,o.status order_status,o.customer_id,
+    EXISTS(SELECT 1 FROM order_number_allocations a WHERE a.order_number=o.order_number) compact_roll_numbering
+    FROM production_orders p
     JOIN orders o ON o.id=p.order_id WHERE p.id=ANY($1::int[]) ORDER BY p.id FOR UPDATE OF p`, [sorted]);
   if (records.length !== sorted.length || records.some(p => p.order_id !== references.find(r => r.id === p.id)?.order_id))
     throw new ProductionError("تغير الطلب المرتبط؛ أعد تحميل الصفحة", "The parent order changed. Reload the page.");

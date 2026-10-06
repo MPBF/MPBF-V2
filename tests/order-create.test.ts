@@ -67,11 +67,11 @@ describe("creating an order with delivery days", () => {
     });
     expect(response.status).toBe(201);
     const result = await response.json();
-    expect(result.order.order_number).toBe("O00020");
+    expect(result.order.order_number).toBe("O0020");
     expect(result.order.delivery_days).toBe(20);
     expect(result.order.delivery_date).toBe(deliveryDateFromDays(orderDateInRiyadh(new Date(result.order.created_at)), 20));
-    expect(result.production_orders[0].production_order_number).toBe("O00020-JO01");
-    expect(result.production_orders[1].production_order_number).toBe("O00020-JO02");
+    expect(result.production_orders[0].production_order_number).toBe("O0020-JO01");
+    expect(result.production_orders[1].production_order_number).toBe("O0020-JO02");
     expect(result.production_orders[0]).toMatchObject({
       quantity_kg: "10.00", overrun_percentage: String(percentage),
       final_quantity_kg: (10 * (1 + percentage / 100)).toFixed(2),
@@ -112,7 +112,7 @@ describe("creating an order with delivery days", () => {
       body: JSON.stringify({ customer_id: "C1", order_number: "CLIENT-NUMBER" }),
     });
     expect(response.status).toBe(201);
-    expect((await response.json()).order_number).toBe("O00026");
+    expect((await response.json()).order_number).toBe("O0026");
   });
 
   it.each([undefined, "CLIENT-NUMBER"])("generates direct children of new-format orders, ignoring supplied number %s", async (supplied) => {

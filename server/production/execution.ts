@@ -4,6 +4,7 @@ import {
 } from "../../shared/production";
 import { available, execution, lockOrders, mutate, one, permission, productSnapshot, ProductionError, rows, type Connection, type ConnectionPool, type LockedOrder } from "./core";
 import { machine } from "./machines";
+import { productionRollNumber } from "../order-number";
 
 export class ProductionExecutionService {
   constructor(readonly pool: ConnectionPool) {}
@@ -47,7 +48,7 @@ export class ProductionExecutionService {
         (production_order_id,sequence,roll_number,weight_kg,stage,film_machine_id,created_by,is_last_roll,
           printing_machine_id,printed_by,printed_at,created_at)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::varchar,$10,CASE WHEN $9::varchar IS NULL THEN NULL ELSE $11::timestamptz END,$11) RETURNING *`,
-      [id, seq, `${order.production_order_number}-R${String(seq).padStart(3, "0")}`, kgString(amount),
+      [id, seq, productionRollNumber(order.production_order_number, seq, order.compact_roll_numbering === true), kgString(amount),
         stageAfterFilm(exec.is_printed, exec.is_roll_product, !!printerId), filmMachine.id, actor.id,
         input.is_last_roll ?? false, printerId, printerId ? actor.id : null, at]);
       if (input.is_last_roll) await this.close(tx, id, actor.id);

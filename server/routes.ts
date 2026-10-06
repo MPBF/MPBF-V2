@@ -46,7 +46,7 @@ import { nextMachineId } from "./machine-id";
 import { nextMasterBatchColorId } from "./master-batch-id";
 import { nextAdminIdNumber } from "./admin-id-sequence";
 import { customerFormSchema, nextCustomerId, salesRepresentativeRoleCondition, validateCustomerSalesRepresentative } from "./customer-form";
-import { nextOrderNumber, ORDER_NUMBER_MAX_SQL, productionOrderNumber, productionOrderSequence } from "./order-number";
+import { allocateOrderNumber, productionOrderNumber, productionOrderSequence } from "./order-number";
 import { deliveryDateFromDays, orderDateInRiyadh } from "./order-delivery";
 import { getOrderDetails } from "./order-details";
 import { createPublicOrderPrintRouter, publicOrderPrintPath } from "./public-order-print";
@@ -438,12 +438,6 @@ function assertGrantWithinActor(actorPermissions: unknown, grant: unknown) {
   if (!canGrantPermissions(actorPermissions, Array.isArray(grant) ? grant : [])) {
     throw Object.assign(new Error("لا يمكن منح صلاحيات تتجاوز صلاحياتك الفعلية"), { status: 403 });
   }
-}
-
-async function allocateOrderNumber(tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${1})`);
-  const result = await tx.execute<{ max_number: string | null }>(sql.raw(ORDER_NUMBER_MAX_SQL));
-  return nextOrderNumber(result.rows[0]?.max_number ?? null);
 }
 
 async function assertProductionProductMatchesOrder(tx: any, orderId: number, productId?: number | null) {

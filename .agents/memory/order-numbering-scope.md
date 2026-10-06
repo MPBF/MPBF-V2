@@ -1,15 +1,27 @@
 ---
 name: Order-numbering scope
-description: The user approved the O/JO format only for new customer orders.
+description: New orders restart at O0001 with JO01/R01 children; historical identifiers remain unchanged.
 ---
 
-The user chose «الطلبات الجديدة فقط (موصى به)» for the `O00001` customer
-order and `O00001-JO01` production-order format. Existing saved identifiers
-must remain unchanged.
+The user requested `O0001`, `O0001-JO01`, and `O0001-JO01-R01` for new
+customer orders only. They chose «البدء من O0001 مع منع تكرار الأرقام»,
+not continuation of the historical numeric maximum. Production orders restart
+at JO01 per parent order; rolls restart at R01 per production order.
+Existing orders and new children/rolls attached to historical orders retain
+their previous numbering conventions.
 
-**Why:** the user explicitly chose new orders only rather than renumbering both
-new and existing orders.
+**Why:** the user explicitly approved starting a new series while preserving
+existing records and preventing duplicate identifiers.
 
 **How to apply:** retain legacy identifiers in history, screens and printing.
 Do not migrate or replace them with display-only aliases during future numbering
 changes without separate approval.
+
+Do not reuse a successfully assigned new-series order number after its order
+is deleted. A failed order creation must not consume its reservation.
+
+**Why:** these numbers identify printed production and roll documents; reusing
+one can associate an old label with a different order.
+
+**How to apply:** retain numbering reservations independently of business-data
+deletion, and commit them atomically with successful order creation.

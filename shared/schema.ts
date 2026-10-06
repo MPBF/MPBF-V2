@@ -417,6 +417,14 @@ export const orders = pgTable(
   }),
 );
 
+// Kept after order deletion to prevent number reuse and identify the new format.
+export const order_number_allocations = pgTable("order_number_allocations", {
+  sequence: decimal("sequence", { precision: 44, scale: 0 }).primaryKey(),
+  order_number: varchar("order_number", { length: 45 }).notNull().unique(),
+}, table => ({
+  sequencePositive: check("order_number_allocation_positive", sql`${table.sequence} > 0`),
+}));
+
 export const order_display_folder_assignments = pgTable("order_display_folder_assignments", {
   order_id: integer("order_id").primaryKey().references(() => orders.id, { onDelete: "cascade" }),
   folder: varchar("folder", { length: 20 }).notNull(),

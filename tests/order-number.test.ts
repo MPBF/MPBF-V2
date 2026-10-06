@@ -1,13 +1,14 @@
 import { describe, expect, it } from "@jest/globals";
-import { nextOrderNumber, productionOrderNumber, productionOrderSequence } from "../server/order-number";
+import { nextOrderNumber, productionOrderNumber, productionOrderSequence, productionRollNumber } from "../server/order-number";
 
 describe("order number allocation", () => {
-  it("starts with O and five digits", () => {
-    expect(nextOrderNumber(null)).toBe("O00001");
+  it("starts with O and four digits", () => {
+    expect(nextOrderNumber(null)).toBe("O0001");
   });
 
   it("continues existing numeric numbers including leading zeros", () => {
-    expect(nextOrderNumber("000154")).toBe("O00155");
+    expect(nextOrderNumber("000154")).toBe("O0155");
+    expect(nextOrderNumber("9999")).toBe("O10000");
     expect(nextOrderNumber("99999")).toBe("O100000");
     expect(nextOrderNumber("999999")).toBe("O1000000");
     expect(nextOrderNumber("9007199254740993")).toBe("O9007199254740994");
@@ -19,11 +20,26 @@ describe("order number allocation", () => {
   });
 
   it("numbers children per new-format parent, expanding without wrapping", () => {
+    expect(productionOrderNumber("O0001", 1)).toBe("O0001-JO01");
+    expect(productionOrderNumber("O0001", 2)).toBe("O0001-JO02");
+    expect(productionOrderNumber("O0002", 1)).toBe("O0002-JO01");
     expect(productionOrderNumber("O00001", 1)).toBe("O00001-JO01");
     expect(productionOrderNumber("O00001", 2)).toBe("O00001-JO02");
     expect(productionOrderNumber("O00002", 1)).toBe("O00002-JO01");
     expect(productionOrderNumber("O00001", 100)).toBe("O00001-JO100");
     expect(productionOrderSequence("O00001", "O00001-JO100")).toBe(100);
+  });
+
+  it("numbers new rolls per production order without altering historical formats", () => {
+    expect(productionRollNumber("O0001-JO01", 1, true)).toBe("O0001-JO01-R01");
+    expect(productionRollNumber("O0001-JO01", 2, true)).toBe("O0001-JO01-R02");
+    expect(productionRollNumber("O0001-JO02", 1, true)).toBe("O0001-JO02-R01");
+    expect(productionRollNumber("O0001-JO01", 100, true)).toBe("O0001-JO01-R100");
+    expect(productionRollNumber("O00001-JO01", 1, false)).toBe("O00001-JO01-R001");
+    expect(productionRollNumber("000154-01", 2, false)).toBe("000154-01-R002");
+    for (const sequence of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => productionRollNumber("O0001-JO01", sequence, true)).toThrow("غير صالح");
+    }
   });
 
   it("keeps legacy parents in their existing series", () => {
