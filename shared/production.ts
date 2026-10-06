@@ -15,6 +15,7 @@ export type ProductSnapshot = {
   printing_cylinder: string | null; punching: string | null; notes: string | null;
   front_print_colors: string[] | null; back_print_colors: string[] | null;
   size_caption?: string | null;
+  plate_drawer_code?: string | null;
   master_batch?: {
     id: string; name: string | null; name_ar: string | null; color_hex: string | null;
   } | null;

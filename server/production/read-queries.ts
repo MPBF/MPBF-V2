@@ -29,7 +29,7 @@ export const liveProduct = `jsonb_build_object('id',cp.id,'item_id',cp.item_id,'
   'universal_thickness',cp.universal_thickness::text,'cutting_length_cm',cp.cutting_length_cm,
   'raw_material',cp.raw_material,'printing_cylinder',cp.printing_cylinder,'punching',cp.punching,
    'notes',cp.notes,'front_print_colors',cp.front_print_colors,'back_print_colors',cp.back_print_colors,
-   'size_caption',cp.size_caption,'master_batch',${masterBatchJSON})`;
+   'size_caption',cp.size_caption,'plate_drawer_code',c.plate_drawer_code,'master_batch',${masterBatchJSON})`;
 // Supplement only fields absent from older snapshots, without rewriting them
 // or replacing deliberately saved nulls. All original execution specs stay frozen.
 const displayedProduct = `e.product ||
@@ -38,7 +38,8 @@ const displayedProduct = `e.product ||
       AND (e.product->>'left_facing') IS NOT DISTINCT FROM cp.left_facing::text
       AND (e.product->>'right_facing') IS NOT DISTINCT FROM cp.right_facing::text
     THEN cp.size_caption ELSE NULL END) END ||
-  CASE WHEN e.product ? 'master_batch' THEN '{}'::jsonb ELSE jsonb_build_object('master_batch',${masterBatchJSON}) END`;
+  CASE WHEN e.product ? 'master_batch' THEN '{}'::jsonb ELSE jsonb_build_object('master_batch',${masterBatchJSON}) END ||
+  CASE WHEN e.product ? 'plate_drawer_code' THEN '{}'::jsonb ELSE jsonb_build_object('plate_drawer_code',c.plate_drawer_code) END`;
 export const orderSelect = `SELECT p.id,p.order_id,p.production_order_number,p.customer_product_id,
   p.quantity_kg,p.final_quantity_kg,p.status,p.previous_status,p.batch_number,o.order_number,o.status order_status,
    CASE WHEN cp.id IS NULL THEN e.product WHEN e.product IS NULL THEN ${liveProduct}

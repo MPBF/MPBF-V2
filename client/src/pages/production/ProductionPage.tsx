@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowDown, ArrowUp, Check, ChevronRight, Factory, Plus, RefreshCw, Settings2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Factory, Plus, RefreshCw, Settings2, X } from "lucide-react";
 import { Link } from "wouter";
 import FilmOperatorOrders from "./FilmOperatorOrders";
+import RollOperatorOrders from "./RollOperatorOrders";
 import RollLabelControls from "./RollLabelControls";
 import "./roll-labels.css";
 import {
@@ -352,14 +353,15 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
       onInline={(id,value)=>setInline(values=>({...values,[id]:value}))}
       onRecord={recordFilm} onStart={startFilm}
     />:
-    <><div className="prod-section-title"><h3>{text("rolls",language)} · {text(stage,language)}</h3></div>
-      {rolls.length?<div className="prod-list">{rolls.map(roll=><article className="prod-order" key={roll.id}>
-        <div className="prod-order-main"><h3><Link className="prod-number" href={`/production/rolls/${roll.id}`}>{roll.roll_number}</Link></h3><div className="prod-order-meta"><span className="prod-number">{roll.production_order_number}</span> · {orderProduct({product:roll.product} as ProductionOrderRecord,language)}</div><div className="prod-chips" style={{marginTop:8}}>{(()=>{const parent=state.orders.find(order=>order.id===roll.production_order_id);return <>{parent&&<><span className="prod-chip">{text("customerStatus",language)}: {text(parent.order_status,language)}</span><span className="prod-chip">{text("productionStatus",language)}: {text(parent.status,language)}</span><span className="prod-chip muted">{text("stage",language)}: {text(parent.stage??"—",language)}</span></>}<span className="prod-chip warm">{text("rollStage",language)}: {text(roll.stage,language)}</span><span className="prod-chip">{text("weight",language)}: {number(roll.weight_kg,language)} kg</span></>;})()}</div></div>
-        <div className="prod-measure"><span>{text("createdAt",language)}</span><strong>{date(roll.created_at,language,true)}</strong></div>
-        <div className="prod-measure"><span>{text("filmMachine",language)}</span><strong>{machineName(machineById.get(roll.film_machine_id),language)}</strong></div>
-        {stage==="cutting"&&<div className="prod-field"><label htmlFor={`net-${roll.id}`}>{text("netWeight",language)}</label><input id={`net-${roll.id}`} type="number" inputMode="decimal" min="0.01" max={roll.weight_kg} step="0.01" value={weights[roll.id]??""} onChange={event=>setWeights(values=>({...values,[roll.id]:event.target.value}))}/></div>}
-        <button className="prod-btn" disabled={!canOperate||write.saving||!selectedMachine} onClick={()=>recordRoll(roll)}>{stage==="printing"?<Factory/>:<Check/>}{text(stage==="printing"?"printRoll":"cutRoll",language)}</button>
-      </article>)}</div>:<Empty title={text("noRolls",language)}/>}</>}
+    <RollOperatorOrders
+      stage={stage} orders={state.orders} rolls={rolls} language={language}
+      canOperate={canOperate} saving={write.saving} selectedMachine={selectedMachine} weights={weights}
+      text={key=>text(key,language)}
+      number={value=>formatWholeNumber(value==null?value:latinDigits(String(value)))}
+      productName={order=>orderProduct(order,language)}
+      machineName={id=>machineName(machineById.get(id),language)} date={value=>date(value,language,true)}
+      onWeight={(id,value)=>setWeights(values=>({...values,[id]:value}))} onRecord={recordRoll}
+    />}
   </>;
 }
 
