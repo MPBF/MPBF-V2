@@ -146,7 +146,7 @@ const WebSocket = require("ws");
       console.log(`PASS en ${width}: translated filter and viewport fit`);
     }
     const screenshot = await send("Page.captureScreenshot", { format: "png" });
-    await fs.writeFile("/tmp/items-category-filter.png", Buffer.from(screenshot.data, "base64"));
+    await fs.writeFile(path.join(profile, "items-category-filter.png"), Buffer.from(screenshot.data, "base64"));
     assert.deepEqual(errors, []);
     console.log("PASS stale-response protection, scoped filter, lookup failure/retry and no browser exceptions/business writes");
   } finally {

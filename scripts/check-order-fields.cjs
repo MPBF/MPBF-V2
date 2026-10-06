@@ -70,7 +70,7 @@ const WebSocket = require("ws");
       assert.equal(fields.left,fields.right);assert.equal(fields.hint,false);assert.equal(fields.description,null);assert.equal(fields.fits,true);
       await evaluate(`(()=>{const e=document.querySelector('#order-quantity-1');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'12.50');e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
       assert.equal(await evaluate("document.querySelector('#order-quantity-1').value"),"12.50");
-      if(lang==="ar"&&width===390){const image=await send("Page.captureScreenshot",{format:"png"});await fs.writeFile("/tmp/order-fields-ar-390.png",Buffer.from(image.data,"base64"))}
+      if(lang==="ar"&&width===390){const image=await send("Page.captureScreenshot",{format:"png"});await fs.writeFile(path.join(temp,"order-fields-ar-390.png"),Buffer.from(image.data,"base64"))}
       console.log(`PASS ${lang} ${width}: number preview, centered fields, symmetric quantity padding, removed helper, decimal editing and viewport fit`);
     }
     const before=previews;

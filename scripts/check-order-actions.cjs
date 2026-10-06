@@ -195,7 +195,7 @@ const releaseOnly = process.argv.includes("--production-release-only");
           check(`${lang} ${width} release layout fits`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1&&document.querySelector('.odm-dialog').scrollWidth<=document.querySelector('.odm-dialog').clientWidth+1"));
           if(lang==="ar"&&width===390){
             const shot=await send("Page.captureScreenshot",{format:"png"});
-            await fs.writeFile("/tmp/order-release-mobile.png",Buffer.from(shot.data,"base64"));
+            await fs.writeFile(path.join(profile,"order-release-mobile.png"),Buffer.from(shot.data,"base64"));
             failRelease=true;await click(".odm-head-actions .order-release-button");
             await wait("!!document.querySelector('.odm-head-actions [role=alert]')");
             check("release conflict shown without changing order",order.status,"waiting");

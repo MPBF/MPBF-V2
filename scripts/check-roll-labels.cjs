@@ -10,6 +10,9 @@ const QRCode = require("qrcode");
 const esbuild = require("esbuild");
 const { PNG } = require("pngjs");
 const jsQR = require("jsqr");
+const jsLiteral = value => JSON.stringify(value).replace(/[<>&/\u2028\u2029]/g, char => ({
+  "<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "/": "\\u002f", "\u2028": "\\u2028", "\u2029": "\\u2029",
+})[char]);
 
 (async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "roll-label-check-"));
@@ -184,7 +187,7 @@ const jsQR = require("jsqr");
       await send("Page.navigate", { url: origin + route }, ui.sessionId);
       await wait("!!document.querySelector('.production-app')&&!document.querySelector('.prod-loading')", ui.sessionId);
     };
-    const click = text => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)});if(!b)throw Error('Missing button');b.click()})()`, ui.sessionId);
+    const click = text => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${jsLiteral(text)});if(!b)throw Error('Missing button');b.click()})()`, ui.sessionId);
     const popupAfter = async targets => {
       let popup;
       for (let i = 0; i < 100 && !popup; i++) {

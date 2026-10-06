@@ -5,6 +5,9 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const WebSocket = require("ws");
+const jsLiteral = value => JSON.stringify(value).replace(/[<>&/\u2028\u2029]/g, char => ({
+  "<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "/": "\\u002f", "\u2028": "\\u2028", "\u2029": "\\u2029",
+})[char]);
 const QRCode = require("qrcode");
 
 (async () => {
@@ -199,12 +202,12 @@ const QRCode = require("qrcode");
       if(route==="/production/printing")await openStageOrder(2);
       if(route==="/production/cutting")await openStageOrder(3);
        if(!filmReadyOnly && ["/production/film","/production/printing","/production/cutting"].includes(route)){
-         check(`${language} ${route}: rolls show creator name`,await evaluate(`(()=>{const nodes=[...document.querySelectorAll('[data-roll-author]')];return nodes.length>0&&nodes.every(node=>node.innerText.includes(${JSON.stringify(language==="en"?"Creator Person":"منشئ الرول")}))})()`));
+         check(`${language} ${route}: rolls show creator name`,await evaluate(`(()=>{const nodes=[...document.querySelectorAll('[data-roll-author]')];return nodes.length>0&&nodes.every(node=>node.innerText.includes(${jsLiteral(language==="en"?"Creator Person":"منشئ الرول")}))})()`));
          check(`${language} ${route}: roll dates omit time`,await evaluate("[...document.querySelectorAll('[data-roll-date]')].every(node=>!/\\d{1,2}:\\d{2}/.test(node.innerText))"));
        }
     };
-    const clickText = label => evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}); if(!e)throw Error('Missing button '+${JSON.stringify(label)});e.click()})()`);
-    const setInput = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}); if(!e)throw Error('Missing input'); const setter=Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+    const clickText = label => evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${jsLiteral(label)}); if(!e)throw Error('Missing button '+${jsLiteral(label)});e.click()})()`);
+    const setInput = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${jsLiteral(selector)}); if(!e)throw Error('Missing input'); const setter=Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,${jsLiteral(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
     const openFilmOrder = async id => {
       await evaluate(`(()=>{const b=document.querySelector('[data-film-order-id="${id}"]');if(!b)throw Error('Missing group ${id}');if(b.getAttribute('aria-expanded')!=='true')b.click()})()`);
       await wait(`document.querySelector('[data-film-order-id="${id}"]').getAttribute('aria-expanded')==='true'`);
@@ -263,13 +266,13 @@ const QRCode = require("qrcode");
           await wait("!!document.querySelector('[data-film-state=\"ready\"] .prod-start-film')");
           check(`${lang} ${width}: ready order visible without starting`,writes.length,before);
           check(`${lang} ${width}: ready plan stays pending`,[ready.status,ready.order_status,ready.started_at],["pending","for_production",null]);
-          check(`${lang} ${width}: readiness label localized`,await evaluate("document.querySelector('[data-film-state=\"ready\"]').textContent.includes("+JSON.stringify(lang==="ar"?"جاهز":"Ready")+")"));
+          check(`${lang} ${width}: readiness label localized`,await evaluate("document.querySelector('[data-film-state=\"ready\"]').textContent.includes("+jsLiteral(lang==="ar"?"جاهز":"Ready")+")"));
           check(`${lang} ${width}: exactly one eligible ready card`,await evaluate("document.querySelectorAll('[data-film-state=\"ready\"]').length"),1);
           check(`${lang} ${width}: no execution controls before start`,await evaluate("!document.querySelector('[data-film-state=\"ready\"] input')&&!document.querySelector('#weight-1')"));
           check(`${lang} ${width}: fits phone/tablet/desktop`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
           if(lang==="ar"&&width===390){
             const shot=await send("Page.captureScreenshot",{format:"png"});
-            await fs.writeFile("/tmp/film-ready-mobile.png",Buffer.from(shot.data,"base64"));
+            await fs.writeFile(path.join(profile,"film-ready-mobile.png"),Buffer.from(shot.data,"base64"));
             failStart=true;
             await evaluate("document.querySelector('.prod-start-film').click()");
             await wait("!!document.querySelector('[role=\"alert\"]')");
@@ -316,7 +319,7 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} four clear operating specs`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').children.length"),4);
             check(`${lang} ${width} specification values centered across full tile`,await evaluate("[...document.querySelectorAll('.film-spec > strong')].every(node=>{const tile=node.parentElement.getBoundingClientRect(),value=node.getBoundingClientRect();return getComputedStyle(node).textAlign==='center'&&Math.abs((value.left+value.right)/2-(tile.left+tile.right)/2)<=1.5})"));
             check(`${lang} ${width} color swatch does not overlap centered value`,await evaluate("[...document.querySelectorAll('.film-color-spec')].every(tile=>{const swatch=tile.querySelector('.master-batch-swatch'),value=tile.querySelector('strong');return !swatch||swatch.getBoundingClientRect().bottom<=value.getBoundingClientRect().top+1})"));
-            check(`${lang} ${width} quantity and actual remaining labels`,await evaluate(`(()=>{const labels=[...document.querySelectorAll('[data-production-order-id="2"] .film-order-metrics span')].map(node=>node.innerText);return labels[0]===${JSON.stringify(lang==="en"?"Quantity":"الكمية")}&&labels[1]===${JSON.stringify(lang==="en"?"Remaining":"المتبقي")}})()`));
+            check(`${lang} ${width} quantity and actual remaining labels`,await evaluate(`(()=>{const labels=[...document.querySelectorAll('[data-production-order-id="2"] .film-order-metrics span')].map(node=>node.innerText);return labels[0]===${jsLiteral(lang==="en"?"Quantity":"الكمية")}&&labels[1]===${jsLiteral(lang==="en"?"Remaining":"المتبقي")}})()`));
             check(`${lang} ${width} remaining is planned minus produced`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-order-metrics > div:nth-child(2) strong').innerText"),"100 kg");
             check(`${lang} ${width} compute before rounding, preserve decimal data`,await evaluate("document.querySelector('[data-production-order-id=\"8\"] .film-order-metrics > div:nth-child(2) strong').innerText"),"100 kg");
             check(`${lang} ${width} overproduction never shows negative remaining`,await evaluate("document.querySelector('[data-production-order-id=\"9\"] .film-order-metrics > div:nth-child(2) strong').innerText"),"0 kg");
@@ -327,7 +330,7 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} product name larger and emphasized`,await evaluate("[...document.querySelectorAll('.film-order-identity p')].every(node=>parseFloat(getComputedStyle(node).fontSize)>=16&&Number(getComputedStyle(node).fontWeight)>=600)"));
             check(`${lang} ${width} saved decimal quantities unchanged`,[state.orders.find(order=>order.id===8).final_quantity_kg,state.orders.find(order=>order.id===8).produced_kg],["110.49","10.51"]);
             check(`${lang} ${width} real size material and micron thickness`,await evaluate("['28 + 7 + 7 cm','HDPE','25 µm'].every(value=>document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').innerText.includes(value))"));
-            check(`${lang} ${width} film color not printing ink`,await evaluate(`document.querySelector('[data-production-order-id="2"] .film-color-spec').innerText.includes(${JSON.stringify(lang==="en"?"Blue":"أزرق")})`));
+            check(`${lang} ${width} film color not printing ink`,await evaluate(`document.querySelector('[data-production-order-id="2"] .film-color-spec').innerText.includes(${jsLiteral(lang==="en"?"Blue":"أزرق")})`));
             check(`${lang} ${width} transparent color striped`,await evaluate("document.querySelector('[data-production-order-id=\"8\"] .master-batch-swatch').dataset.transparent"),"true");
             check(`${lang} ${width} ordinary white remains solid`,await evaluate("document.querySelector('[data-production-order-id=\"9\"] .master-batch-swatch').dataset.transparent"),"false");
             const targets=await evaluate("[...document.querySelectorAll('.film-operator button,.film-operator input:not([type=\"checkbox\"]),.film-operator .prod-label-inline')].map(node=>({id:node.id,kind:node.className,height:node.getBoundingClientRect().height,min:getComputedStyle(node).minHeight}))");
@@ -344,7 +347,7 @@ const QRCode = require("qrcode");
               await evaluate("window.scrollTo(0,document.querySelector('.film-order-groups').getBoundingClientRect().top+scrollY-80)");
               await new Promise(resolve=>setTimeout(resolve,220));
               const shot=await send("Page.captureScreenshot",{format:"png"});
-              await fs.writeFile(`/tmp/film-ops-${lang}-${width}.png`,Buffer.from(shot.data,"base64"));
+              await fs.writeFile(path.join(profile,`film-ops-${lang}-${width}.png`),Buffer.from(shot.data,"base64"));
             }
             await setInput("#weight-2","2.75");
             await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-last-roll input').click()");
@@ -376,11 +379,11 @@ const QRCode = require("qrcode");
             if(stage==="printing"){
               check(`${lang} ${width} printing groups related production orders`,await evaluate("document.querySelectorAll('.roll-operator [data-production-order-id]').length"),2);
               check(`${lang} ${width} printing groups multiple rolls in one production order`,await evaluate("document.querySelector('[data-production-order-id=\"2\"]').querySelectorAll('[data-production-roll-id]').length"),2);
-              check(`${lang} ${width} printing has cylinder size drawer and populated face colors only`,await evaluate(`(()=>{const value=document.querySelector('.roll-operator .film-spec-grid').innerText;return value.includes('16')&&!/بوصة|\\bin\\b/.test(value)&&value.includes('28 + 7 + 7 cm')&&value.includes('D-12')&&value.includes(${JSON.stringify(lang==="en"?"Red":"أحمر")})&&!value.includes(${JSON.stringify(lang==="en"?"Back colors":"ألوان الظهر")})})()`));
+              check(`${lang} ${width} printing has cylinder size drawer and populated face colors only`,await evaluate(`(()=>{const value=document.querySelector('.roll-operator .film-spec-grid').innerText;return value.includes('16')&&!/بوصة|\\bin\\b/.test(value)&&value.includes('28 + 7 + 7 cm')&&value.includes('D-12')&&value.includes(${jsLiteral(lang==="en"?"Red":"أحمر")})&&!value.includes(${jsLiteral(lang==="en"?"Back colors":"ألوان الظهر")})})()`));
               check(`${lang} ${width} printing never asks for cutting net weight`,await evaluate("document.querySelectorAll('.roll-operator input[id^=\"net-\"]').length"),0);
               await openStageOrder(5);
             }else{
-              check(`${lang} ${width} cutting shows length punching and material`,await evaluate(`(()=>{const value=document.querySelector('.roll-operator .film-spec-grid').innerText;return value.includes(${JSON.stringify(lang==="en"?"41 cm":"41 سم")})&&value.includes(${JSON.stringify(lang==="en"?"Banana":"بنانة")})&&value.includes('HDPE')})()`));
+              check(`${lang} ${width} cutting shows length punching and material`,await evaluate(`(()=>{const value=document.querySelector('.roll-operator .film-spec-grid').innerText;return value.includes(${jsLiteral(lang==="en"?"41 cm":"41 سم")})&&value.includes(${jsLiteral(lang==="en"?"Banana":"بنانة")})&&value.includes('HDPE')})()`));
               check(`${lang} ${width} cutting precision and authoritative max retained`,await evaluate("(()=>{const input=document.querySelector('#net-3');return [input.min,input.max,input.step,input.inputMode]})()"),["0.01","10.00","0.01","decimal"]);
               await setInput("#net-3","2.75");
               await openStageOrder(2);
@@ -400,7 +403,7 @@ const QRCode = require("qrcode");
               await evaluate("window.scrollTo(0,document.querySelector('.roll-operator .film-order-groups').getBoundingClientRect().top+scrollY-80)");
               await new Promise(resolve=>setTimeout(resolve,220));
               const shot=await send("Page.captureScreenshot",{format:"png"});
-              await fs.writeFile(`/tmp/${stage}-ops-${lang}-${width}.png`,Buffer.from(shot.data,"base64"));
+              await fs.writeFile(path.join(profile,`${stage}-ops-${lang}-${width}.png`),Buffer.from(shot.data,"base64"));
             }
           }
           if(route==="/production/rolls/2"){
@@ -410,15 +413,15 @@ const QRCode = require("qrcode");
             }
             check(`${lang} ${width} all authoritative actor IDs remain`,["#42","#43","#44"].every(id=>detailText.includes(id)));
             check(`${lang} ${width} no receiver tracking`,!(/Received by|استلمها|مستلم الرول/.test(detailText)));
-            check(`${lang} ${width} detail uses its order/machine aggregate`,await evaluate(`document.querySelector('.prod-roll-detail .prod-film-duration').innerText.includes(${JSON.stringify(lang==="en"?"29 h 3 sec":"29 س 3 ث")})`));
+            check(`${lang} ${width} detail uses its order/machine aggregate`,await evaluate(`document.querySelector('.prod-roll-detail .prod-film-duration').innerText.includes(${jsLiteral(lang==="en"?"29 h 3 sec":"29 س 3 ث")})`));
             check(`${lang} ${width} detail does not show old manual minutes`,await evaluate("!document.querySelector('.prod-roll-detail').innerText.includes('Production time (minutes)')&&!document.querySelector('.prod-roll-detail').innerText.includes('مدة الإنتاج (دقيقة)')"));
           }
           if(route==="/production/rolls/3"){
-            check(`${lang} ${width} absent stage actors not guessed`,await evaluate(`document.querySelector('.prod-roll-detail').innerText.includes(${JSON.stringify(lang==="en"?"Not recorded":"غير مسجل")})`));
+            check(`${lang} ${width} absent stage actors not guessed`,await evaluate(`document.querySelector('.prod-roll-detail').innerText.includes(${jsLiteral(lang==="en"?"Not recorded":"غير مسجل")})`));
           }
           if (lang === "en" && route === "/production" && [390, 1440].includes(width)) {
             const shot = await send("Page.captureScreenshot", { format: "png" });
-            await fs.writeFile(`/tmp/factory-production-${width}.png`, Buffer.from(shot.data, "base64"));
+            await fs.writeFile(path.join(profile,`factory-production-${width}.png`), Buffer.from(shot.data, "base64"));
           }
         }
       }
@@ -452,7 +455,7 @@ const QRCode = require("qrcode");
       await openFilmOrder(559);
       check(`${lang} search reaches last customer order in large list`,await evaluate("document.querySelectorAll('[data-production-order-id]').length"),3);
       await setInput("[data-film-search]","");await openFilmOrder(95);
-      check(`${lang} missing operating fields explicit, no invented swatch`,await evaluate(`document.querySelector('[data-production-order-id="95"] .film-spec-grid').innerText.includes(${JSON.stringify(lang==="en"?"Unrecorded":"غير مسجل")})&&!document.querySelector('[data-production-order-id="95"] .master-batch-swatch')`));
+      check(`${lang} missing operating fields explicit, no invented swatch`,await evaluate(`document.querySelector('[data-production-order-id="95"] .film-spec-grid').innerText.includes(${jsLiteral(lang==="en"?"Unrecorded":"غير مسجل")})&&!document.querySelector('[data-production-order-id="95"] .master-batch-swatch')`));
     }
     check("large-list browsing never writes business data",writes.length,beforeStressWrites);
     state.orders.splice(stressOffset);
@@ -587,21 +590,21 @@ const QRCode = require("qrcode");
       for(const width of [390,768,1440]){
         await send("Emulation.setDeviceMetricsOverride",{width,height:900,deviceScaleFactor:1,mobile:width<500});
         await navigate("/production");
-        await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${JSON.stringify(lang==="en"?"Order history":"تاريخ أوامر الإنتاج")}).click()`);
+        await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${jsLiteral(lang==="en"?"Order history":"تاريخ أوامر الإنتاج")}).click()`);
         await wait("document.body.innerText.includes('PO-220')");
         check(`${lang} ${width} expanded history fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
         await setInput("details[open] input:not([type])", "NO-MATCH-I18N");
         await evaluate("document.querySelector('details[open] form').requestSubmit()");
         const emptyText = lang === "en" ? "No results" : "لا توجد نتائج";
-        await wait(`document.querySelector('details[open]').innerText.includes(${JSON.stringify(emptyText)})`);
+        await wait(`document.querySelector('details[open]').innerText.includes(${jsLiteral(emptyText)})`);
         check(`${lang} ${width} history empty message`, await evaluate("document.querySelectorAll('details[open] .prod-record').length"), 0);
         await setInput("details[open] input:not([type])", ""); historyFailure = true;
         await evaluate("document.querySelector('details[open] form').requestSubmit()");
         await wait("!!document.querySelector('details[open] .prod-error')");
-        check(`${lang} ${width} history localized error`, await evaluate(`document.querySelector('details[open] .prod-error').innerText.includes(${JSON.stringify(lang === "en" ? "Fixture history failure" : "تعذر تحميل التاريخ")})`));
+        check(`${lang} ${width} history localized error`, await evaluate(`document.querySelector('details[open] .prod-error').innerText.includes(${jsLiteral(lang === "en" ? "Fixture history failure" : "تعذر تحميل التاريخ")})`));
         await navigate("/production/warehouse");
         for(const title of (lang==="en"?["Finished-goods balances","Saved receipt vouchers","Inventory movements"]:["أرصدة المواد التامة","سندات الاستلام المحفوظة","حركات المخزون"])){
-          await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${JSON.stringify(title)}).click()`);
+          await evaluate(`[...document.querySelectorAll('summary')].find(item=>item.textContent.trim()===${jsLiteral(title)}).click()`);
         }
         await wait("!!document.querySelector('.prod-voucher')");
         await evaluate("document.querySelectorAll('.prod-voucher').forEach(item=>item.open=true)");
@@ -610,7 +613,7 @@ const QRCode = require("qrcode");
     }
     check("each board requests its own scope",["management","film","printing","cutting","hall","warehouse","roll"].every(scope=>stateScopes.includes(scope)));
     check("no runtime exceptions", errors, []);
-    await fs.writeFile("/tmp/factory-ui-requests.json",JSON.stringify(writes));
+    await fs.writeFile(path.join(profile,"factory-ui-requests.json"),JSON.stringify(writes));
     console.log(`Verified ${passed} browser assertions with isolated API fixtures.`);
   } catch (error) {
     console.error(error);

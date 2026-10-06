@@ -5,6 +5,9 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const WebSocket = require("ws");
+const jsLiteral = value => JSON.stringify(value).replace(/[<>&/\u2028\u2029]/g, char => ({
+  "<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "/": "\\u002f", "\u2028": "\\u2028", "\u2029": "\\u2029",
+})[char]);
 
 (async () => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "language-flags-"));
@@ -128,9 +131,9 @@ const WebSocket = require("ws");
       if (selector === ".flag-language-selector__trigger") {
         await wait("!!document.querySelector('.flag-language-selector__trigger') && !document.querySelector('.flag-language-selector__trigger').disabled");
       } else if (selector.startsWith("[role=menuitemradio]")) {
-        await wait(`!!document.querySelector(${JSON.stringify(selector)})`);
+        await wait(`!!document.querySelector(${jsLiteral(selector)})`);
       }
-      const point = await evaluate(`(()=>{const e=[...document.querySelectorAll(${JSON.stringify(selector)})].find(e=>e.getClientRects().length);if(!e)throw Error('Not visible: '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+      const point = await evaluate(`(()=>{const e=[...document.querySelectorAll(${jsLiteral(selector)})].find(e=>e.getClientRects().length);if(!e)throw Error('Not visible: '+${jsLiteral(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
       if (useTouch) {
         await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ ...point, id: 0 }] });
         await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
