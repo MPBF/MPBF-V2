@@ -29,3 +29,13 @@ containers. Tests can falsely pass layout checks or inspect stale permissions.
 
 **How to apply:** synchronize navigation before assertions; expand collapsed
 details before asserting that their contents are visibly displayed.
+
+For CDP checks of native Enter activation, bring the target page to the front
+and send the carriage-return text with the key event.
+
+**Why:** a synthetic key name and virtual key code alone produced a false
+failure for a working native summary disclosure; focused-page events with
+carriage-return text passed.
+
+**How to apply:** focus the summary after activating its page, then send Enter
+keydown with `text: "\r"` and its corresponding keyup before checking `open`.

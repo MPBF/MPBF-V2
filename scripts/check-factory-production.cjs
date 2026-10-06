@@ -133,7 +133,9 @@ const QRCode = require("qrcode");
             await send("Fetch.failRequest",{requestId,errorReason:"ConnectionClosed"},event.sessionId);
             return;
           }
-        } else if (route === "/production/state") {
+         } else if (route === "/production/labels") {
+           body = {records:state.rolls,next:null};
+         } else if (route === "/production/state") {
           const scope=new URL(request.url).searchParams.get("scope");
           stateScopes.push(scope);
           if (failure) { status = 500; body = { message: "خطأ تحميل تجريبي", message_en: "Fixture loading failure" }; }
@@ -211,7 +213,39 @@ const QRCode = require("qrcode");
       await evaluate(`(()=>{const button=document.querySelector('[data-operator-order-id="${id}"]');if(!button)throw Error('Missing operator group ${id}');if(button.getAttribute('aria-expanded')!=='true')button.click()})()`);
       await wait(`document.querySelector('[data-operator-order-id="${id}"]').getAttribute('aria-expanded')==='true'`);
     };
-    if (filmReadyOnly) {
+     if (process.argv.includes("--labels-disclosure-only")) {
+       const before = writes.length;
+       for (const lang of ["ar","en"]) {
+         language=lang;
+         for (const width of [390,768,1440]) {
+           await send("Emulation.setDeviceMetricsOverride",{width,height:900,deviceScaleFactor:1,mobile:width<500});
+           for (const route of ["/production","/production/film","/production/printing","/production/cutting"]) {
+             await navigate(route);
+             await wait("!!document.querySelector('.roll-label-option')");
+             check(`${lang} ${width} ${route}: labels initially collapsed`,await evaluate("!document.querySelector('details.roll-label-controls').open"));
+             check(`${lang} ${width} ${route}: only compact header occupies space`,await evaluate("(()=>{const box=document.querySelector('.roll-label-controls');return box.getBoundingClientRect().height<=box.querySelector('summary').getBoundingClientRect().height+3})()"));
+             await evaluate("document.querySelector('.roll-label-controls > summary').click()");
+             check(`${lang} ${width} ${route}: header expands controls`,await evaluate("document.querySelector('.roll-label-controls').open"));
+             await evaluate("document.querySelector('.roll-label-option input').click()");
+             await setInput(".roll-label-search input","ROLL-DRAFT");
+             await evaluate("document.querySelector('.roll-label-controls > summary').click()");
+             check(`${lang} ${width} ${route}: header collapses controls`,await evaluate("!document.querySelector('.roll-label-controls').open"));
+             await send("Page.bringToFront");
+             await evaluate("document.querySelector('.roll-label-controls > summary').focus()");
+             await send("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",text:"\r",unmodifiedText:"\r",windowsVirtualKeyCode:13});
+             await send("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});
+             check(`${lang} ${width} ${route}: keyboard expands controls`,await evaluate("document.querySelector('.roll-label-controls').open"));
+             check(`${lang} ${width} ${route}: selection and search survive collapse`,await evaluate("document.querySelector('.roll-label-option input').checked&&document.querySelector('.roll-label-search input').value==='ROLL-DRAFT'"));
+             check(`${lang} ${width} ${route}: fits viewport`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
+           }
+         }
+       }
+       check("label disclosure browsing never writes business data",writes.length,before);
+       check("no label disclosure runtime errors",errors,[]);
+       console.log(`Verified ${passed} label disclosure browser checks with isolated API fixtures.`);
+       return;
+     }
+     if (filmReadyOnly) {
       const ready = state.orders[0];
       const reset = () => Object.assign(ready, {status:"pending",order_status:"for_production",previous_status:null,
         batch_number:null,started_at:null,film_closed_at:null,completed_at:null,stage:null,produced_kg:"0.00",roll_count:0});

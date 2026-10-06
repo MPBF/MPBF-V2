@@ -1,4 +1,6 @@
 .roll-label-controls { margin-top: 18px; overflow: hidden; }
+ .roll-label-controls > summary { min-height: 56px; }
+ .roll-label-controls:not([open]) .prod-card-head p { display: none; }
 .roll-label-controls .prod-card-head { align-items: flex-start; }
 .roll-label-controls .prod-card-head h3 { margin: 0; }
 .roll-label-controls .prod-card-head p { margin: 5px 0 0; max-width: 700px; color: var(--prod-muted); font-size: 12px; line-height: 1.55; }

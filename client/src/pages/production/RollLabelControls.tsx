@@ -177,11 +177,11 @@ export default function RollLabelControls({ rolls = [], language, single = false
     return next;
   });
 
-  return <section className="roll-label-controls prod-card" aria-labelledby="roll-label-title">
-    <div className="prod-card-head">
+  return <details className="roll-label-controls prod-card prod-history" aria-labelledby="roll-label-title">
+    <summary className="prod-card-head">
       <div><h3 id="roll-label-title">{text.title}</h3><p>{text.hint}</p></div>
       <span className="roll-label-count" aria-live="polite">{selected.size} / 100 {text.selected}</span>
-    </div>
+    </summary>
     <div className="prod-card-body">
       {error && <div className="roll-label-error" role="alert"><AlertTriangle aria-hidden="true" /><span>{error}</span><button type="button" onClick={() => void launch(retryIds)}><RefreshCw />{text.retry}</button><button type="button" aria-label={lang === "ar" ? "إغلاق التنبيه" : "Dismiss alert"} onClick={() => setError("")}><X /></button></div>}
       <form className="roll-label-toolbar" onSubmit={event => { event.preventDefault(); history.search(query); }}>
@@ -212,5 +212,5 @@ export default function RollLabelControls({ rolls = [], language, single = false
         </button>
       </div>
     </div>
-  </section>;
+  </details>;
 }
