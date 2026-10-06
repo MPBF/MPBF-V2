@@ -247,7 +247,6 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
   const [orderCreatedDate, setOrderCreatedDate] = useState(() => riyadhDate());
   const [deliveryDays, setDeliveryDays] = useState("20");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState("waiting");
   const [originalItems, setOriginalItems] = useState<{ id: number; customer_product_id: number | null; quantity_kg: string }[]>([]);
   const [detailsLoading, setDetailsLoading] = useState(Boolean(editId));
   const [detailsError, setDetailsError] = useState("");
@@ -307,7 +306,6 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
       const savedDays = validDeliveryDays(data.order.delivery_days);
       setDeliveryDays(String(savedDays ?? legacyDeliveryDays(data.order.created_at, data.order.delivery_date) ?? 20));
       setNotes(data.order.notes || "");
-      setStatus(data.order.status || "waiting");
       setOriginalItems(data.items.map((line: Row) => ({
         id: line.id, customer_product_id: line.customer_product_id, quantity_kg: line.quantity_kg,
       })));
@@ -447,7 +445,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
     setSaving(true);
     try {
       const payload = {
-        ...(editId ? { status, original_items: originalItems } : { customer_id: selectedCustomer }),
+        ...(editId ? { original_items: originalItems } : { customer_id: selectedCustomer }),
         delivery_days: normalizedDeliveryDays,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         items: normalizedLines.map((line) => {

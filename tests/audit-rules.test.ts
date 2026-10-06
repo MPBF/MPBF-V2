@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import {
   canGrantPermissions,
+  isAdministrator,
   isProtectedProductionOrder,
   plannedFinalQuantity,
 } from "../server/audit-rules";
@@ -13,7 +14,12 @@ describe("audited grant and production safety rules", () => {
     expect(canGrantPermissions(effective, ["admin"])).toBe(false);
     expect(canGrantPermissions(effective, ["*"])).toBe(false);
     expect(canGrantPermissions(["manage_roles", "admin"], ["*"])).toBe(true);
-    expect(canGrantPermissions(["*"], ["admin"])).toBe(true);
+    expect(canGrantPermissions(["*"], ["admin"])).toBe(false);
+    expect(canGrantPermissions(["*"], ["*"])).toBe(false);
+    expect(canGrantPermissions(["*"], ["manage_roles", "manage_users", "view_orders"])).toBe(true);
+    expect(canGrantPermissions(["admin"], ["admin", "*"])).toBe(true);
+    expect(isAdministrator(["*"])).toBe(false);
+    expect(isAdministrator(["admin"])).toBe(true);
   });
 
   it("derives a positive planned quantity from quantity and a bounded overrun", () => {

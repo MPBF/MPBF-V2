@@ -80,7 +80,9 @@ export function requirePermission(...required: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ message: "تسجيل الدخول مطلوب" });
     const permissions = ((req.user as unknown as AuthenticatedUser).permissions ?? []);
-    if (permissions.includes("*") || required.some((item) => permissions.includes(item))) {
+    // Wildcards cover ordinary permissions, never the explicit admin grant.
+    if (required.some((item) => permissions.includes(item) ||
+      (item !== "admin" && permissions.includes("*")))) {
       return next();
     }
     return res.status(403).json({ message: "لا تملك صلاحية تنفيذ هذا الإجراء" });

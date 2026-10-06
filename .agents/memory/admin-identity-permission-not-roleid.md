@@ -25,3 +25,11 @@ appears, click does nothing.
   isAdmin checks in routes.ts). Don't reintroduce `role_id` literals for admin.
 - Mutations that can 403 (delete/markRead/update) MUST have an `onError` toast, or
   authz denials look like "nothing happened".
+
+## Wildcard delegation boundary
+
+Treat `*` as ordinary-permission coverage, not administrator identity. Only an explicit `admin` actor may delegate `admin` or `*`, including by assigning or modifying a role or account that carries either grant.
+
+**Why:** Blocking wildcard access at admin-only routes is insufficient if the same actor can create an admin role and assign it to another account. Ordinary wildcard delegation must remain available without permitting this escalation.
+
+**How to apply:** Check direct authorization and indirect role/account delegation together. Regression tests must cover role creation, user assignment, edits of already-privileged accounts, and the final admin-only action, while retaining delegation of ordinary permissions.

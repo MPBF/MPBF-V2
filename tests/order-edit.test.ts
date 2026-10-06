@@ -2,9 +2,11 @@ import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { categories, customer_products, customers, items, orders, production_orders } from "../shared/schema";
 import router from "../server/routes";
-import { db } from "../server/db";
+import { db, pool } from "../server/db";
 
-jest.mock("../server/db", () => ({ db: { transaction: jest.fn() } }));
+jest.mock("../server/db", () => ({
+  db: { transaction: jest.fn(), select: jest.fn() }, pool: { connect: jest.fn() },
+}));
 jest.mock("../server/hr", () => ({ __esModule: true, default: express.Router() }));
 jest.mock("../server/self-service", () => ({ __esModule: true, default: express.Router() }));
 jest.mock("../server/auth", () => ({
@@ -95,7 +97,7 @@ function fakeTransaction(
 }
 
 const original_items = baseLines.map(({ id, customer_product_id, quantity_kg }) => ({ id, customer_product_id, quantity_kg }));
-const body = (items: any[]) => ({ status: "waiting", delivery_days: 20, original_items, items });
+const body = (items: any[]) => ({ delivery_days: 20, original_items, items });
 
 describe("editing an order with production lines", () => {
   let server: ReturnType<ReturnType<typeof express>["listen"]>;
@@ -111,11 +113,11 @@ describe("editing an order with production lines", () => {
     url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   });
   afterAll(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
-  const request = (items: any[], permission = "manage_orders") =>
+  const request = (items: any[], permission = "manage_orders", extra: Record<string, unknown> = {}) =>
     fetch(`${url}/api/orders/7/with-items`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", "x-test-permission": permission },
-      body: JSON.stringify(body(items)),
+      body: JSON.stringify({ ...body(items), ...extra }),
     });
 
   const draftProduct = () => ({
@@ -148,6 +150,70 @@ describe("editing an order with production lines", () => {
   }));
 
   beforeEach(() => { jest.clearAllMocks(); });
+
+  it("preserves a second user's release and started work when a stale editor saves notes", async () => {
+    const state: { order: any; lines: any[] } = {
+      order: structuredClone(baseOrder), lines: structuredClone(baseLines),
+    };
+    jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+    jest.mocked(db.select).mockImplementation(() => ({
+      from: (table: unknown) => {
+        const query: any = {
+          where: () => query,
+          limit: async () => [structuredClone(state.order)],
+          orderBy: async () => structuredClone(table === production_orders ? state.lines : []),
+        };
+        return query;
+      },
+    }) as any);
+    // First user opens the real edit endpoint while the order is still waiting.
+    const opened = await fetch(`${url}/api/orders/7/with-items`, {
+      headers: { "x-test-permission": "manage_orders" },
+    });
+    expect(opened.status).toBe(200);
+    const snapshot: any = await opened.json();
+    expect(snapshot.order.status).toBe("waiting");
+    const query = jest.fn(async (sql: string) => {
+      if (sql.startsWith("SELECT id,status")) return { rows: [structuredClone(state.order)] };
+      if (sql.includes("FROM production_orders")) return { rows: structuredClone(state.lines) };
+      if (sql.startsWith("UPDATE orders")) {
+        state.order.previous_status = state.order.status;
+        state.order.status = "for_production";
+        return { rows: [structuredClone(state.order)] };
+      }
+      return { rows: [] };
+    });
+    jest.mocked(pool.connect).mockImplementation(async () => ({ query, release: jest.fn() }) as any);
+    // A second user executes the independent release action.
+    const released = await fetch(`${url}/api/orders/7/release-production`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-test-permission": "admin" },
+      body: JSON.stringify({ expected_status: "waiting" }),
+    });
+    expect(released.status).toBe(200);
+    expect(state.order.status).toBe("for_production");
+    state.lines[0] = { ...state.lines[0], status: "active", batch_number: "B-001", started_at: "2026-10-06T08:00:00Z" };
+    const work = structuredClone(state.lines);
+    const saved = await request(snapshot.items.map((line: any) => ({
+      id: line.id, customer_product_id: line.customer_product_id, quantity_kg: line.quantity_kg,
+    })), "manage_orders", { status: snapshot.order.status, notes: "updated notes" });
+    expect(saved.status).toBe(200);
+    expect(state.order).toMatchObject({ status: "for_production", previous_status: "waiting", notes: "updated notes" });
+    expect(state.lines).toEqual(work);
+    expect(await saved.json()).toMatchObject({ order: { status: "for_production" }, production_orders: work });
+  });
+
+  it.each(["for_production", "in_production", "paused", "cancelled", "completed", "delivered", "archived"])(
+    "cannot override current %s via the editor's legacy status field", async status => {
+      const state: { order: any; lines: any[] } = {
+        order: { ...baseOrder, status, previous_status: "on_hold" }, lines: structuredClone(baseLines),
+      };
+      jest.mocked(db.transaction).mockImplementation(fakeTransaction(state) as typeof db.transaction);
+      const response = await request(untouchedLines(), "manage_orders", { status: "waiting", notes: "edited" });
+      expect(response.status).toBe(200);
+      expect(state.order).toMatchObject({ status, previous_status: "on_hold", notes: "edited" });
+      expect(state.lines).toEqual(baseLines);
+    },
+  );
 
   it("keeps the surviving production-order ID and creates a new numbered line", async () => {
     const state = { order: structuredClone(baseOrder), lines: structuredClone(baseLines) };

@@ -387,7 +387,9 @@ const orderWithItemsSchema = z.object({
 }).strict();
 
 const orderEditSchema = orderWithItemsSchema.omit({ customer_id: true }).extend({
-  status: z.enum(["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"]),
+  // Accept but ignore snapshots from editors opened before this fix.
+  // Only dedicated transition actions may update order status.
+  status: z.enum(["waiting", "on_hold", "in_production", "for_production", "paused", "cancelled", "completed", "delivered", "archived"]).optional(),
   original_items: z.array(z.object({
     id: z.number().int().positive(),
     customer_product_id: z.number().int().positive().nullable(),
@@ -1189,7 +1191,6 @@ router.put("/orders/:id/with-items", ordersWrite, async (req, res, next) => {
         notes: input.notes ?? null,
         delivery_days: input.delivery_days,
         delivery_date: deliveryDate,
-        status: input.status,
       }).where(eq(orders.id, id)).returning();
       const resultLines = [];
       for (const line of input.items) {

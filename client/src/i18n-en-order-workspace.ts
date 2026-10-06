@@ -27,7 +27,7 @@ const orderWorkspaceEnglish: Record<string, string> = {
   "تعذر تحميل مجلدات الطلبات": "Could not load order folders",
   "إجراء على الطلب": "Order action",
   "لا يمكن تنفيذ إجراء على أكثر من 100 طلب في العملية الواحدة.": "A single operation can include no more than 100 orders.",
+  "تعذر تحميل رقم الطلب.": "The order number could not be loaded.",
 };
 
-orderWorkspaceEnglish["تعذر تحميل رقم الطلب."] = "The order number could not be loaded.";
 export default orderWorkspaceEnglish;

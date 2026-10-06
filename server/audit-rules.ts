@@ -1,6 +1,5 @@
 export function isAdministrator(permissions: unknown): boolean {
-  return Array.isArray(permissions) &&
-    (permissions.includes("admin") || permissions.includes("*"));
+  return Array.isArray(permissions) && permissions.includes("admin");
 }
 
 export function canGrantPermissions(actorPermissions: unknown, grant: unknown): boolean {
@@ -10,7 +9,7 @@ export function canGrantPermissions(actorPermissions: unknown, grant: unknown): 
     typeof permission === "string" &&
     permission !== "admin" &&
     permission !== "*" &&
-    actorPermissions.includes(permission),
+    (actorPermissions.includes("*") || actorPermissions.includes(permission)),
   );
 }
 
