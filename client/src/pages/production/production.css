@@ -364,6 +364,10 @@
   .production .prod-film-duration-item { grid-template-columns:1fr; }
   .production .prod-film-duration-times { grid-column:auto; }
 }
+@media(max-width:420px) {
+  .production .prod-film-duration-item { grid-template-columns:1fr; }
+  .production .prod-film-duration-times { grid-column:auto; }
+}
 @media(prefers-reduced-motion:reduce) {
   .production *, .production *::before, .production *::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; scroll-behavior:auto!important; }
 }

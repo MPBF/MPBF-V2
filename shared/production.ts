@@ -25,6 +25,11 @@ export type FilmMachineDuration = {
   roll_count: number; first_roll_at: string; last_roll_at: string;
   duration_seconds: number | null;
 };
+export type FilmMachineDuration = {
+  machine_id: string; machine_name: string | null; machine_name_ar: string | null;
+  roll_count: number; first_roll_at: string; last_roll_at: string;
+  duration_seconds: number | null;
+};
 export type ProductionOrderRecord = {
   id: number; order_id: number; production_order_number: string; order_number: string;
   customer_product_id: number | null; quantity_kg: string; final_quantity_kg: string; status: string;
