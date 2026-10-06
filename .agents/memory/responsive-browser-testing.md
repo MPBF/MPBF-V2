@@ -53,3 +53,9 @@ making successful browser checks fail during cleanup with ENOTEMPTY.
 
 **How to apply:** synchronize child-process exit before profile cleanup and
 allow bounded retries for remaining filesystem activity.
+
+Check removed URL filters by parsing search parameters, not matching the entire URL string.
+
+**Why:** Wouter can leave a trailing `?` after the last parameter is removed; an exact URL wait then times out even though the filter was correctly cleared.
+
+**How to apply:** assert the pathname and absence of the relevant search parameter in browser navigation checks.
