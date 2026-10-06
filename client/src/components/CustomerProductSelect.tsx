@@ -117,7 +117,7 @@ export default function CustomerProductSelect({ id, products, categories, select
           onKeyDown={handleKeyDown}
           onInvalid={openList}
           autoComplete="off"
-          placeholder={open ? translate("ابحث عن المنتج أو التصنيف…") : translate("اختر منتجًا")}
+          placeholder={open ? translate("ابحث عن المنتج أو التصنيف…") : translate("اختر منتج")}
           disabled={disabled}
           required={!selected}
         />

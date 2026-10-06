@@ -605,7 +605,7 @@ export default function OrderCreateModal({ editId, onClose, onSaved }: { editId?
                 );
               })}
             </div>
-             <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} />{" "}{translate("إضافة بند آخر")}</button>
+             <button className="order-create-add" type="button" onClick={addLine} disabled={saving || lines.length >= 25}><Plus size={16} />{" "}{translate("إضافة منتج")}</button>
           </section>
 
           <section className="order-create-section order-notes-section" aria-labelledby="order-notes-heading">
