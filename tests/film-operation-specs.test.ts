@@ -26,9 +26,11 @@ describe("film operation specs", () => {
     expect(specs({}, "ar").batchName).toBe("أزرق");
   });
   it("uses frozen width and positive gussets when caption is missing", () => {
-    expect(specs().size).toBe("Width 28 cm · Gusset 7 / 7 cm");
-    expect(specs({ left_facing: "0", right_facing: "0" }).size).toBe("Width 28 cm");
-    expect(specs({ left_facing: null }).size).toBe("Width 28 cm · Gusset 7 cm");
+    expect(specs().size).toBe("28 + 7 + 7 cm");
+    expect(specs({ left_facing: "0", right_facing: "0" }).size).toBe("28 cm");
+    expect(specs({ left_facing: null }).size).toBe("28 + 7 cm");
+    expect(specs({}, "ar").size).toBe("28 + 7 + 7 cm");
+    expect(specs({size_caption:"العرض 28 cm · الكسرة 7 / 7 cm"}, "ar").size).toBe("28 cm · 7 / 7 cm");
   });
   it("does not invent dimensions or thickness from invalid numeric text", () => {
     const value = specs({ width: "broken", left_facing: null, right_facing: "0", universal_thickness: "" });
@@ -46,7 +48,7 @@ describe("film operation specs", () => {
   it("English skips Arabic text and blanks throughout fallbacks", () => {
     const value = specs({ size_caption: "مقاس عربي", raw_material: "خامة عربية",
       master_batch: { id: "X", name: "اسم عربي", name_ar: "اسم", color_hex: "#2463EB" } });
-    expect(value.size).toBe("Width 28 cm · Gusset 7 / 7 cm");
+    expect(value.size).toBe("28 + 7 + 7 cm");
     expect(value.material).toBe("Unrecorded");
     expect(value.batchName).toBe("#2463EB");
     expect(specs({ master_batch: { id: "X", name: " ", name_ar: " ", color_hex: "#fff" } }).batchName).toBe("#fff");

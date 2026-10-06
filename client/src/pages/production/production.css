@@ -312,6 +312,12 @@
 .roll-operator .roll-operator-net-field { min-width:0; }
 .roll-operator .roll-operator-net-field input { min-height:44px; font-size:16px; }
 .roll-operator .roll-operator-action { min-height:44px; }
+ .film-recorded-rolls { display:grid; grid-column:1/-1; gap:8px; min-width:0; }
+ .film-recorded-roll { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:center; gap:10px; padding:9px; border:1px solid var(--prod-line); background:#f8fbf7; min-width:0; }
+ .film-recorded-roll > div { display:grid; gap:3px; min-width:0; overflow-wrap:anywhere; }
+ .film-recorded-roll strong { font-size:13px; }
+ .film-recorded-roll-link { display:inline-flex; align-items:center; min-height:44px; color:var(--prod-deep); }
+ .film-recorded-roll-context { color:var(--prod-muted); font-size:12px; }
 @keyframes prod-rise { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
 @keyframes prod-shimmer { to{background-position:-200% 0} }
 @media(max-width:1000px) {

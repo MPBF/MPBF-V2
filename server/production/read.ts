@@ -41,9 +41,9 @@ export class ProductionReadService {
         identifyRollProducts(state.orders);
       }
       if (production) {
-        // Done rolls are traceable on demand, not downloaded on every refresh.
-        state.rolls = await rows(tx, `${rollSelect} WHERE r.stage<>'done'
-          ${scope === "film" ? "AND e.film_closed_at IS NULL" : ""}
+        // Film shows all recorded rolls of still-open orders, including rolls
+        // already processed downstream. Other boards keep executable work only.
+        state.rolls = await rows(tx, `${rollSelect} WHERE ${scope === "film" ? "e.film_closed_at IS NULL AND e.completed_at IS NULL" : "r.stage<>'done'"}
           ${scope === "printing" ? "AND e.is_printed AND r.printed_at IS NULL" : ""}
           ${scope === "cutting" ? "AND NOT e.is_roll_product AND (NOT e.is_printed OR r.printed_at IS NOT NULL)" : ""}
           ORDER BY r.id DESC`);

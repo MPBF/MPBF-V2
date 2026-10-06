@@ -1,13 +1,15 @@
 import { ChevronDown, Factory, Gauge, Layers3, Palette, Plus, Ruler, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { Link } from "wouter";
 
 import MasterBatchSwatch from "../../components/MasterBatchSwatch";
 import { filmOperationSpecs, filmRemainingQuantity, filmSearchTerm, safeFilmName as englishSafe } from "../../lib/film-operation-specs";
 
-import type { ProductionOrderRecord } from "../../../../shared/production";
+import type { ProductionOrderRecord, ProductionRollRecord } from "../../../../shared/production";
 
 type Props = {
   orders: ProductionOrderRecord[];
+  rolls: ProductionRollRecord[];
   readyIds: Set<number>;
   language: string;
   canOperate: boolean;
@@ -20,6 +22,8 @@ type Props = {
   text: (key: string) => string;
   number: (value: string | number | null | undefined, digits?: number) => string;
   productName: (order: ProductionOrderRecord) => string;
+  machineName: (id: string) => string;
+  date: (value: string | null) => string;
   onWeight: (id: number, value: string) => void;
   onLast: (id: number, value: boolean) => void;
   onInline: (id: number, value: boolean) => void;
@@ -29,11 +33,20 @@ type Props = {
 
 export default function FilmOperatorOrders(props: Props) {
   const {
-    orders, readyIds, language, canOperate, saving, selectedMachine, weights, last, inline,
-    inlinePrinterAvailable, text, number, productName, onWeight, onLast, onInline, onRecord, onStart,
+    orders, rolls, readyIds, language, canOperate, saving, selectedMachine, weights, last, inline,
+    inlinePrinterAvailable, text, number, productName, machineName, date, onWeight, onLast, onInline, onRecord, onStart,
   } = props;
   const [search, setSearch] = useState("");
-  const [openOrderId, setOpenOrderId] = useState<number | null | undefined>(undefined);
+  const [openOrderId, setOpenOrderId] = useState<number | null>(null);
+  const rollsByOrder = useMemo(() => {
+    const map = new Map<number, ProductionRollRecord[]>();
+    for (const roll of rolls) {
+      const members = map.get(roll.production_order_id) ?? [];
+      members.push(roll);
+      map.set(roll.production_order_id, members);
+    }
+    return map;
+  }, [rolls]);
   const groups = useMemo(() => {
     const map = new Map<number, { orderId: number; orderNumber: string; customerName: string; members: ProductionOrderRecord[] }>();
     for (const order of orders) {
@@ -59,20 +72,7 @@ export default function FilmOperatorOrders(props: Props) {
     }).filter(group => group.members.length > 0);
   }, [orders, language, search, text]);
 
-  const visibleOpenId = openOrderId === undefined
-    ? groups[0]?.orderId ?? null
-    : openOrderId === null
-      ? null
-      : groups.some(group => group.orderId === openOrderId) ? openOrderId : groups[0]?.orderId ?? null;
-  useEffect(() => {
-    if (openOrderId === undefined) {
-      if (groups.length) setOpenOrderId(groups[0].orderId);
-      return;
-    }
-    if (openOrderId !== null && !groups.some(group => group.orderId === openOrderId)) {
-      setOpenOrderId(groups[0]?.orderId ?? null);
-    }
-  }, [groups, openOrderId]);
+  const visibleOpenId = groups.some(group => group.orderId === openOrderId) ? openOrderId : null;
 
   return <section className="film-operator" aria-label={text("film")}>
     <label className="film-search">
@@ -148,6 +148,18 @@ export default function FilmOperatorOrders(props: Props) {
                   {order.is_printed && inlinePrinterAvailable && <label className="prod-label-inline"><input type="checkbox" disabled={!canOperate} checked={!!inline[order.id]} onChange={event => onInline(order.id, event.target.checked)} />{text("inline")}</label>}
                   <label className="prod-label-inline film-last-roll"><input type="checkbox" disabled={!canOperate} checked={!!last[order.id]} onChange={event => onLast(order.id, event.target.checked)} />{language === "en" ? "Final roll" : "آخر رول"}</label>
                   <button className="prod-btn" disabled={!canOperate || saving || !selectedMachine} onClick={() => onRecord(order)}><Plus />{text("addRoll")}</button>
+                </div>}
+                {(rollsByOrder.get(order.id)?.length ?? 0) > 0 && <div className="film-recorded-rolls" aria-label={text("rolls")}>
+                  {rollsByOrder.get(order.id)!.map(roll => <div className="film-recorded-roll" key={roll.id} data-production-roll-id={roll.id}>
+                    <div>
+                      <Link className="prod-number film-recorded-roll-link" href={`/production/rolls/${roll.id}`}>{roll.roll_number}</Link>
+                      <strong><bdi dir="ltr">{number(roll.weight_kg)} kg</bdi></strong>
+                    </div>
+                    <div className="film-recorded-roll-context">
+                      <span>{text("filmMachine")}: {machineName(roll.film_machine_id)}</span>
+                      <span>{text("createdAt")}: {date(roll.created_at)}</span>
+                    </div>
+                  </div>)}
                 </div>}
               </article>;
             })}

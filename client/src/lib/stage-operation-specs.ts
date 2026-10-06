@@ -86,6 +86,12 @@ function physicalMeasure(value: string | number | null | undefined, unit: string
   // Machine settings retain meaningful decimals; only weight summaries mirror film's integer presentation.
   return `${formatNumber(value)} ${unit}`;
 }
+function cylinderMeasure(value: string | null | undefined, language: string, missing: string) {
+  const clean = filmSearchTerm(value ?? "");
+  if (clean === "بدون طباعة") return language === "en" ? "No printing" : "بدون طباعة";
+  const numeric = clean.replace(/(?:["″”]|in(?:ch(?:es)?)?|بوصة)\s*$/i, "").trim().replace("٫", ".");
+  return physicalMeasure(numeric, language === "en" ? "in" : "بوصة", missing);
+}
 
 export function stageOperationSpecs(stage: RollOperationStage, product: ProductSnapshot | null, language: string, unrecorded: string) {
   const english = language === "en";
@@ -93,7 +99,7 @@ export function stageOperationSpecs(stage: RollOperationStage, product: ProductS
   const size = { key: "size", label: english ? "Size" : "المقاس", value: common.size };
   return stage === "printing" ? [
     { key: "cylinder", label: english ? "Cylinder" : "السلندر",
-      value: physicalMeasure(product?.printing_cylinder, english ? "in" : "بوصة", unrecorded) },
+      value: cylinderMeasure(product?.printing_cylinder, language, unrecorded) },
     size,
     { key: "plateDrawer", label: english ? "Plate drawer" : "درج الكليشة",
       value: safeFilmName(product?.plate_drawer_code?.trim() ?? "", language, unrecorded) },

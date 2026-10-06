@@ -32,11 +32,10 @@ export function filmOperationSpecs(product: ProductSnapshot | null, language: st
   const caption = safeFilmName(product.size_caption, language, "").replace(/[0-9٠-٩۰-۹]+[.٫][0-9٠-٩۰-۹]+/g,
     value => number(value.replace(/[٠-٩]/g, digit => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
       .replace(/[۰-۹]/g, digit => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit))).replace("٫", ".")));
-  const width = positive(product.width) ? `${number(product.width)} cm` : "";
   const faces = [product.left_facing, product.right_facing].filter(positive).map(value => number(value));
-  const gusset = faces.length ? `${faces.join(" / ")} cm` : "";
-  const size = caption || [width && `${language === "en" ? "Width" : "العرض"} ${width}`,
-    gusset && `${language === "en" ? "Gusset" : "الكسرة"} ${gusset}`].filter(Boolean).join(" · ") || unrecorded;
+  const dimensions = [positive(product.width) ? number(product.width) : "", ...faces].filter(Boolean);
+  const size = caption.replace(/(?:العرض|الكسرة|Width|Gusset)\s*:?\s*/gi, "").trim()
+    || (dimensions.length ? `${dimensions.join(" + ")} cm` : unrecorded);
   const thickness = positive(product.universal_thickness) ? `${number(product.universal_thickness)} µm` : unrecorded;
   const batch = product.master_batch ?? null;
   const batchName = !batch ? unrecorded : isTransparentMasterBatch(batch)

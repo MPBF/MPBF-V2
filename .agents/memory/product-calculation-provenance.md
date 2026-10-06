@@ -11,6 +11,12 @@ The supplied historical customer-product UI did not include its size-caption gen
 
 Dropdown ranges are selection presets, not retroactive factory validity limits.
 
+Stored printing-cylinder values can include a trailing inch mark, such as `18"`, rather than a bare numeric string.
+
+**Why:** A read-only check of actual customer-product data confirmed this legacy format after the operator board displayed recorded cylinders as missing.
+
+**How to apply:** Normalize inch marks when interpreting cylinder measurements; do not rewrite saved product or execution-snapshot values as part of a display fix.
+
 **Why:** The user requested preferred lists as a refinement to the approved legacy-compatible form, not a data migration or stricter backend limits. Historical dimensions and densities outside those presets must remain editable without silently changing them.
 
 **How to apply:** Retain the current historical value as an option. A zero cutting-length choice means unspecified (null on save), not a physical zero-length product; this reconciles the requested 0–300 list with the existing positive-length-or-unspecified business rule.

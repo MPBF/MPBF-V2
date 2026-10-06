@@ -1,5 +1,5 @@
 import { ChevronDown, CircleDot, Gauge, Layers3, Palette, Printer, Ruler, Scissors, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
 
 import { groupStageRolls, stageOperationSpecs, stageRollWeight } from "../../lib/stage-operation-specs";
@@ -41,27 +41,13 @@ export default function RollOperatorOrders(props: Props) {
     number, productName, machineName, date, onWeight, onRecord,
   } = props;
   const [search, setSearch] = useState("");
-  const [openOrderId, setOpenOrderId] = useState<number | null | undefined>(undefined);
+  const [openOrderId, setOpenOrderId] = useState<number | null>(null);
   const groups = useMemo(
     () => groupStageRolls(orders, rolls, language, search, text("unrecorded")),
     [orders, rolls, language, search, text],
   );
 
-  const visibleOpenId = openOrderId === undefined
-    ? groups[0]?.orderId ?? null
-    : openOrderId === null
-      ? null
-      : groups.some(group => group.orderId === openOrderId) ? openOrderId : groups[0]?.orderId ?? null;
-
-  useEffect(() => {
-    if (openOrderId === undefined) {
-      if (groups.length) setOpenOrderId(groups[0].orderId);
-      return;
-    }
-    if (openOrderId !== null && !groups.some(group => group.orderId === openOrderId)) {
-      setOpenOrderId(groups[0]?.orderId ?? null);
-    }
-  }, [groups, openOrderId]);
+  const visibleOpenId = groups.some(group => group.orderId === openOrderId) ? openOrderId : null;
 
   const searchLabel = language === "en"
     ? "Search customer, order, production order or roll number"

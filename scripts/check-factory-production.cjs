@@ -18,7 +18,7 @@ const QRCode = require("qrcode");
   const pending = new Map(), errors = [], writes = [], committed = new Map(), historyCalls = [], stateScopes = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
   const product = { id: 1, item_id: "ITM01", name: "Plastic bag", name_ar: "كيس بلاستيك", customer_name: "Fixture customer", customer_name_ar: "عميل الاختبار",
-    width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: "16", punching: "بنانة", notes: null, front_print_colors: ["Red"], back_print_colors: [],
+     width: "28", left_facing: "7", right_facing: "7", universal_thickness: "25", cutting_length_cm: 41, raw_material: "HDPE", printing_cylinder: '16"', punching: "بنانة", notes: null, front_print_colors: ["Red"], back_print_colors: [],
      size_caption:"28 + 7 + 7 cm",plate_drawer_code:"D-12",master_batch:{id:"BLUE",name:"Blue",name_ar:"أزرق",color_hex:"#2463EB"} };
   const duration = (machine_id = "F1", changes = {}) => ({
     machine_id, machine_name: machine_id === "F1" ? "Film One" : "Film Two",
@@ -136,7 +136,7 @@ const QRCode = require("qrcode");
           const scope=new URL(request.url).searchParams.get("scope");
           stateScopes.push(scope);
           if (failure) { status = 500; body = { message: "خطأ تحميل تجريبي", message_en: "Fixture loading failure" }; }
-          else body = {...state,receipts:[],inventory:[],movements:[],rolls:state.rolls.filter(roll=>roll.stage!=="done"),
+           else body = {...state,receipts:[],inventory:[],movements:[],rolls:scope==="film"?state.rolls:state.rolls.filter(roll=>roll.stage!=="done"),
             orders:scope==="warehouse"?[]:scope==="hall"?state.orders.filter(order=>Number(order.remaining_kg)>0):state.orders.filter(order=>order.id!==6)};
         } else if (route.startsWith("/production/history/")) {
           const url=new URL(request.url), kind=route.split("/").pop(), params=url.searchParams;
@@ -189,6 +189,9 @@ const QRCode = require("qrcode");
       await send("Page.navigate", { url: origin + route }); await loaded;
       await wait("!!document.querySelector('.production-app')");
       await wait("!document.querySelector('.prod-loading')");
+       if(["/production/film","/production/printing","/production/cutting"].includes(route)){
+         check(`${language} ${route}: all orders initially collapsed`,await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"],[data-operator-order-id][aria-expanded=\"true\"]').length"),0);
+       }
       if(route==="/production/film")await openFilmOrder(filmReadyOnly?1:2);
       if(route==="/production/printing")await openStageOrder(2);
       if(route==="/production/cutting")await openStageOrder(3);
@@ -251,7 +254,7 @@ const QRCode = require("qrcode");
       console.log(`Verified ${passed} film-ready browser checks; fixture writes only.`);
       return;
     }
-    for (const lang of ["ar", "en"]) {
+    if (!process.argv.includes("--operations-only")) for (const lang of ["ar", "en"]) {
       language = lang;
       for (const width of [320, 390, 430, 768, 1440]) {
         await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
@@ -264,6 +267,12 @@ const QRCode = require("qrcode");
             check(`${lang} ${width} one customer group open`,await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"]').length"),1);
             check(`${lang} ${width} related production orders grouped`,await evaluate("document.querySelector('#film-order-panel-2').querySelectorAll('[data-production-order-id]').length"),3);
             check(`${lang} ${width} one header per customer order`,await evaluate("document.querySelectorAll('[data-film-order-id=\"2\"]').length"),1);
+             check(`${lang} ${width} film rolls nested under their production order`,await evaluate("[...document.querySelectorAll('.film-recorded-roll')].every(node=>Number(node.closest('[data-production-order-id]').dataset.productionOrderId)===({2:2,12:2,8:8,9:9})[Number(node.dataset.productionRollId)])&&document.querySelector('[data-production-order-id=\"2\"] .film-recorded-rolls').children.length===2"));
+             check(`${lang} ${width} film roll links trace their own roll`,await evaluate("[...document.querySelectorAll('.film-recorded-roll')].every(node=>node.querySelector('a').getAttribute('href')==='/production/rolls/'+node.dataset.productionRollId)"));
+             await openFilmOrder(4);
+             check(`${lang} ${width} film lists downstream completed rolls while order stays open`,await evaluate("!!document.querySelector('[data-production-order-id=\"4\"] [data-production-roll-id=\"4\"]')"));
+             await openFilmOrder(2);
+             check(`${lang} ${width} film size has no width or gusset labels`,await evaluate("![...document.querySelectorAll('.film-spec-grid')].some(node=>/العرض|الكسرة|Width|Gusset/.test(node.innerText))"));
             check(`${lang} ${width} no film status chips`,await evaluate("document.querySelectorAll('.film-operator .prod-chips,.film-operator .prod-chip').length"),0);
             check(`${lang} ${width} four clear operating specs`,await evaluate("document.querySelector('[data-production-order-id=\"2\"] .film-spec-grid').children.length"),4);
             check(`${lang} ${width} specification values centered across full tile`,await evaluate("[...document.querySelectorAll('.film-spec > strong')].every(node=>{const tile=node.parentElement.getBoundingClientRect(),value=node.getBoundingClientRect();return getComputedStyle(node).textAlign==='center'&&Math.abs((value.left+value.right)/2-(tile.left+tile.right)/2)<=1.5})"));
@@ -395,6 +404,8 @@ const QRCode = require("qrcode");
       check(`${lang} ready and active orders share their customer group`,await evaluate("!!document.querySelector('#film-order-panel-2 [data-film-state=\"ready\"][data-production-order-id=\"94\"]')"));
       check(`${lang} long customer names fit a 320px phone`,await evaluate("document.documentElement.scrollWidth<=innerWidth+1"));
       await setInput("[data-film-search]","ORDER-559");
+      check(`${lang} search does not auto-expand a different customer order`,await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"]').length"),0);
+      await openFilmOrder(559);
       check(`${lang} search reaches last customer order in large list`,await evaluate("document.querySelectorAll('[data-production-order-id]').length"),3);
       await setInput("[data-film-search]","");await openFilmOrder(95);
       check(`${lang} missing operating fields explicit, no invented swatch`,await evaluate(`document.querySelector('[data-production-order-id="95"] .film-spec-grid').innerText.includes(${JSON.stringify(lang==="en"?"Unrecorded":"غير مسجل")})&&!document.querySelector('[data-production-order-id="95"] .master-batch-swatch')`));
@@ -413,7 +424,7 @@ const QRCode = require("qrcode");
     closing.forEach(order=>Object.assign(order,{film_closed_at:"2026-10-05T11:00:00Z",status:"completed",order_status:"completed"}));
     await clickText("Refresh data");
     await wait("!document.querySelector('[data-film-order-id=\"2\"]')");
-    check("selected finished group recovers to another eligible request",await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"]').length"),1);
+    check("finishing selected group leaves other customer orders collapsed",await evaluate("document.querySelectorAll('[data-film-order-id][aria-expanded=\"true\"]').length"),0);
     closing.forEach((order,index)=>Object.assign(order,beforeClosing[index]));
     await clickText("Refresh data");await wait("!!document.querySelector('[data-film-order-id=\"2\"]')");await openFilmOrder(2);
     check("refresh and temporary eligibility changes retain per-order draft",await evaluate("document.querySelector('#weight-2').value"),"6.25");

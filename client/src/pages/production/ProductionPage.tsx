@@ -343,17 +343,20 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
     {!canOperate&&<div className="prod-callout" style={{marginTop:14}}>{text("readonly",language)}</div>}
     {stage==="film" ? <FilmOperatorOrders
       orders={[...orders,...readyFilmOrders].sort((a,b)=>priority(a.id)-priority(b.id)||a.id-b.id)}
+      rolls={state.rolls}
       readyIds={new Set(readyFilmOrders.map(order=>order.id))}
       language={language} canOperate={canOperate} saving={write.saving} selectedMachine={selectedMachine}
       weights={weights} last={last} inline={inline} inlinePrinterAvailable={!!inlinePrinter(selectedMachine)}
       text={key=>text(key,language)} number={value=>formatWholeNumber(value==null?value:latinDigits(String(value)))}
       productName={order=>orderProduct(order,language)}
+      machineName={id=>machineName(machineById.get(id),language)} date={value=>date(value,language,true)}
       onWeight={(id,value)=>setWeights(values=>({...values,[id]:value}))}
       onLast={(id,value)=>setLast(values=>({...values,[id]:value}))}
       onInline={(id,value)=>setInline(values=>({...values,[id]:value}))}
       onRecord={recordFilm} onStart={startFilm}
     />:
     <RollOperatorOrders
+      key={stage}
       stage={stage} orders={state.orders} rolls={rolls} language={language}
       canOperate={canOperate} saving={write.saving} selectedMachine={selectedMachine} weights={weights}
       text={key=>text(key,language)}

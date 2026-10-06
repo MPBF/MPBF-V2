@@ -33,6 +33,16 @@ describe("stage operator specifications", () => {
     expect(stageOperationSpecs("printing", product, "ar", "غير مسجل").slice(0,3).map(spec=>spec.label))
       .toEqual(["السلندر", "المقاس", "درج الكليشة"]);
   });
+  it("reads inch-marked database cylinders without changing saved data", () => {
+    for (const cylinder of ['18"', "18″", "18 in", "١٨\"", "۱۸″"]) {
+      const saved = {...product, printing_cylinder: cylinder};
+      expect(stageOperationSpecs("printing", saved, "ar", "Missing")[0].value).toBe("18 بوصة");
+      expect(stageOperationSpecs("printing", saved, "en", "Missing")[0].value).toBe("18 in");
+      expect(saved.printing_cylinder).toBe(cylinder);
+    }
+    expect(stageOperationSpecs("printing", {...product, printing_cylinder:'16.5"'}, "en", "Missing")[0].value).toBe("16.5 in");
+    expect(stageOperationSpecs("printing", {...product, printing_cylinder:"بدون طباعة"}, "en", "Missing")[0].value).toBe("No printing");
+  });
   it("hides missing, empty and whitespace-only colors independently", () => {
     for (const language of ["ar", "en"]) {
       for (const values of [null, [], ["", "  "]]) {
