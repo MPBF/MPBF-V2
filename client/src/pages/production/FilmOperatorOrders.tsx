@@ -22,7 +22,7 @@ type Props = {
   text: (key: string) => string;
   number: (value: string | number | null | undefined, digits?: number) => string;
   productName: (order: ProductionOrderRecord) => string;
-  machineName: (id: string) => string;
+  creatorName: (roll: ProductionRollRecord) => string;
   date: (value: string | null) => string;
   onWeight: (id: number, value: string) => void;
   onLast: (id: number, value: boolean) => void;
@@ -34,7 +34,7 @@ type Props = {
 export default function FilmOperatorOrders(props: Props) {
   const {
     orders, rolls, readyIds, language, canOperate, saving, selectedMachine, weights, last, inline,
-    inlinePrinterAvailable, text, number, productName, machineName, date, onWeight, onLast, onInline, onRecord, onStart,
+    inlinePrinterAvailable, text, number, productName, creatorName, date, onWeight, onLast, onInline, onRecord, onStart,
   } = props;
   const [search, setSearch] = useState("");
   const [openOrderId, setOpenOrderId] = useState<number | null>(null);
@@ -156,8 +156,8 @@ export default function FilmOperatorOrders(props: Props) {
                       <strong><bdi dir="ltr">{number(roll.weight_kg)} kg</bdi></strong>
                     </div>
                     <div className="film-recorded-roll-context">
-                      <span>{text("filmMachine")}: {machineName(roll.film_machine_id)}</span>
-                      <span>{text("createdAt")}: {date(roll.created_at)}</span>
+                      <span data-roll-author>{language === "en" ? "By" : "بواسطة"}: {creatorName(roll)}</span>
+                      <span data-roll-date>{language === "en" ? "Date" : "التاريخ"}: {date(roll.created_at)}</span>
                     </div>
                   </div>)}
                 </div>}

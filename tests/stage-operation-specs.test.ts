@@ -29,18 +29,18 @@ describe("stage operator specifications", () => {
   it("shows cylinder, size, drawer and populated printing colors only", () => {
     const specs = stageOperationSpecs("printing", product, "en", "Unrecorded");
     expect(specs.map(spec => spec.key)).toEqual(["cylinder", "size", "plateDrawer", "frontColors"]);
-    expect(specs.map(spec => spec.value)).toEqual(["16.5 in", "21X30", "D-12", "Red / Blue / #12ABEF"]);
+    expect(specs.map(spec => spec.value)).toEqual(["16.5", "21X30", "D-12", "Red / Blue / #12ABEF"]);
     expect(stageOperationSpecs("printing", product, "ar", "غير مسجل").slice(0,3).map(spec=>spec.label))
       .toEqual(["السلندر", "المقاس", "درج الكليشة"]);
   });
   it("reads inch-marked database cylinders without changing saved data", () => {
     for (const cylinder of ['18"', "18″", "18 in", "١٨\"", "۱۸″"]) {
       const saved = {...product, printing_cylinder: cylinder};
-      expect(stageOperationSpecs("printing", saved, "ar", "Missing")[0].value).toBe("18 بوصة");
-      expect(stageOperationSpecs("printing", saved, "en", "Missing")[0].value).toBe("18 in");
+      expect(stageOperationSpecs("printing", saved, "ar", "Missing")[0].value).toBe("18");
+      expect(stageOperationSpecs("printing", saved, "en", "Missing")[0].value).toBe("18");
       expect(saved.printing_cylinder).toBe(cylinder);
     }
-    expect(stageOperationSpecs("printing", {...product, printing_cylinder:'16.5"'}, "en", "Missing")[0].value).toBe("16.5 in");
+    expect(stageOperationSpecs("printing", {...product, printing_cylinder:'16.5"'}, "en", "Missing")[0].value).toBe("16.5");
     expect(stageOperationSpecs("printing", {...product, printing_cylinder:"بدون طباعة"}, "en", "Missing")[0].value).toBe("No printing");
   });
   it("hides missing, empty and whitespace-only colors independently", () => {

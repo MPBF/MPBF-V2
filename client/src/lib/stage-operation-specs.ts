@@ -90,7 +90,8 @@ function cylinderMeasure(value: string | null | undefined, language: string, mis
   const clean = filmSearchTerm(value ?? "");
   if (clean === "بدون طباعة") return language === "en" ? "No printing" : "بدون طباعة";
   const numeric = clean.replace(/(?:["″”]|in(?:ch(?:es)?)?|بوصة)\s*$/i, "").trim().replace("٫", ".");
-  return physicalMeasure(numeric, language === "en" ? "in" : "بوصة", missing);
+  if (!numeric || !Number.isFinite(Number(numeric)) || Number(numeric) <= 0) return missing;
+  return formatNumber(numeric);
 }
 
 export function stageOperationSpecs(stage: RollOperationStage, product: ProductSnapshot | null, language: string, unrecorded: string) {

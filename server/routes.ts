@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { releaseOrderToProduction } from "./order-production-release";
+import { deleteOrderProduction, lockOrderProductionDeletion } from "./order-production-delete";
 import { ORDER_PRODUCTION_RELEASE_STATUSES } from "../shared/order-production-release";
 import { ORDER_DISPLAY_FOLDERS, ORDER_WORKSPACE_ACTIONS, ORDER_WORKSPACE_STATUSES } from "../shared/order-workspace";
 import { applyOrderActions, moveOrderFolders, orderFolderCounts } from "./order-workspace";
@@ -1918,6 +1919,7 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
         // These locks must precede row locks in their corresponding write paths.
         if (path === "categories") await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${2})`);
         if (path === "machines") await tx.execute(sql`SELECT pg_advisory_xact_lock(${29832}, ${5})`);
+        if (path === "orders") await lockOrderProductionDeletion(tx);
         if (path === "customer-products") {
           const [current] = await tx.select({ id: customer_products.id }).from(customer_products)
             .where(eq(customer_products.id, key as number)).for("update").limit(1);
@@ -1985,15 +1987,7 @@ for (const [path, table] of Object.entries(entities) as [Entity, any][]) {
           const [current] = await tx.select({ id: orders.id }).from(orders)
             .where(eq(orders.id, key as number)).for("update").limit(1);
           if (!current) return [];
-          const productionLines = await tx.select({
-            status: production_orders.status,
-            previous_status: production_orders.previous_status,
-            batch_number: production_orders.batch_number,
-          }).from(production_orders).where(eq(production_orders.order_id, key as number));
-          if (productionLines.some((line: any) =>
-            isProtectedProductionOrder(line.status, line.batch_number, line.previous_status))) {
-            throw orderError("لا يمكن حذف الطلب لاحتوائه على أوامر إنتاج غير معلقة أو مرتبطة بتشغيلة", 409);
-          }
+          await deleteOrderProduction(tx, key as number);
         }
         return tx.delete(table).where(eq(table.id, key)).returning({ id: table.id });
       });

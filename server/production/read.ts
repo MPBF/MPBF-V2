@@ -70,11 +70,9 @@ export class ProductionReadService {
   async roll(actor: ProductionUser, id: number): Promise<ProductionRollDetail> {
     permission(actor, ...productionPermissions);
     return this.read(tx => one(tx, `SELECT detail.*,${filmDurationJSON} film_duration,
-      ${productionActorJSON("creator")} created_actor,
       ${productionActorJSON("printer")} printed_actor,
       ${productionActorJSON("cutter")} cut_actor
       FROM (${rollSelect} WHERE r.id=$1) detail
-      LEFT JOIN users creator ON creator.id=detail.created_by
       LEFT JOIN users printer ON printer.id=detail.printed_by
       LEFT JOIN users cutter ON cutter.id=detail.cut_by
       JOIN LATERAL (${filmMachineGroups("detail.production_order_id", "detail.film_machine_id")}) g ON true`, [id]));

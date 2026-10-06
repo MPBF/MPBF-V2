@@ -14,6 +14,7 @@ const QRCode = require("qrcode");
     { stdio: ["ignore", "ignore", "pipe"] });
   let ws, session, onLoad, serial = 0, language = "en", permissions = ["admin"], failure = false, failWrite = false, historyFailure = false, passed = 0;
   const filmReadyOnly = process.argv.includes("--film-ready-only");
+   const operatorLayoutOnly = process.argv.includes("--operator-layout-only");
   let failStart = false;
   const pending = new Map(), errors = [], writes = [], committed = new Map(), historyCalls = [], stateScopes = [];
   const check = (name, actual, expected = true) => { assert.deepEqual(actual, expected, name); console.log(`PASS ${name}`); passed++; };
@@ -35,7 +36,7 @@ const QRCode = require("qrcode");
       id === 3 ? [duration("F1", {duration_seconds:0,last_roll_at:"2026-10-01T20:59:59Z"})] : [duration()],
     ...changes });
   const roll = (id, po, changes = {}) => ({ id, production_order_id: po, production_order_number: `PO-${po}`, roll_number: `PO-${po}-R001`, weight_kg: "10.00",
-    stage: "film", film_machine_id: "F1", created_by: 42, created_at: "2026-10-03T05:30:00Z", production_minutes: 10, is_last_roll: false,
+    stage: "film", film_machine_id: "F1", created_by: 42, created_actor:{id:42,display_name:"Creator Person",display_name_ar:"منشئ الرول",full_name:"Creator Full Name",username:"creator"}, created_at: "2026-10-03T05:30:00Z", production_minutes: 10, is_last_roll: false,
     printing_machine_id: null, printed_by: null, printed_at: null, cutting_machine_id: null, cut_by: null, cut_completed_at: null, net_weight_kg: null,
     waste_kg: "0.00", product, is_printed: true, is_roll_product: false, ...changes });
   const state = { orders: [order(1, { status: "pending", started_at: null }), order(2), order(3, { is_printed: false }),
@@ -195,6 +196,10 @@ const QRCode = require("qrcode");
       if(route==="/production/film")await openFilmOrder(filmReadyOnly?1:2);
       if(route==="/production/printing")await openStageOrder(2);
       if(route==="/production/cutting")await openStageOrder(3);
+       if(!filmReadyOnly && ["/production/film","/production/printing","/production/cutting"].includes(route)){
+         check(`${language} ${route}: rolls show creator name`,await evaluate(`(()=>{const nodes=[...document.querySelectorAll('[data-roll-author]')];return nodes.length>0&&nodes.every(node=>node.innerText.includes(${JSON.stringify(language==="en"?"Creator Person":"منشئ الرول")}))})()`));
+         check(`${language} ${route}: roll dates omit time`,await evaluate("[...document.querySelectorAll('[data-roll-date]')].every(node=>!/\\d{1,2}:\\d{2}/.test(node.innerText))"));
+       }
     };
     const clickText = label => evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)}); if(!e)throw Error('Missing button '+${JSON.stringify(label)});e.click()})()`);
     const setInput = (selector, value) => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}); if(!e)throw Error('Missing input'); const setter=Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set;setter.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`);
@@ -258,7 +263,7 @@ const QRCode = require("qrcode");
       language = lang;
       for (const width of [320, 390, 430, 768, 1440]) {
         await send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
-        for (const route of ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2", "/production/rolls/3"]) {
+         for (const route of (operatorLayoutOnly ? ["/production/film", "/production/printing", "/production/cutting"] : ["/production", "/production/film", "/production/printing", "/production/cutting", "/production/hall", "/production/warehouse", "/production/rolls/2", "/production/rolls/3"])) {
           permissions=route==="/production/film"?["operate_film"]:route==="/production/printing"?["operate_printing"]:route==="/production/cutting"?["operate_cutting"]:["admin"];
           await navigate(route);
           check(`${lang} ${width} ${route} fits viewport`, await evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
@@ -337,7 +342,7 @@ const QRCode = require("qrcode");
             if(stage==="printing"){
               check(`${lang} ${width} printing groups related production orders`,await evaluate("document.querySelectorAll('.roll-operator [data-production-order-id]').length"),2);
               check(`${lang} ${width} printing groups multiple rolls in one production order`,await evaluate("document.querySelector('[data-production-order-id=\"2\"]').querySelectorAll('[data-production-roll-id]').length"),2);
-              check(`${lang} ${width} printing has cylinder size drawer and populated face colors only`,await evaluate(`(()=>{const value=document.querySelector('.roll-operator .film-spec-grid').innerText;return value.includes(${JSON.stringify(lang==="en"?"16 in":"16 بوصة")})&&value.includes('28 + 7 + 7 cm')&&value.includes('D-12')&&value.includes(${JSON.stringify(lang==="en"?"Red":"أحمر")})&&!value.includes(${JSON.stringify(lang==="en"?"Back colors":"ألوان الظهر")})})()`));
+              check(`${lang} ${width} printing has cylinder size drawer and populated face colors only`,await evaluate(`(()=>{const value=document.querySelector('.roll-operator .film-spec-grid').innerText;return value.includes('16')&&!/بوصة|\\bin\\b/.test(value)&&value.includes('28 + 7 + 7 cm')&&value.includes('D-12')&&value.includes(${JSON.stringify(lang==="en"?"Red":"أحمر")})&&!value.includes(${JSON.stringify(lang==="en"?"Back colors":"ألوان الظهر")})})()`));
               check(`${lang} ${width} printing never asks for cutting net weight`,await evaluate("document.querySelectorAll('.roll-operator input[id^=\"net-\"]').length"),0);
               await openStageOrder(5);
             }else{
@@ -385,6 +390,11 @@ const QRCode = require("qrcode");
       }
     }
     language = "en";
+    if(operatorLayoutOnly){
+      check("no operator layout runtime errors",errors,[]);
+      console.log(`Verified ${passed} operator layout browser assertions with isolated API fixtures.`);
+      return;
+    }
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     const stressOffset=state.orders.length;
     state.orders.push(...Array.from({length:180},(_,index)=>order(1000+index,{

@@ -18,7 +18,7 @@ type Props = {
   text: (key: string) => string;
   number: (value: string | number | null | undefined, digits?: number) => string;
   productName: (order: ProductionOrderRecord) => string;
-  machineName: (id: string) => string;
+  creatorName: (roll: ProductionRollRecord) => string;
   date: (value: string | null) => string;
   onWeight: (id: number, value: string) => void;
   onRecord: (roll: ProductionRollRecord) => void;
@@ -38,7 +38,7 @@ const specIcons = {
 export default function RollOperatorOrders(props: Props) {
   const {
     stage, orders, rolls, language, canOperate, saving, selectedMachine, weights, text,
-    number, productName, machineName, date, onWeight, onRecord,
+    number, productName, creatorName, date, onWeight, onRecord,
   } = props;
   const [search, setSearch] = useState("");
   const [openOrderId, setOpenOrderId] = useState<number | null>(null);
@@ -146,8 +146,8 @@ export default function RollOperatorOrders(props: Props) {
                       <strong className="roll-operator-roll-weight"><bdi dir="ltr">{number(roll.weight_kg)} kg</bdi></strong>
                     </div>
                     <div className="roll-operator-roll-context">
-                      <div><span>{text("createdAt")}</span><strong>{date(roll.created_at)}</strong></div>
-                      <div><span>{text("filmMachine")}</span><strong>{machineName(roll.film_machine_id)}</strong></div>
+                      <div data-roll-author><span>{language === "en" ? "By" : "بواسطة"}</span><strong>{creatorName(roll)}</strong></div>
+                      <div data-roll-date><span>{language === "en" ? "Date" : "التاريخ"}</span><strong>{date(roll.created_at)}</strong></div>
                     </div>
                     {stage === "cutting" && <div className="prod-field roll-operator-net-field">
                       <label htmlFor={`net-${roll.id}`}>{text("netWeight")}</label>

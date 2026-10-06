@@ -58,6 +58,7 @@ export type ProductionRollRecord = {
   production_order_number: string; product: ProductSnapshot; is_printed: boolean; is_roll_product: boolean;
   order_number?: string; order_status?: string; production_order_status?: string;
   production_stage?: string; batch_number?: string | null;
+  created_actor?: ProductionActor | null;
 };
 export type ProductionMachine = {
   id: string; name: string | null; name_ar: string | null; type: string; status: string;

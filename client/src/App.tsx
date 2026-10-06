@@ -374,7 +374,13 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
     return () => { active = false; };
   }, [kind, folderCountsVersion]);
   if (!readable) return <div className="empty"><strong>{translate("لا تملك صلاحية العرض")}</strong>{translate("تواصل مع مدير النظام.")}</div>;
-  const remove = async (id: any) => { if (!deletable || !confirm(translate("تأكيد حذف السجل؟"))) return; try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); } };
+  const remove = async (id: any) => {
+    const warning = cfg.path === "/orders"
+      ? "تأكيد حذف الطلب نهائيًا؟ سيتم حذف جميع أوامر الإنتاج والرولات والاستلامات وحركات وأرصدة المخزون المرتبطة به. الاستلامات المشتركة ستحتفظ ببنود الطلبات الأخرى. لا يمكن التراجع عن هذا الحذف."
+      : "تأكيد حذف السجل؟";
+    if (!deletable || !confirm(translate(warning))) return;
+    try { await api(`${cfg.path}/${id}`, { method: "DELETE" }); latestLoad.current(); } catch (e) { setError((e as Error).message); }
+  };
   const clone = (row: Row) => { const { id: _id, created_at: _createdAt, updated_at: _updatedAt, ...copy } = row; setEdit(copy); };
   const printOrder = (id: number) => window.open(`/orders/${encodeURIComponent(String(id))}/print`, "_blank", "noopener,noreferrer");
   const performWorkspaceAction = async (action: OrderWorkspaceAction, items: { id: number; expected_status: string }[]) => {

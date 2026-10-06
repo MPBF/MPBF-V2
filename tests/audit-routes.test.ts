@@ -83,6 +83,7 @@ describe("privilege escalation routes", () => {
     directInsert = jest.fn();
     directUpdate = jest.fn();
     const tx: any = {
+      execute: async () => ({ rows: [] }),
       select: (fields?: Record<string, unknown>) => {
         let table: unknown;
         let locked = false;
@@ -319,8 +320,8 @@ describe("privilege escalation routes", () => {
     }, "manage_production");
     expect(clearPrevious.status).toBe(409);
     const deleteParentWithHistory = await request("/orders/7", "DELETE", {}, "admin", "admin");
-    expect(deleteParentWithHistory.status).toBe(409);
-    expect(transactionDelete).not.toHaveBeenCalled();
+    expect(deleteParentWithHistory.status).toBe(200);
+    expect(transactionDelete).toHaveBeenCalledTimes(1);
 
     productionOrderCurrent.previous_status = null;
     productionOrderCurrent.batch_number = "BATCH-1";
@@ -329,8 +330,8 @@ describe("privilege escalation routes", () => {
     }, "manage_production");
     expect(clearBatch.status).toBe(409);
     const deleteBatchedParent = await request("/orders/7", "DELETE", {}, "admin", "admin");
-    expect(deleteBatchedParent.status).toBe(409);
-    expect(transactionDelete).not.toHaveBeenCalled();
+    expect(deleteBatchedParent.status).toBe(200);
+    expect(transactionDelete).toHaveBeenCalledTimes(2);
   });
 
   it("allows deleting an order whose production lines are truly pending and unbatched", async () => {

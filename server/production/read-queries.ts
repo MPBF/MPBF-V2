@@ -62,9 +62,11 @@ export const orderSelect = `SELECT p.id,p.order_id,p.production_order_number,p.c
   LEFT JOIN LATERAL (SELECT sum(quantity_kg) quantity FROM factory_receipt_items WHERE production_order_id=p.id) received ON true
   ORDER BY p.id DESC`;
 export const rollSelect = `SELECT r.*,p.production_order_number,p.batch_number,p.status production_order_status,
-  o.order_number,o.status order_status,e.stage production_stage,e.product,e.is_printed,e.is_roll_product
+  o.order_number,o.status order_status,e.stage production_stage,e.product,e.is_printed,e.is_roll_product,
+  ${productionActorJSON("roll_creator")} created_actor
   FROM factory_rolls r JOIN production_orders p ON p.id=r.production_order_id
-  JOIN orders o ON o.id=p.order_id JOIN factory_execution e ON e.production_order_id=r.production_order_id`;
+  JOIN orders o ON o.id=p.order_id JOIN factory_execution e ON e.production_order_id=r.production_order_id
+  LEFT JOIN users roll_creator ON roll_creator.id=r.created_by`;
 export const receiptSelect = `SELECT r.*,COALESCE((SELECT jsonb_agg(to_jsonb(ri)||jsonb_build_object(
   'production_order_number',p.production_order_number,'location_name',l.name,'location_name_ar',l.name_ar) ORDER BY ri.id)
   FROM factory_receipt_items ri JOIN production_orders p ON p.id=ri.production_order_id

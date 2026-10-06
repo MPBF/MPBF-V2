@@ -3,6 +3,17 @@ name: Factory production scope
 description: Approved business boundaries for per-roll execution, partial receipts, and future extensions.
 ---
 
+Deleting a customer order from the Orders page is an explicitly approved
+permanent cascade through its production orders, rolls, receipts and associated
+inventory. Shared receipts retain other orders' items. This does not authorize
+removing protections on standalone production-order edits or deletion.
+
+**Why:** the user specifically requested complete removal of production data
+when deleting the parent order.
+
+**How to apply:** keep existing deletion permissions, warn before deletion,
+perform cleanup atomically, and preserve unrelated orders and receipt items.
+
 Manufacturing completion and warehouse receipt are separate business events.
 Receiving all currently ready output must not close film or finish manufacturing.
 Film can close below the planned target; it must close explicitly, with real

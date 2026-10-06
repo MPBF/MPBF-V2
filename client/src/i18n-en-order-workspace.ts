@@ -1,4 +1,5 @@
 const orderWorkspaceEnglish: Record<string, string> = {
+  "تأكيد حذف الطلب نهائيًا؟ سيتم حذف جميع أوامر الإنتاج والرولات والاستلامات وحركات وأرصدة المخزون المرتبطة به. الاستلامات المشتركة ستحتفظ ببنود الطلبات الأخرى. لا يمكن التراجع عن هذا الحذف.": "Permanently delete this order? All its production orders, rolls, receipt items, stock movements and inventory balances will be deleted. Shared receipts will retain other orders' items. This deletion cannot be undone.",
   "الكل": "All",
   "جديد": "New",
   "الإنتاج": "Production",

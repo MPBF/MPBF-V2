@@ -294,7 +294,6 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
     return JSON.stringify({ weight:current.weights[id]??"", last:!!current.last[id], inline:!!current.inline[id], machine:current.selectedMachine });
   };
   const machines=useMemo(()=>state.machines.filter(machine=>activeMachine(machine)&&machineStage(machine.type)===stage),[state.machines,stage]);
-  const machineById=useMemo(()=>new Map(state.machines.map(machine=>[machine.id,machine])),[state.machines]);
   const priority = (id:number) => state.queues.find(queue => queue.production_order_id===id&&queue.stage===stage&&queue.machine_id===selectedMachine)?.position ?? Number.MAX_SAFE_INTEGER;
   const orders=stage==="film" ? state.orders.filter(order=>!!order.started_at&&!order.film_closed_at&&executableOrder(order.order_status)).sort((a,b)=>priority(a.id)-priority(b.id)||a.id-b.id) : [];
   const readyFilmOrders=stage==="film" ? state.orders.filter(canStartFilmProductionOrder) : [];
@@ -349,7 +348,7 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
       weights={weights} last={last} inline={inline} inlinePrinterAvailable={!!inlinePrinter(selectedMachine)}
       text={key=>text(key,language)} number={value=>formatWholeNumber(value==null?value:latinDigits(String(value)))}
       productName={order=>orderProduct(order,language)}
-      machineName={id=>machineName(machineById.get(id),language)} date={value=>date(value,language,true)}
+      creatorName={roll=>productionActorName(roll.created_actor,roll.created_by,language)} date={value=>date(value,language)}
       onWeight={(id,value)=>setWeights(values=>({...values,[id]:value}))}
       onLast={(id,value)=>setLast(values=>({...values,[id]:value}))}
       onInline={(id,value)=>setInline(values=>({...values,[id]:value}))}
@@ -362,7 +361,7 @@ function OperatorBoard({ state,user,stage,language,reload }: {state:ProductionSt
       text={key=>text(key,language)}
       number={value=>formatWholeNumber(value==null?value:latinDigits(String(value)))}
       productName={order=>orderProduct(order,language)}
-      machineName={id=>machineName(machineById.get(id),language)} date={value=>date(value,language,true)}
+      creatorName={roll=>productionActorName(roll.created_actor,roll.created_by,language)} date={value=>date(value,language)}
       onWeight={(id,value)=>setWeights(values=>({...values,[id]:value}))} onRecord={recordRoll}
     />}
   </>;
