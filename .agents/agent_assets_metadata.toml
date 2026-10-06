@@ -42,3 +42,17 @@ uri = "file://DEVELOPER_GUIDE.md"
 type = "text"
 title = "MPBF Developer Guide"
 logical_id = "adb25793-a600-4378-b4ed-369f600c66ff"
+
+[[outputs]]
+id = "IrkH8fu_bx7rtknI3DeQV"
+uri = "file://reports/code-performance-review-2026-10-06.html"
+type = "html"
+title = "تقرير مراجعة الكود والأداء"
+description = "النتائج المؤكدة، ملفاتها، قياسات البناء وقاعدة التطوير، والكود غير المستخدم وترتيب الإصلاحات."
+logical_id = "e2e09243-ef17-499b-9ea9-3a42388e15ce"
+content_hash = "sha256:87a8f362605e59e5e80251675e8fe8ba7968f40c9109fe97f099e83a1a6861d5"
+size = 18841
+mtime_ms = 1791309429000
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:387ffb13-d9dd-4ad4-b62d-111597ce2ce4/e2e09243-ef17-499b-9ea9-3a42388e15ce/468751cf-866b-4af0-967d-622a89898e5b"
+storage_version_token = "1791309504875216"
+content_type = "text/html"
