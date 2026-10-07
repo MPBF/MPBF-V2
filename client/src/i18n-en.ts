@@ -63,6 +63,8 @@ const english: Record<string, string> = {
   "إضافة منتج عميل": "Add customer product",
   "إضافة وردية": "Add shift",
   "إعادة المحاولة": "Try again",
+  "تعذر الاتصال بالخادم. تحقق من اتصال الإنترنت ثم أعد تحميل البيانات.": "Could not connect to the server. Check your internet connection, then reload the data.",
+  "تعذر تأكيد تنفيذ العملية بسبب انقطاع الاتصال. حدّث البيانات قبل تكرارها.": "The connection was interrupted, so the operation could not be confirmed. Refresh the data before repeating it.",
   "إعادة تحميل الأدوار والأقسام": "Reload roles and sections",
   "إعادة تحميل الخيارات": "Reload options",
   "إعادة تحميل القوائم": "Reload lists",

@@ -1,6 +1,7 @@
 import i18n, { intlLocale, translate, translateError } from "../i18n";
 import { AlertCircle, ArrowDownLeft, ArrowUpLeft, CalendarDays, Check, Clock3, Coffee, FilePlus2, Fingerprint, LogIn, LogOut, MapPin, MessageCircle, Navigation, Play, Send, ShieldAlert } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { NetworkRequestError, resilientFetch } from "../lib/resilient-fetch";
 import "./user-dashboard.css";
 import PageHero from "../components/PageHero";
 
@@ -34,11 +35,20 @@ class ApiError extends Error {
 }
 
 const api = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
-  const response = await fetch(`/api/self${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
+  let response: Response;
+  try {
+    response = await resilientFetch(`/api/self${path}`, {
+      credentials: "include",
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+  } catch (cause) {
+    if (!(cause instanceof NetworkRequestError)) throw cause;
+    const read = ["GET", "HEAD"].includes((options.method ?? "GET").toUpperCase());
+    throw new ApiError(translate(read
+      ? "تعذر الاتصال بالخادم. تحقق من اتصال الإنترنت ثم أعد تحميل البيانات."
+      : "تعذر تأكيد تنفيذ العملية بسبب انقطاع الاتصال. حدّث البيانات قبل تكرارها."), 0, "NETWORK_ERROR");
+  }
   const body = await response.json().catch(() => ({})) as { message?: string; code?: string };
   if (!response.ok) throw new ApiError(translateError(body.message || "تعذر تنفيذ الطلب"), response.status, body.code);
   return body as T;
@@ -103,32 +113,65 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const [requestForm, setRequestForm] = useState({ type: "leave" as RequestRecord["type"], title: "", details: "" });
   const [timerTick, setTimerTick] = useState(Date.now());
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+  const loadController = useRef<AbortController | null>(null);
 
   const load = useCallback(async (quiet = false) => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     if (!quiet) setLoading(true);
     setError(""); setErrorTitle("");
     const results = await Promise.allSettled([
-      api<AttendanceData>("/attendance"),
-      api<Recipient[]>("/recipients"),
-      api<Message[]>("/messages"),
-      api<RequestRecord[]>("/requests"),
-      api<Violation[]>("/violations"),
+      api<AttendanceData>("/attendance", { signal: controller.signal }),
+      api<Recipient[]>("/recipients", { signal: controller.signal }),
+      api<Message[]>("/messages", { signal: controller.signal }),
+      api<RequestRecord[]>("/requests", { signal: controller.signal }),
+      api<Violation[]>("/violations", { signal: controller.signal }),
     ]);
+    if (controller.signal.aborted) return;
+    loadController.current = null;
     const failures: string[] = [];
+    let networkFailure = false;
     const apply = <T,>(result: PromiseSettledResult<T>, setValue: (value: T) => void, section: string) => {
       if (result.status === "fulfilled") setValue(result.value);
-      else failures.push(`${section}: ${(result.reason as Error)?.message || "تعذر تحميل البيانات"}`);
+      else {
+        networkFailure ||= result.reason instanceof ApiError &&
+          (result.reason.code === "NETWORK_ERROR" || [502, 503, 504].includes(result.reason.status));
+        failures.push(`${translate(section)}: ${(result.reason as Error)?.message || translate("تعذر تحميل البيانات")}`);
+      }
     };
     apply(results[0], setAttendance, "الحضور");
     apply(results[1], setRecipients, "قائمة المستلمين");
     apply(results[2], setMessages, "الرسائل");
     apply(results[3], setRequests, "الطلبات");
     apply(results[4], setViolations, "المخالفات");
-    if (failures.length) setError(failures.join(" · "));
+    if (failures.length) setError(results.every(result =>
+      result.status === "rejected" && result.reason instanceof ApiError && result.reason.code === "NETWORK_ERROR")
+      ? translate("تعذر الاتصال بالخادم. تحقق من اتصال الإنترنت ثم أعد تحميل البيانات.")
+      : failures.join(" · "));
+    setNeedsReconnect(networkFailure);
     setLoading(false);
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => { loadController.current?.abort(); };
+  }, [load]);
+  useEffect(() => {
+    if (!needsReconnect) return;
+    const recover = () => {
+      if (document.visibilityState !== "hidden" && !loadController.current) void load();
+    };
+    window.addEventListener("online", recover);
+    window.addEventListener("focus", recover);
+    document.addEventListener("visibilitychange", recover);
+    return () => {
+      window.removeEventListener("online", recover);
+      window.removeEventListener("focus", recover);
+      document.removeEventListener("visibilitychange", recover);
+    };
+  }, [load, needsReconnect]);
   useEffect(() => {
     if (attendance?.status !== "working") return;
     const timer = window.setInterval(() => setTimerTick(Date.now()), 1000);
@@ -210,7 +253,7 @@ export default function UserDashboard({ user }: { user: DashboardUser }) {
     <div className="self-page" dir={document.documentElement.dir}>
       <PageHero kicker={translate("مساحة الموظف · {{name}}", { name: displayName })} title={translate("لوحة المستخدم")} description="تابع يومك وسجلاتك وتواصل مع فريقك من مكان واحد." onRefresh={() => void load()} refreshing={loading || !!busy} />
 
-      {error && <div className="self-alert self-alert-error" role="alert"><AlertCircle size={18} /><div className="self-alert-copy">{errorTitle ? <strong>{errorTitle}</strong> : null}<span>{error}</span></div></div>}
+      {error && <div className="self-alert self-alert-error" role="alert"><AlertCircle size={18} /><div className="self-alert-copy">{errorTitle ? <strong>{errorTitle}</strong> : null}<span>{error}</span>{needsReconnect && <button type="button" className="btn btn-muted" disabled={loading || !!busy} onClick={() => void load()}>{translate("إعادة المحاولة")}</button>}</div></div>}
       {notice && <div className="self-alert self-alert-success" role="status"><Check size={18} /><span>{notice}</span></div>}
 
       <div className="self-summary" aria-label={translate("إحصاءاتك الشخصية")}>
