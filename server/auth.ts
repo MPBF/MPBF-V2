@@ -71,6 +71,30 @@ export async function populateUser(req: Request, _res: Response, next: NextFunct
   next();
 }
 
+// Only the existing session/password screen endpoints are available until the
+// database-backed user flag is cleared. Permissions (including admin) cannot
+// bypass this restriction.
+const passwordChangeEndpoints = new Set([
+  "GET /me",
+  "HEAD /me",
+  "GET /public-branding",
+  "HEAD /public-branding",
+  "PUT /me/language",
+  "POST /login",
+  "POST /logout",
+  "POST /change-password",
+]);
+
+export function enforcePasswordChange(req: Request, res: Response, next: NextFunction) {
+  if (!req.user?.must_change_password) return next();
+  const path = req.path.replace(/\/+$/, "") || "/";
+  if (passwordChangeEndpoints.has(`${req.method} ${path}`)) return next();
+  return res.status(403).json({
+    code: "PASSWORD_CHANGE_REQUIRED",
+    message: "يجب تحديث كلمة المرور قبل متابعة العمل.",
+  });
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return res.status(401).json({ message: "تسجيل الدخول مطلوب" });
   next();

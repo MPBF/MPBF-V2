@@ -4,7 +4,7 @@ import connectPgSimple from "connect-pg-simple";
 import express, { type NextFunction, type Request, type Response } from "express";
 import session from "express-session";
 
-import { populateUser } from "./auth";
+import { enforcePasswordChange, populateUser } from "./auth";
 import { pool, sessionPool } from "./db";
 import api from "./routes";
 import { serveStatic, setupVite } from "./vite";
@@ -53,6 +53,7 @@ app.use(
 );
 
 app.use("/api", populateUser);
+app.use("/api", enforcePasswordChange);
 app.use("/api", api);
 app.use("/api", (_req, res) => res.status(404).json({ message: "المسار غير موجود" }));
 

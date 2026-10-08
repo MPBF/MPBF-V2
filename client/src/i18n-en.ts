@@ -8,6 +8,7 @@ const english: Record<string, string> = {
   ") — لا يتبع التصنيف": ") — not assigned to this category",
   ". أدخل وقت الانصراف الحقيقي، لا وقت إدخال التصحيح.": ". Enter the actual checkout time, not the correction entry time.",
   ". يجب تحديث كلمة المرور قبل متابعة العمل.": ". Change your password before continuing.",
+  "يجب تحديث كلمة المرور قبل متابعة العمل.": "Change your password before continuing.",
   "0 — غير محدد": "0 — Not specified",
   "1–3650 يوم": "1–3650 days",
   "PNG · JPEG · GIF · WebP · BMP · AVIF — حتى 5 ميغابايت. اسم الملف محلي ولا يُحفظ.": "PNG · JPEG · GIF · WebP · BMP · AVIF — up to 5 MB. The file name stays local and is not saved.",
