@@ -67,6 +67,9 @@ export function auditEnglish(sourceRoot, reviewedOverrides = []) {
     const source = read(file);
     const variables = new Map();
     for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement) && !ts.isExportAssignment(statement)) {
+        errors.push(`${location(file, statement)}: unsupported dictionary statement; keep all entries in the literal dictionary`);
+      }
       if (ts.isVariableStatement(statement)) {
         for (const declaration of statement.declarationList.declarations) {
           if (ts.isIdentifier(declaration.name)) variables.set(declaration.name.text, declaration.initializer);

@@ -154,6 +154,20 @@ describe("English dictionary merge audit", () => {
     expect(runAudit(sourceRoot).status).toBe(1);
   });
 
+  it.each([
+    'dictionary["إضافة"] = "Added";',
+    'dictionary.important = "Changed";',
+    'Object.assign(dictionary, { "إضافة": "Added" });',
+    'if (true) dictionary["إضافة"] = "Added";',
+  ])("rejects dictionary mutations rather than silently reporting incomplete coverage: %s", (mutation) => {
+    const { sourceRoot } = fixture({
+      "i18n-en.ts": `const dictionary = { "مفتاح": "Value" }; ${mutation} export default dictionary;`,
+    }, "{ ...base }");
+    const { status, report } = runAudit(sourceRoot);
+    expect(status).toBe(1);
+    expect(report.errors.join("\n")).toMatch(/unsupported dictionary statement/);
+  });
+
   it.each(["{ ...missing }", '{ ...base, "مفتاح": "Inline override" }', "makeResources()"])(
     "fails explicitly on unsupported resource merges: %s",
     (translation) => {

@@ -87,3 +87,4 @@
 - [Disposable PostgreSQL lifecycle](disposable-postgres-lifecycle.md) — use a persistent background shell for cross-call test servers; do not assume the system socket directory exists.
 - [Permission-scoped lookups](permission-scoped-lookups.md) — selectors need lookups under their owning module's read permission; test minimum-permission roles, not only admins.
 - [Bulk order deletion policy](order-bulk-deletion-policy.md) — user chose all-or-nothing deletion, not partial success.
+- [Static dictionary audits](static-dictionary-audits.md) — reject unsupported mutations explicitly; a static audit must not silently differ from runtime translations.

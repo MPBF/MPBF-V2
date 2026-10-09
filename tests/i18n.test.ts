@@ -17,6 +17,8 @@ const dictionaries = fs.readdirSync(path.resolve("client/src"))
   .filter((file) => /^i18n-en(?:-[a-z0-9-]+)?\.ts$/i.test(file))
   .map((file) => ({
     file,
+    // Jest must transform each discovered TypeScript dictionary at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     values: require(path.resolve("client/src", file)).default as Record<string, string>,
   }));
 

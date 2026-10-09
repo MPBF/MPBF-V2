@@ -16,8 +16,15 @@ export default [
       "dist/**",
       "build/**",
       "node_modules/**",
+      "**/node_modules/**",
       ".local/**",
       ".agents/**",
+      ".cache/**",
+      ".config/**",
+      ".canvas/**",
+      ".playwright-mcp/**",
+      ".serena/**",
+      ".superpowers/**",
       "coverage/**",
     ],
   },
@@ -36,7 +43,7 @@ export default [
    * =========================
    */
   {
-    files: ["**/*.{js,jsx,ts,tsx}"],
+    files: ["**/*.{js,jsx,mjs,cjs,ts,tsx}"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
@@ -124,11 +131,33 @@ export default [
    * =========================
    */
   {
-    files: ["scripts/**/*.{js,ts}", "*.config.{js,ts}"],
+    files: ["scripts/**/*.{js,mjs,cjs,ts}", "*.config.{js,mjs,cjs,ts}"],
     rules: {
       "no-console": "off",
       "@typescript-eslint/no-require-imports": "off",
       "@typescript-eslint/no-var-requires": "off",
+      "@typescript-eslint/no-unused-expressions": ["error", { allowTernary: true }],
+    },
+  },
+
+  // CommonJS scripts use Node's require/module globals and module semantics.
+  {
+    files: ["**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: globals.node,
+    },
+    rules: {
+      // A module-local import may share a name with a Node/browser global.
+      "no-redeclare": ["error", { builtinGlobals: false }],
+    },
+  },
+
+  // Express extends its Request type through an ambient namespace declaration.
+  {
+    files: ["server/auth.ts"],
+    rules: {
+      "@typescript-eslint/no-namespace": ["error", { allowDeclarations: true }],
     },
   },
 

@@ -4,6 +4,8 @@ import { createProductionRouter } from "../server/production/routes";
 import { type ConnectionPool } from "../server/production/core";
 import { productionPermissions } from "../shared/production";
 import jsQR from "jsqr";
+// pngjs is CommonJS and does not ship TypeScript declarations.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { PNG } = require("pngjs");
 
 jest.mock("../server/db", () => ({ pool: {} }));
