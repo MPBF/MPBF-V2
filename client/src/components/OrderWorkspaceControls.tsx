@@ -87,7 +87,7 @@ export default function OrderWorkspaceControls(props: Props) {
       {props.searchControl}
     </div>
     <p className="order-workspace__note">{translate("الطلبات غير المعيّنة تظهر في مجلد جديد افتراضياً. المجلدات لا تغيّر حالة الطلب.")}</p>
-    {props.canManage && <div className="order-workspace__toolbar">
+    {props.canManage && props.selected.length > 0 && <div className="order-workspace__toolbar">
       <label className="order-workspace__selection"><input type="checkbox" checked={pageSelected} onChange={(event) => props.onSelectPage(event.target.checked)} aria-label={translate("حدد الصفحة الحالية")} />{translate("حدد الصفحة الحالية")}<span className="order-workspace__selection-count">{props.selected.length}</span><span>{translate("طلبات محددة")}</span></label>
       {props.selected.length > 0 && <button className="btn btn-muted" type="button" onClick={props.onClear}>{translate("إلغاء التحديد")}</button>}
       <select aria-label={translate("نقل إلى مجلد")} value={target} onChange={(event) => setTarget(event.target.value as OrderDisplayFolder)} disabled={props.busy || props.selected.length === 0}>
@@ -104,7 +104,6 @@ export default function OrderWorkspaceControls(props: Props) {
         </div>
       </details>
     </div>}
-    {props.canManage && <p className="order-workspace__note">{translate("النقل يغيّر مكان ظهور الطلب فقط ولا يغيّر حالة تنفيذه.")}</p>}
     {props.canManage && overLimit && <p className="order-workspace__error" role="status">{translate("لا يمكن تنفيذ إجراء على أكثر من 100 طلب في العملية الواحدة.")}</p>}
     {props.error && <div className="error order-workspace__error" role="alert">{props.error}</div>}
   </div>;

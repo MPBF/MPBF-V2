@@ -506,7 +506,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         onMove={moveWorkspaceOrders}
         onDelete={deleteWorkspaceOrders}
       />}
-      <div className="panel-head">
+      {kind !== "orders" && <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
         {kind !== "orders" && <div className={kind === "items" ? "tools entity-tools-categories" : "tools"}>
           {searchInput}
@@ -526,14 +526,14 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
             </select>
           </div>}
         </div>}
-      </div>
+      </div>}
       {kind === "items" && categoriesError && <div className="error entity-category-error" role="alert">
         <span>{categoriesError}</span>
         <button className="btn btn-muted" type="button" onClick={() => setCategoriesRetry((retry) => retry + 1)}>{translate("إعادة المحاولة")}</button>
       </div>}
       {busy ? <div style={{ padding: 20, display: "grid", gap: 12 }} aria-busy="true">{[1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</div> : rows.length === 0 ? <div className="empty"><strong>{translate("لا توجد سجلات مطابقة")}</strong>{translate("ابدأ بإضافة أول سجل لهذا القسم.")}</div> : <div className="table-wrap">
         <table>
-          <thead><tr>{kind === "orders" && writable && <th className="order-row-select"><span className="sr-only">{translate("حدد الصفحة الحالية")}</span></th>}{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
+          <thead><tr>{kind === "orders" && writable && <th className="order-row-select"><OrderSelectionBox label={translate("حدد الصفحة الحالية")} checked={rows.length > 0 && rows.every((row) => selectedOrderIds.includes(Number(row.id)))} onChange={(checked) => setSelectedOrderIds((selected) => checked ? Array.from(new Set([...selected, ...rows.map((row) => Number(row.id))])) : selected.filter((id) => !rows.some((row) => Number(row.id) === id)))} /></th>}{cols.map((field) => <th className={columnClass(field)} key={field.key}>{field.label}</th>)}{showActions && <th>{translate("إجراء")}</th>}</tr></thead>
           <tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{kind === "orders" && writable && <td className="order-row-select"><OrderSelectionBox label={`${translate("حدد")} ${displayValue(row, cols[0])}`} checked={selectedOrderIds.includes(Number(row.id))} onChange={() => setSelectedOrderIds((selected) => selected.includes(Number(row.id)) ? selected.filter((id) => id !== Number(row.id)) : [...selected, Number(row.id)])} /></td>}{cols.map((field) => <td className={columnClass(field)} title={displayValue(row, field)} key={field.key}>{renderCell(row, field)}</td>)}{showActions && <td>{rowActions(row)}</td>}</tr>)}</tbody>
         </table>
         <div className="mobile-cards">{rows.map((row, index) => { const primary = cols.find((c) => c.priority) || cols[0]; const subtitle = primary.secondaryKey || primary.secondaryRelation ? null : cols.find((c) => c !== primary && c.kind === "relation"); return <article className="entity-card" key={row.id ?? index}>{kind === "orders" && writable && <OrderSelectionBox label={`${translate("حدد")} ${displayValue(row, cols[0])}`} checked={selectedOrderIds.includes(Number(row.id))} onChange={() => setSelectedOrderIds((selected) => selected.includes(Number(row.id)) ? selected.filter((id) => id !== Number(row.id)) : [...selected, Number(row.id)])} />}<strong>{renderCell(row, primary)}</strong><small>{primary.secondaryKey || primary.secondaryRelation ? secondaryValue(row, primary) : displayValue(row, subtitle || cols.find((c) => c !== primary) || primary)}</small>{cols.filter((c) => c !== primary && c !== subtitle).slice(0, cfg.mobileColumnLimit ?? 4).map((field) => <div className="card-line" key={field.key}><span>{field.label}</span><b>{renderCell(row, field)}</b></div>)}{showActions && rowActions(row, true)}</article>; })}</div>
