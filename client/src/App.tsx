@@ -506,7 +506,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         onMove={moveWorkspaceOrders}
         onDelete={deleteWorkspaceOrders}
       />}
-      <div className="panel-head">
+      {kind !== "orders" && <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
         {kind !== "orders" && <div className={kind === "items" ? "tools entity-tools-categories" : "tools"}>
           {searchInput}
@@ -526,7 +526,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
             </select>
           </div>}
         </div>}
-      </div>
+      </div>}
       {kind === "items" && categoriesError && <div className="error entity-category-error" role="alert">
         <span>{categoriesError}</span>
         <button className="btn btn-muted" type="button" onClick={() => setCategoriesRetry((retry) => retry + 1)}>{translate("إعادة المحاولة")}</button>
