@@ -1,0 +1,1 @@
+function u(r){return t(r,2)}function m(r){return t(r,0)}function t(r,e){if(r==null||r==="")return"—";const n=Number(r);return Number.isFinite(n)?new Intl.NumberFormat("en-US",{maximumFractionDigits:e}).format(n):"—"}export{u as a,m as f};
