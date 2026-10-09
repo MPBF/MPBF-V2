@@ -12,18 +12,27 @@ const result = await build({
       import React from "react";
       import { createRoot } from "react-dom/client";
       import Controls from "./client/src/components/OrderWorkspaceControls";
-      import i18n from "./client/src/i18n";
+      import i18n, { translate } from "./client/src/i18n";
+      import { Search } from "lucide-react";
       import "./client/src/index.css";
       const root = createRoot(document.getElementById("root"));
       window.testCalls = [];
-      window.renderCase = async ({ language = "ar", canDelete = true, busy = false, count = 2 } = {}) => {
+      window.searchChanges = [];
+      window.renderCase = async ({ language = "ar", canManage = true, canDelete = true, busy = false, count = 2 } = {}) => {
         await i18n.changeLanguage(language);
         document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
         document.documentElement.lang = language;
         const rows = Array.from({ length: count }, (_, i) => ({ id: i + 1, status: "waiting" }));
         root.render(<Controls rows={rows} selected={rows.map(row => row.id)} folder="all"
           counts={{ new: count, production: 0, urgent: 0, archive: 0 }}
-          canManage={true} canDelete={canDelete} busy={busy}
+          canManage={canManage} canDelete={canDelete} busy={busy}
+          searchControl={<div className="tools order-workspace__search">
+            <Search size={17} aria-hidden="true" />
+            <label className="sr-only" htmlFor="orders-search">{translate("بحث في")} {translate("الطلبات")}</label>
+            <input id="orders-search" aria-label={translate("بحث في") + " " + translate("الطلبات")}
+              className="search" placeholder={translate("بحث في السجل…")}
+              onChange={event => window.searchChanges.push(event.target.value)} />
+          </div>}
           onFolderChange={() => {}} onSelectPage={() => {}} onClear={() => {}}
           onAction={async () => {}} onMove={async () => {}}
           onDelete={async items => { window.testCalls.push(items); }} />);
@@ -54,6 +63,20 @@ try {
       await page.evaluate((language) => window.renderCase({ language }), language);
       const button = page.getByRole("button", { name: label, exact: true, includeHidden: true });
       await button.waitFor({ state: "attached" });
+      const search = page.locator("#orders-search");
+      assert.equal(await search.count(), 1);
+      assert.equal(await search.locator("xpath=ancestor::*[contains(@class,'order-workspace__filters')]").count(), 1);
+      await search.fill("O-123");
+      assert.equal(await page.evaluate(() => window.searchChanges.at(-1)), "O-123");
+      const searchBox = await search.boundingBox();
+      const foldersBox = await page.locator(".order-workspace__folders").boundingBox();
+      const toolbarBox = await page.locator(".order-workspace__toolbar").boundingBox();
+      assert.ok(searchBox && searchBox.x >= 0 && searchBox.x + searchBox.width <= width);
+      assert.ok(searchBox.y + searchBox.height <= toolbarBox.y, "Search must be above bulk actions");
+      if (width >= 768) {
+        assert.ok(searchBox.y < foldersBox.y + foldersBox.height && foldersBox.y < searchBox.y + searchBox.height,
+          "Search must be beside filters on tablet and desktop");
+      }
       if (!await page.locator("details").evaluate((element) => element.open)) {
         await page.locator("details summary").click();
       }
@@ -82,7 +105,10 @@ try {
       await page.evaluate((language) => window.renderCase({ language, canDelete: false }), language);
       await button.waitFor({ state: "detached" });
       assert.equal(await button.count(), 0);
-      console.log(`PASS bulk delete UI: ${language}, ${width}px; confirmation, cancellation, permissions and disabled states`);
+      await page.evaluate((language) => window.renderCase({ language, canManage: false, canDelete: false }), language);
+      await page.locator(".order-workspace__toolbar").waitFor({ state: "detached" });
+      assert.equal(await search.isVisible(), true);
+      console.log(`PASS order controls: ${language}, ${width}px; top search placement/input/read-only access and bulk-delete regression checks`);
     }
   }
 } finally {

@@ -474,6 +474,11 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
   </div>;
   const cols = cfg.columns || cfg.fields.slice(0, 5).map((field) => ({ key: field.key, label: field.label, kind: field.type === "date" ? "date" : field.type === "decimal" || field.type === "integer" ? "number" : field.key === "status" ? "status" : "text" } as Column));
   const columnClass = (field: Column) => [field.priority ? "priority-column" : "", field.compact ? `compact-${field.compact}` : "", field.centered ? "centered-column" : "", field.width ? `column-${field.width}` : "", kind === "orders" && field.key === "order_number" ? "order-number-column" : ""].filter(Boolean).join(" ");
+  const searchInput = <>
+    <Search size={17} aria-hidden="true" />
+    <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
+    <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setSelectedOrderIds([]); setEdit(null); }} />
+  </>;
   const renderCell = (row: Row, field: Column) => {
     if (kind === "orders" && field.key === "order_number") return <span className="order-number-stack"><span className="order-number-code">{displayValue(row, field)}</span><small className="order-number-date">{fmtOrderDate(row.created_at)}</small></span>;
     if (field.key === "production_orders_summary") return <OrderProductionCell entries={Array.isArray(row.production_orders_summary) ? row.production_orders_summary : []} />;
@@ -493,6 +498,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         canDelete={deletable}
         busy={workspaceBusy}
         error={workspaceError}
+        searchControl={<div className="tools order-workspace__search">{searchInput}</div>}
         onFolderChange={(folder) => { setDisplayFolder(folder); setPage(0); setSelectedOrderIds([]); setEdit(null); setWorkspaceError(""); }}
         onSelectPage={(checked) => setSelectedOrderIds((selected) => checked ? Array.from(new Set([...selected, ...rows.map((row) => Number(row.id))])) : selected.filter((id) => !rows.some((row) => Number(row.id) === id)))}
         onClear={() => setSelectedOrderIds([])}
@@ -502,10 +508,8 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       />}
       <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>
-        <div className={kind === "items" ? "tools entity-tools-categories" : "tools"}>
-          <Search size={17} aria-hidden="true" />
-          <label className="sr-only" htmlFor={`${kind}-search`}>{translate("بحث في")}{" "}{cfg.title}</label>
-          <input id={`${kind}-search`} aria-label={`${translate("بحث في")} ${cfg.title}`} className="search" placeholder={translate("بحث في السجل…")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); setSelectedOrderIds([]); setEdit(null); }} />
+        {kind !== "orders" && <div className={kind === "items" ? "tools entity-tools-categories" : "tools"}>
+          {searchInput}
           {kind === "items" && <div className="entity-category-filter">
             <label htmlFor="items-category-filter">{translate("التصنيف")}</label>
             <select id="items-category-filter" value={activeCategoryId || ""} disabled={categoriesBusy || Boolean(categoriesError)} onChange={(event) => {
@@ -521,7 +525,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
               {categories.map((category) => <option value={String(category.id)} key={category.id}>{localizedName(category.name_ar, category.name, String(category.id))}</option>)}
             </select>
           </div>}
-        </div>
+        </div>}
       </div>
       {kind === "items" && categoriesError && <div className="error entity-category-error" role="alert">
         <span>{categoriesError}</span>

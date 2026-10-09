@@ -1,4 +1,8 @@
 .order-workspace { margin: 0 0 14px; color: var(--ink); }
+.order-workspace__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 8px; }
+.order-workspace__filters .order-workspace__folders { flex: 1 1 420px; min-width: 0; }
+.order-workspace__search { flex: 0 1 280px; min-width: 0; }
+.order-workspace__search .search { flex: 1; min-width: 0; width: 100%; }
 .order-workspace__folders { display: flex; align-items: stretch; gap: 6px; overflow-x: auto; padding: 4px 0 10px; scrollbar-width: thin; }
 .order-workspace__folder { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 38px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 7px; background: #edf3ef; color: var(--muted); font-weight: 700; white-space: nowrap; }
 .order-workspace__folder:hover { border-color: var(--teal); color: var(--teal-deep); }
@@ -26,6 +30,7 @@
 .order-row-menu__items .danger-action { color: var(--danger); }
 .order-workspace__error { margin: 8px 0; }
 @media (max-width: 767px) {
+  .order-workspace__search { flex: 1 1 100%; }
   .order-workspace__folders { margin-inline: -2px; }
   .order-workspace__folder { min-height: 36px; padding: 6px 10px; font-size: 12px; }
   .order-workspace__toolbar { align-items: stretch; }

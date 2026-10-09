@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, ChevronDown, MoreHorizontal, MoveRight } from "lucide-react";
 import { canApplyOrderAction, type OrderDisplayFolder, type OrderWorkspaceAction } from "../../../shared/order-workspace";
 import { ORDER_FOLDER_KEYS, ORDER_FOLDER_LABELS } from "../lib/order-workspace";
@@ -15,6 +15,7 @@ type Props = {
   canDelete?: boolean;
   busy?: boolean;
   error?: string;
+  searchControl?: ReactNode;
   onFolderChange: (folder: OrderDisplayFolder | "all") => void;
   onSelectPage: (checked: boolean) => void;
   onClear: () => void;
@@ -78,10 +79,13 @@ export default function OrderWorkspaceControls(props: Props) {
     await props.onDelete(selectedRows.map((row) => ({ id: row.id, expected_status: row.status })));
   };
   return <div className="order-workspace">
-    <nav className="order-workspace__folders" aria-label={translate("مجلدات العرض المشتركة")}>
+    <div className="order-workspace__filters">
+      <nav className="order-workspace__folders" aria-label={translate("مجلدات العرض المشتركة")}>
       <button type="button" className="order-workspace__folder" aria-current={props.folder === "all" ? "page" : undefined} onClick={() => props.onFolderChange("all")}>{translate("الكل")}<span className="order-workspace__count">{props.counts.new + props.counts.production + props.counts.urgent + props.counts.archive}</span></button>
       {ORDER_FOLDER_KEYS.map((key) => <button type="button" key={key} className="order-workspace__folder" aria-current={props.folder === key ? "page" : undefined} onClick={() => props.onFolderChange(key)}>{translate(ORDER_FOLDER_LABELS[key])}<span className="order-workspace__count">{props.counts[key]}</span></button>)}
-    </nav>
+      </nav>
+      {props.searchControl}
+    </div>
     <p className="order-workspace__note">{translate("الطلبات غير المعيّنة تظهر في مجلد جديد افتراضياً. المجلدات لا تغيّر حالة الطلب.")}</p>
     {props.canManage && <div className="order-workspace__toolbar">
       <label className="order-workspace__selection"><input type="checkbox" checked={pageSelected} onChange={(event) => props.onSelectPage(event.target.checked)} aria-label={translate("حدد الصفحة الحالية")} />{translate("حدد الصفحة الحالية")}<span className="order-workspace__selection-count">{props.selected.length}</span><span>{translate("طلبات محددة")}</span></label>
