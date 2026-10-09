@@ -1,15 +1,23 @@
-import { lazy, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, Boxes, Copy, Eye, Factory, FileText, Gauge, LogOut, Package, Pencil, Plus, Printer, Search, Shield, Trash2, Users, UsersRound, Wrench, X, Settings2, Cog, KeyRound, Building2, Check } from "lucide-react";
 import { Link, Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
 import { availableOrderTabs, selectedOrderTab, type OrderPageTab } from "./lib/order-tabs";
+import UserDashboard from "./pages/UserDashboard";
+import HumanResources from "./pages/HumanResources";
+import ProductionPage from "./pages/production/ProductionPage";
 import { productionPermissions } from "../../shared/production";
 import { initialProductionPath } from "./lib/production-navigation";
 import { defaultBranding, fetchBrandingSnapshot, type BrandingSnapshot } from "./lib/branding";
 import PageHero from "./components/PageHero";
-import DeferredContent from "./components/DeferredContent";
+import OrderCreateModal from "./components/OrderCreateModal";
+import CustomerProductModal from "./components/CustomerProductModal";
+import CustomerModal from "./components/CustomerModal";
+import ProductionOrderModal from "./components/ProductionOrderModal";
 import FlagLanguageSelector from "./components/FlagLanguageSelector";
-import type { WorkspaceOrder } from "./components/OrderWorkspaceControls";
+import OrderDetailsModal from "./components/OrderDetailsModal";
+import OrderWorkspaceControls, { OrderRowActionMenu, OrderSelectionBox, type WorkspaceOrder } from "./components/OrderWorkspaceControls";
+import OrderPrintPage from "./components/OrderPrintPage";
 import MasterBatchSwatch from "./components/MasterBatchSwatch";
 import { createLatestRequestGate, fetchAllPages, LIST_PAGE_SIZE, runLatestRequest } from "./lib/listing";
 import { sortCustomerProductsByCategory } from "./lib/customer-product-sort";
@@ -17,19 +25,6 @@ import type { OrderWorkspaceAction } from "../../shared/order-workspace";
 import type { OrderDisplayFolder } from "./lib/order-workspace";
 import { canonicalMachineType, eligibleInlinePrinterMachines, MACHINE_CAPACITY_TYPES, MACHINE_RAW_MATERIAL_TYPES, machineTypeMatches, newAdminFormDefaults, usesGeneratedAdminId } from "./lib/admin-form-review";
 import i18n, { applyLanguage, localizedName, normalizeLanguage, translate, translateError } from "./i18n";
-
-const UserDashboard = lazy(() => import("./pages/UserDashboard"));
-const HumanResources = lazy(() => import("./pages/HumanResources"));
-const ProductionPage = lazy(() => import("./pages/production/ProductionPage"));
-const OrderCreateModal = lazy(() => import("./components/OrderCreateModal"));
-const CustomerProductModal = lazy(() => import("./components/CustomerProductModal"));
-const CustomerModal = lazy(() => import("./components/CustomerModal"));
-const ProductionOrderModal = lazy(() => import("./components/ProductionOrderModal"));
-const OrderDetailsModal = lazy(() => import("./components/OrderDetailsModal"));
-const OrderPrintPage = lazy(() => import("./components/OrderPrintPage"));
-const OrderWorkspaceControls = lazy(() => import("./components/OrderWorkspaceControls"));
-const OrderRowActionMenu = lazy(() => import("./components/OrderWorkspaceControls").then((module) => ({ default: module.OrderRowActionMenu })));
-const OrderSelectionBox = lazy(() => import("./components/OrderWorkspaceControls").then((module) => ({ default: module.OrderSelectionBox })));
 
 type Row = Record<string, any>;
 type OrderProductionSummary = {
@@ -549,11 +544,9 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
          <button className="btn btn-muted" type="button" disabled={rows.length < LIST_PAGE_SIZE} onClick={() => { setPage((current) => current + 1); setSelectedOrderIds([]); }}>{translate("التالي")}</button>
       </nav>}
     </section>
-    <DeferredContent>
     {viewingProduction && <ProductionOrderModal row={viewingProduction} mode="view" onClose={() => setViewingProduction(null)} />}
     {viewingOrder && <OrderDetailsModal id={viewingOrder} canRelease={writable} onOrderChanged={() => latestLoad.current()} onClose={closeOrder} onPrint={() => printOrder(viewingOrder)} />}
     {edit && (kind === "customers" ? <CustomerModal row={edit} onClose={() => setEdit(null)} onSaved={(saved) => { const created = !edit.id; setEdit(null); if (created) setLocation(`/customers/${encodeURIComponent(String(saved.id))}`); else latestLoad.current(); }} /> : kind === "orders" && !edit.id ? <OrderCreateModal onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} /> : <EntityModal cfg={cfg} row={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); latestLoad.current(); }} />)}
-    </DeferredContent>
   </>;
 }
 
@@ -1334,20 +1327,20 @@ function App() {
   }, [auth.loading, auth.user?.preferred_language, brandingReady, branding.defaultLanguage, effectiveLanguage, publicPrintAccess]);
   if (publicPrintAccess && publicPrintParams) {
     if (!brandingReady || !languageReady) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
-    return <DeferredContent><OrderPrintPage id={publicPrintParams.id} branding={branding} publicAccess publicKey={routeSearchParams.get("key") ?? ""} /></DeferredContent>;
+    return <OrderPrintPage id={publicPrintParams.id} branding={branding} publicAccess publicKey={routeSearchParams.get("key") ?? ""} />;
   }
   if (auth.loading || !brandingReady || !languageReady) return <div className="login-page"><div className="login-box"><div className="skeleton" style={{ width: 220, height: 28 }} /></div></div>;
   if (!auth.user) return <Login onLogin={auth.setUser} branding={branding} />;
   if (auth.user.must_change_password) return <PasswordChange user={auth.user} onComplete={auth.setUser} setUser={auth.setUser} defaultLanguage={branding.defaultLanguage} />;
   if (printMatch && printParams) {
     return can(auth.user, configs.orders.read)
-      ? <DeferredContent><OrderPrintPage id={printParams.id} branding={branding} /></DeferredContent>
+      ? <OrderPrintPage id={printParams.id} branding={branding} />
       : <div className="empty" role="alert"><strong>{translate("لا تملك صلاحية عرض أو طباعة الطلب")}</strong><Link className="btn btn-muted" href="/">{translate("العودة للرئيسية")}</Link></div>;
   }
   const isAdmin = can(auth.user, ["admin"]);
   const productionUser = { id: Number(auth.user.id), permissions: auth.user.permissions ?? [] };
   const productionHome = initialProductionPath(productionUser);
-  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><DeferredContent><Switch>
+  return <Layout user={auth.user} setUser={auth.setUser} branding={branding}><Switch>
     <Route path="/">{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route>
     <Route path="/my-dashboard"><UserDashboard user={auth.user} /></Route>
     <Route path="/hr"><HumanResources canReviewRequests={can(auth.user, ["admin"])} /></Route>
@@ -1364,7 +1357,7 @@ function App() {
     <Route path="/production">{productionHome && productionHome !== "/production" ? <Redirect to={productionHome} replace /> : <ProductionPage user={productionUser} view="management" />}</Route>
     <Route path="/admin"><Admin user={auth.user} /></Route>
     <Route>{isAdmin ? <Dashboard user={auth.user} /> : <UserDashboard user={auth.user} />}</Route>
-  </Switch></DeferredContent></Layout>;
+  </Switch></Layout>;
 }
 
 export default App;
