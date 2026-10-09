@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { releaseOrderToProduction } from "./order-production-release";
 import { deleteOrderProduction, lockOrderProductionDeletion } from "./order-production-delete";
+import { deleteOrdersAtomically } from "./order-bulk-delete";
 import { ORDER_PRODUCTION_RELEASE_STATUSES } from "../shared/order-production-release";
 import { ORDER_DISPLAY_FOLDERS, ORDER_WORKSPACE_ACTIONS, ORDER_WORKSPACE_STATUSES } from "../shared/order-workspace";
 import { applyOrderActions, moveOrderFolders, orderFolderCounts } from "./order-workspace";
@@ -1092,6 +1093,12 @@ router.post("/orders/actions", ordersWrite, async (req, res, next) => {
   try {
     const input = z.object({ action: z.enum(ORDER_WORKSPACE_ACTIONS), items: workspaceItems }).strict().parse(req.body);
     res.json(await applyOrderActions(input.action, input.items));
+  } catch (error) { workspaceFailure(error, res, next); }
+});
+router.post("/orders/bulk-delete", admin, async (req, res, next) => {
+  try {
+    const input = z.object({ items: workspaceItems }).strict().parse(req.body);
+    res.json(await deleteOrdersAtomically(input.items));
   } catch (error) { workspaceFailure(error, res, next); }
 });
 router.post("/orders/display-folders/move", ordersWrite, async (req, res, next) => {

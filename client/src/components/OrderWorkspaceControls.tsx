@@ -12,6 +12,7 @@ type Props = {
   counts: Record<OrderDisplayFolder, number>;
   selected: number[];
   canManage: boolean;
+  canDelete?: boolean;
   busy?: boolean;
   error?: string;
   onFolderChange: (folder: OrderDisplayFolder | "all") => void;
@@ -19,6 +20,7 @@ type Props = {
   onClear: () => void;
   onAction: (action: OrderWorkspaceAction, items: { id: number; expected_status: string }[]) => Promise<void>;
   onMove: (folder: OrderDisplayFolder, items: { id: number; expected_folder: OrderDisplayFolder }[]) => Promise<void>;
+  onDelete?: (items: { id: number; expected_status: string }[]) => Promise<void>;
 };
 
 const confirmAction = (action: OrderWorkspaceAction, count: number) => {
@@ -68,6 +70,13 @@ export default function OrderWorkspaceControls(props: Props) {
     if (!selectedRows.length) return;
     await props.onMove(target, selectedRows.map((row) => ({ id: row.id, expected_folder: row.display_folder || "new" })));
   };
+  const remove = async () => {
+    if (!props.canDelete || !props.onDelete || props.busy || overLimit || !selectedRows.length
+      || selectedRows.length !== props.selected.length) return;
+    const warning = "تأكيد حذف الطلبات المحددة نهائيًا؟ سيتم حذف جميع أوامر الإنتاج والرولات والاستلامات وحركات وأرصدة المخزون المرتبطة بها. الاستلامات المشتركة ستحتفظ ببنود الطلبات الأخرى. لا يمكن التراجع عن هذا الحذف. إذا تعذر حذف أي طلب فلن يُحذف أي منها.";
+    if (!window.confirm(`${translate(warning)}\n\n${translate("عدد الطلبات المحددة")}: ${selectedRows.length}`)) return;
+    await props.onDelete(selectedRows.map((row) => ({ id: row.id, expected_status: row.status })));
+  };
   return <div className="order-workspace">
     <nav className="order-workspace__folders" aria-label={translate("مجلدات العرض المشتركة")}>
       <button type="button" className="order-workspace__folder" aria-current={props.folder === "all" ? "page" : undefined} onClick={() => props.onFolderChange("all")}>{translate("الكل")}<span className="order-workspace__count">{props.counts.new + props.counts.production + props.counts.urgent + props.counts.archive}</span></button>
@@ -87,6 +96,7 @@ export default function OrderWorkspaceControls(props: Props) {
           <button type="button" disabled={props.busy || overLimit || !selectedRows.length || available(selectedRows, "release").length !== selectedRows.length} onClick={() => void runAction("release")}>{translate("إطلاق للإنتاج")}</button>
           <button type="button" disabled={props.busy || overLimit || !selectedRows.length || available(selectedRows, "pause").length !== selectedRows.length} onClick={() => void runAction("pause")}>{translate("إيقاف مؤقت")}</button>
           <button type="button" className="danger-action" disabled={props.busy || overLimit || !selectedRows.length || available(selectedRows, "cancel").length !== selectedRows.length} onClick={() => void runAction("cancel")}>{translate("إلغاء الطلب")}</button>
+          {props.canDelete && props.onDelete && <button type="button" className="danger-action" disabled={props.busy || overLimit || !selectedRows.length || selectedRows.length !== props.selected.length} onClick={() => void remove()}>{translate("حذف الطلبات المحددة")}</button>}
         </div>
       </details>
     </div>}

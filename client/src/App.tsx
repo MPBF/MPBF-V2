@@ -439,6 +439,23 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
       setWorkspaceBusy(false);
     }
   };
+  const deleteWorkspaceOrders = async (items: { id: number; expected_status: string }[]) => {
+    if (!deletable || workspaceBusy || !items.length || items.length > 100) return;
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    try {
+      await api("/orders/bulk-delete", { method: "POST", body: JSON.stringify({ items }) });
+      setSelectedOrderIds([]);
+      setEdit(null);
+      setViewingOrder(null);
+      latestLoad.current();
+      setFolderCountsVersion((version) => version + 1);
+    } catch (deleteError) {
+      setWorkspaceError((deleteError as Error).message);
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
   const closeOrder = () => {
     setViewingOrder(null);
     if (viewOrderQuery) {
@@ -473,6 +490,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         counts={folderCounts}
         selected={selectedOrderIds}
         canManage={writable}
+        canDelete={deletable}
         busy={workspaceBusy}
         error={workspaceError}
         onFolderChange={(folder) => { setDisplayFolder(folder); setPage(0); setSelectedOrderIds([]); setEdit(null); setWorkspaceError(""); }}
@@ -480,6 +498,7 @@ function EntityPage({ kind, user, refreshToken = 0, showHero = true }: { kind: s
         onClear={() => setSelectedOrderIds([])}
         onAction={performWorkspaceAction}
         onMove={moveWorkspaceOrders}
+        onDelete={deleteWorkspaceOrders}
       />}
       <div className="panel-head">
         <div><h3>{translate("سجل")}{" "}{cfg.title}</h3><small className="muted-text">{translate("السجلات المعروضة من البيانات المحملة")}</small></div>

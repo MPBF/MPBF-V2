@@ -9,6 +9,12 @@ Run focus-dependent interaction checks sequentially across responsive iframe vie
 
 **How to apply:** Finish one frame's search, keyboard, selection, and blur checks before starting the next. Hidden or transparent frames still compete for focus.
 
+Check dropdown bounds in both Arabic/RTL and English/LTR, including tablet breakpoints.
+
+**Why:** A menu can fit in RTL and overflow in LTR because its anchor and translated text widths differ. A phone-only correction can still leave the same overflow at the tablet breakpoint.
+
+**How to apply:** Open the real menu and measure its bounds at phone, tablet and desktop widths in both languages; a closed-menu screenshot cannot verify this.
+
 Run app screenshot capture separately from local Chromium fixture checks in this workspace.
 
 **Why:** a local Chromium launch timed out when started alongside screenshot capture; the same unchanged browser check passed when run alone.

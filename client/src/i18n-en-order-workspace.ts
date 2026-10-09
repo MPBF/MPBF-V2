@@ -1,4 +1,7 @@
 const orderWorkspaceEnglish: Record<string, string> = {
+  "حذف الطلبات المحددة": "Delete selected orders",
+  "عدد الطلبات المحددة": "Selected order count",
+  "تأكيد حذف الطلبات المحددة نهائيًا؟ سيتم حذف جميع أوامر الإنتاج والرولات والاستلامات وحركات وأرصدة المخزون المرتبطة بها. الاستلامات المشتركة ستحتفظ ببنود الطلبات الأخرى. لا يمكن التراجع عن هذا الحذف. إذا تعذر حذف أي طلب فلن يُحذف أي منها.": "Permanently delete the selected orders? All their production orders, rolls, receipt items, stock movements and inventory balances will be deleted. Shared receipts will retain other orders' items. This deletion cannot be undone. If any order cannot be deleted, none will be deleted.",
   "تأكيد حذف الطلب نهائيًا؟ سيتم حذف جميع أوامر الإنتاج والرولات والاستلامات وحركات وأرصدة المخزون المرتبطة به. الاستلامات المشتركة ستحتفظ ببنود الطلبات الأخرى. لا يمكن التراجع عن هذا الحذف.": "Permanently delete this order? All its production orders, rolls, receipt items, stock movements and inventory balances will be deleted. Shared receipts will retain other orders' items. This deletion cannot be undone.",
   "الكل": "All",
   "جديد": "New",
